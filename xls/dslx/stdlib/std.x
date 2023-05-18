@@ -281,6 +281,18 @@ fn find_index_test() {
   ()
 }
 
+// Returns the length of an array.
+pub fn array_length<BITS: u32, ELEMS: u32>(array: uN[BITS][ELEMS]) -> u32 {
+  ELEMS
+}
+
+#[test]
+fn array_length_test() {
+  let _ = assert_eq(u32:0, array_length(u8[0]:[]));
+  let _ = assert_eq(u32:1, array_length(u16[1]:[u16:0]));
+  let _ = assert_eq(u32:999, array_length(u32[999]:[u32:0, ...]));
+}
+
 // Concatenates 3 values of arbitrary bitwidths to a single value.
 pub fn concat3<X: u32, Y: u32, Z: u32, R: u32 = {X + Y + Z}>(
     x: bits[X], y: bits[Y], z: bits[Z]) -> bits[R] {

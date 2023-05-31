@@ -53,6 +53,17 @@ py_binary(
     ],
 )
 
+py_binary(
+    name = "cocotb_wrapper",
+    srcs = ["cocotb_wrapper.py"],
+    python_version = "PY3",
+    srcs_version = "PY3",
+    deps = [
+        "@com_google_absl_py//absl:app",
+        requirement("cocotb"),
+    ],
+)
+
 cc_library(
     name = "booleanifier",
     srcs = ["booleanifier.cc"],

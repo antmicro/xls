@@ -108,3 +108,17 @@ cocotb_test (
         "rle_enc.v",
     ],
 )
+
+cocotb_simulate (
+    name = "rle_enc_cocotb_simulate",
+    top = "rle_enc",
+    sim = "icarus",
+    test_module = "rle_test.py",
+    timescale = {
+        "unit": "1ns",
+        "precission": "1ps",
+    },
+    verilog_srcs = [
+        "rle_enc.v",
+    ],
+)

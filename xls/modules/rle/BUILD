@@ -29,6 +29,8 @@ load(
     "cocotb_simulate"
 )
 
+load("//xls/build_rules:iverilog_test.bzl", "iverilog_test")
+
 package(
     default_applicable_licenses = ["//:license"],
     default_visibility = ["//xls:xls_users"],
@@ -93,6 +95,16 @@ xls_benchmark_ir(
 xls_benchmark_verilog(
     name = "rle_enc_verilog_benchmark",
     verilog_target = "rle_enc_verilog",
+)
+
+iverilog_test(
+    name = "rle_enc_iverilog_test",
+    srcs = [
+        "//xls/modules/rle:rle_enc_verilog",
+        "rle_test.v",
+    ],
+    main = "rle_test.v",
+    top = "rle_test",
 )
 
 cocotb_test (

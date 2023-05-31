@@ -23,6 +23,12 @@ load(
     "xls_benchmark_verilog",
 )
 
+load(
+    "//xls/build_rules:cocotb_test.bzl",
+    "cocotb_test",
+    "cocotb_simulate"
+)
+
 package(
     default_applicable_licenses = ["//:license"],
     default_visibility = ["//xls:xls_users"],

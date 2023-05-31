@@ -94,3 +94,17 @@ xls_benchmark_verilog(
     name = "rle_enc_verilog_benchmark",
     verilog_target = "rle_enc_verilog",
 )
+
+cocotb_test (
+    name = "rle_enc_cocotb_test",
+    top = "rle_enc",
+    sim = "icarus",
+    test_module = "rle_test.py",
+    timescale = {
+        "unit": "1ns",
+        "precission": "1ps",
+    },
+    verilog_srcs = [
+        "rle_enc.v",
+    ],
+)

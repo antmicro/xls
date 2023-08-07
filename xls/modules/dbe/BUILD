@@ -105,10 +105,6 @@ xls_ir_verilog(
         "reset": "rst",
         "use_system_verilog": "false",
         "streaming_channel_data_suffix": "_data",
-        "io_constraints": ",".join([
-            "lz4_decoder__o_ram_hb_rd_req:send:lz4_decoder__i_ram_hb_rd_resp:recv:1:none",
-            "lz4_decoder__o_ram_hb_wr_req:send:lz4_decoder__i_ram_hb_wr_resp:recv:1:none",
-        ]),
     },
 )
 
@@ -189,12 +185,6 @@ xls_ir_verilog(
         "reset": "rst",
         "use_system_verilog": "false",
         "streaming_channel_data_suffix": "_data",
-        "io_constraints": ",".join([
-            "lz4_encoder__o_ram_hb_req:send:lz4_encoder__i_ram_hb_resp:recv:1:none",
-            "lz4_encoder__o_ram_hb_req:send:lz4_encoder__i_ram_hb_wr_comp:recv:1:none",
-            "lz4_encoder__o_ram_ht_req:send:lz4_encoder__i_ram_ht_resp:recv:1:none",
-            "lz4_encoder__o_ram_ht_req:send:lz4_encoder__i_ram_ht_wr_comp:recv:1:none",
-        ])
     },
 )
 

@@ -20,7 +20,7 @@ load("@bazel_skylib//:workspace.bzl", "bazel_skylib_workspace")
 load("@com_google_protobuf//:protobuf_deps.bzl", "protobuf_deps")
 load("@com_grail_bazel_compdb//:deps.bzl", "bazel_compdb_deps")
 load("@io_bazel_rules_closure//closure:repositories.bzl", "rules_closure_dependencies", "rules_closure_toolchains")
-load("@python39//:defs.bzl", python_interpreter_target = "interpreter")
+load("@python310//:defs.bzl", python_interpreter_target = "interpreter")
 load("@rules_7zip//:setup.bzl", "setup_7zip")  # needed by rules_hdl
 load("@rules_hdl//:init.bzl", rules_hdl_init = "init")
 load("@rules_hdl//dependency_support:dependency_support.bzl", rules_hdl_dependency_support = "dependency_support")

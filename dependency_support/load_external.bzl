@@ -333,5 +333,7 @@ def load_external_repositories():
         strip_prefix = "zstd-1.5.6",
         urls = ["https://github.com/facebook/zstd/releases/download/v1.5.6/zstd-1.5.6.tar.gz"],
         build_file = "//dependency_support/com_github_facebook_zstd:bundled.BUILD.bazel",
+        # Modify decodecorpus to allow generation of zstd frame headers only
+        patches = ["//dependency_support/com_github_facebook_zstd:decodecorpus.patch"],
     )
 

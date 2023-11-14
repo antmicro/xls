@@ -171,3 +171,19 @@ xls_dslx_test(
     name = "rle_block_dec_dslx_test",
     library = ":rle_block_dec_dslx",
 )
+
+xls_dslx_library(
+    name = "block_header_dslx",
+    srcs = [
+        "block_header.x",
+    ],
+    deps = [
+        ":buffer_dslx",
+        ":common_dslx",
+    ],
+)
+
+xls_dslx_test(
+    name = "block_header_dslx_test",
+    library = ":block_header_dslx",
+)

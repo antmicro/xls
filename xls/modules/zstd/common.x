@@ -14,8 +14,12 @@
 
 pub const DATA_WIDTH = u32:64;
 pub const MAX_ID = u32::MAX;
+pub const SYMBOL_WIDTH = u32:8;
+pub const BLOCK_SIZE_WIDTH = u32:21;
 
 pub type BlockData = bits[DATA_WIDTH];
+pub type BlockPacketLength = u32;
+pub type BlockSize = bits[BLOCK_SIZE_WIDTH];
 
 pub enum BlockType : u2 {
     RAW = 0,
@@ -29,5 +33,5 @@ pub struct BlockDataPacket {
     last_block: bool,
     id: u32,
     data: BlockData,
-    length: u32
+    length: BlockPacketLength,
 }

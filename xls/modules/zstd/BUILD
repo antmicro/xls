@@ -137,3 +137,19 @@ cc_test(
         "@com_google_googletest//:gtest",
     ],
 )
+
+xls_dslx_library(
+    name = "raw_block_dec_dslx",
+    srcs = [
+        "raw_block_dec.x",
+    ],
+    deps = [
+        ":buffer_dslx",
+        ":common_dslx",
+    ],
+)
+
+xls_dslx_test(
+    name = "raw_block_dec_dslx_test",
+    library = ":raw_block_dec_dslx",
+)

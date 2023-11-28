@@ -36,6 +36,7 @@ load(
     "ConvIRInfo",
     "DslxInfo",
     "OptIRInfo",
+    "CodegenInfo",
 )
 load(
     "//xls/build_rules:xls_toolchains.bzl",
@@ -1075,6 +1076,40 @@ Examples:
         xls_toolchain_attrs,
     ),
     executable = True,
+)
+
+def _xls_ir_opt_verilog_packer(ctx):
+    return [
+        DefaultInfo(
+            files = depset(
+                transitive = get_transitive_built_files_for_xls(
+                    ctx,
+                    [ctx.attr.OptIR, ctx.attr.Verilog],
+                ),
+            ),
+        ),
+        ctx.attr.OptIR[OptIRInfo],
+        ctx.attr.Verilog[CodegenInfo],
+    ]
+
+xls_ir_opt_verilog_packer = rule(
+    doc = """
+Combine OptIR and Verilog providers in single target.
+This allows for calling "xls_benchmark_verilog" rule.
+""",
+    implementation = _xls_ir_opt_verilog_packer,
+    attrs = {
+      "OptIR": attr.label(
+          doc = "The Opt IR source rule.",
+          mandatory = True,
+          providers = [OptIRInfo],
+      ),
+      "Verilog": attr.label(
+          doc = "The Verilog source rule.",
+          mandatory = True,
+          providers = [CodegenInfo],
+      ),
+    },
 )
 
 def _xls_ir_cc_library_impl(ctx):

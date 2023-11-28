@@ -53,3 +53,13 @@ def repo():
             "@rules_hdl_cpython": "@python39",
         },
     )
+
+    http_archive(
+        name = "rules_hdl_cpython",
+        strip_prefix = "python",
+        urls = [
+            "https://github.com/indygreg/python-build-standalone/releases/download/20230726/cpython-3.9.17+20230726-x86_64-unknown-linux-gnu-pgo-full.tar.zst",
+        ],
+        sha256 = "ee3e366a8d919ae0b66a033de3066f949fbf8485d72f1fb99c54b05d1f350549",
+        build_file = "@rules_hdl//toolchains/cpython:cpython.BUILD",
+    )

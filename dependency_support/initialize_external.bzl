@@ -33,7 +33,7 @@ def initialize_external_repositories():
     """Calls set-up methods for external repositories that require that."""
     bazel_skylib_workspace()
     protobuf_deps()
-    rules_hdl_register_cpython_repository()
+    #rules_hdl_register_cpython_repository()
     rules_hdl_init(python_interpreter_target = python_interpreter_target)
     rules_hdl_dependency_support()
     setup_7zip()

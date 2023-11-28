@@ -219,3 +219,22 @@ xls_dslx_test(
     name = "dec_demux_dslx_test",
     library = ":dec_demux_dslx",
 )
+
+xls_dslx_library(
+    name = "block_dec_dslx",
+    srcs = [
+        "block_dec.x",
+    ],
+    deps = [
+        ":common_dslx",
+        ":dec_demux_dslx",
+        ":raw_block_dec_dslx",
+        ":rle_block_dec_dslx",
+        ":dec_mux_dslx",
+    ],
+)
+
+xls_dslx_test(
+    name = "block_dec_dslx_test",
+    library = ":block_dec_dslx",
+)

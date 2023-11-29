@@ -652,12 +652,14 @@ proc RamModel2RW<DATA_WIDTH:u32, SIZE:u32, WORD_PARTITION_SIZE:u32={u32:0},
 
     // Do writes.
     let state = if valid0 && request0.we {
+      trace_fmt!("A valid write on port 0");
       update(state, request0.addr, request0.data)
     } else {
       state
     };
     let state = if valid1 && request1.we {
-      update(state, request0.addr, request0.data)
+      trace_fmt!("A valid write on port 1");
+      update(state, request1.addr, request1.data)
     } else {
       state
     };
@@ -681,6 +683,9 @@ proc RamModel2RW<DATA_WIDTH:u32, SIZE:u32, WORD_PARTITION_SIZE:u32={u32:0},
     let resp1_tok = send_if(tok1, resp_chan1, valid1 && request1.re, response1);
     let wr_comp0_tok = send_if(tok0, wr_comp_chan0, valid0 && request0.we, ());
     let wr_comp1_tok = send_if(tok1, wr_comp_chan1, valid1 && request1.we, ());
+    trace_fmt!("RAM State = {}", state);
+    trace_fmt!("RAM req0 = {}", request0);
+    trace_fmt!("RAM req1 = {}", request1);
     state
   }
 }

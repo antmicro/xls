@@ -14,6 +14,10 @@
 
 # Build rules for XLS RLE Encoder implementation.
 
+load("@rules_hdl//verilog:providers.bzl", "verilog_library")
+load("@rules_hdl//synthesis:build_defs.bzl", "synthesize_rtl")
+load("@rules_hdl//place_and_route:build_defs.bzl", "place_and_route")
+
 load(
     "//xls/build_rules:xls_build_defs.bzl",
     "xls_benchmark_ir",
@@ -95,6 +99,29 @@ xls_ir_verilog(
         "use_system_verilog": "false",
     },
     verilog_file = "rle_enc.v",
+)
+
+verilog_library(
+    name = "rle_enc_verilog_lib",
+    srcs = [":rle_enc.v"],
+)
+
+synthesize_rtl(
+    name = "rle_enc_synth",
+    standard_cells = "@org_theopenroadproject_asap7sc7p5t_27//:asap7-sc7p5t_rev27_rvt",
+    top_module = "rle_enc",
+    target_clock_period_pico_seconds = 700,
+    deps = [":rle_enc_verilog_lib"],
+)
+
+place_and_route(
+    name = "rle_enc_PnR",
+    clock_period = "750.0",
+    core_padding_microns = 0,
+    die_width_microns = 200,
+    die_height_microns = 200,
+    placement_density = "0.16",
+    synthesized_rtl = ":rle_enc_synth",
 )
 
 xls_benchmark_ir(

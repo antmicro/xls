@@ -18,7 +18,12 @@ load(
     "//xls/build_rules:xls_build_defs.bzl",
     "xls_dslx_library",
     "xls_dslx_test",
+    "xls_dslx_ir",
 )
+
+load("//xls/build_rules:xls_macros.bzl", "xls_full_benchmark_ir_macro")
+load("@rules_hdl//place_and_route:build_defs.bzl", "place_and_route")
+load("@rules_hdl//synthesis:build_defs.bzl", "benchmark_synth", "synthesize_rtl")
 
 package(
     default_applicable_licenses = ["//:license"],
@@ -106,6 +111,105 @@ xls_dslx_library(
         ":frame_header_dslx",
     ],
 )
+
+# BENCHMARK RULES START
+xls_dslx_library(
+    name = "buffer_minimal_dslx",
+    srcs = [
+        "buffer_minimal.x",
+    ],
+)
+
+xls_dslx_test(
+    name = "buffer_minimal_dslx_test",
+    library = ":buffer_minimal_dslx",
+)
+
+# BUFFER_POP
+xls_dslx_ir(
+    name = "buffer_minimal_pop_ir",
+    dslx_top = "buffer128_pop32",
+    ir_file = "buffer_minimal_pop.ir",
+    library = "buffer_minimal_dslx",
+)
+
+xls_full_benchmark_ir_macro(
+    name = "buffer_minimal_pop_benchmark",
+    src = ":buffer_minimal_pop.ir",
+    top = "__buffer_minimal__buffer128_pop32",
+    codegen_args = {
+        "module_name": "buffer_minimal",
+        "delay_model": "asap7",
+        "pipeline_stages": "1",
+        "reset": "rst",
+        "use_system_verilog": "false",
+    },
+    benchmark_ir_args = {
+        "pipeline_stages": "1",
+        "delay_model": "asap7",
+    },
+    standard_cells = "@org_theopenroadproject_asap7sc7p5t_28//:asap7-sc7p5t_rev28_rvt",
+)
+
+benchmark_synth(
+    name = "buffer_minimal_pop_benchmark_synth",
+    synth_target = ":buffer_minimal_pop_benchmark.default_asap7.synth",
+)
+
+place_and_route(
+    name = "buffer_minimal_pop_place_and_route",
+    clock_period = "750",
+    core_padding_microns = 10,
+    placement_density = "0.16",
+    synthesized_rtl = ":buffer_minimal_pop_benchmark.default_asap7.synth",
+	die_width_microns = 110,
+	die_height_microns = 110,
+    min_pin_distance = "0.5",
+)
+
+# BUFFER_FIXED_POP
+xls_dslx_ir(
+    name = "buffer_minimal_fixed_pop_ir",
+    dslx_top = "buffer128_pop32_fixed",
+    ir_file = "buffer_minimal_fixed_pop.ir",
+    library = "buffer_minimal_dslx",
+)
+
+xls_full_benchmark_ir_macro(
+    name = "buffer_minimal_fixed_pop_benchmark",
+    src = ":buffer_minimal_fixed_pop.ir",
+    top = "__buffer_minimal__buffer128_pop32_fixed",
+    codegen_args = {
+        "module_name": "buffer_minimal",
+        "delay_model": "asap7",
+        "pipeline_stages": "1",
+        "reset": "rst",
+        "use_system_verilog": "false",
+    },
+    benchmark_ir_args = {
+        "pipeline_stages": "1",
+        "delay_model": "asap7",
+    },
+    standard_cells = "@org_theopenroadproject_asap7sc7p5t_28//:asap7-sc7p5t_rev28_rvt",
+)
+
+benchmark_synth(
+    name = "buffer_minimal_fixed_pop_benchmark_synth",
+    synth_target = ":buffer_minimal_fixed_pop_benchmark.default_asap7.synth",
+)
+
+place_and_route(
+    name = "buffer_minimal_fixed_pop_place_and_route",
+    clock_period = "750",
+    core_padding_microns = 10,
+    placement_density = "0.16",
+    synthesized_rtl = ":buffer_minimal_fixed_pop_benchmark.default_asap7.synth",
+	die_width_microns = 110,
+	die_height_microns = 110,
+    min_pin_distance = "0.5",
+)
+
+# BENCHMARK RULES END
 
 cc_test(
     name = "frame_header_cc_test",

@@ -36,13 +36,14 @@ struct DecoderDemuxState {
     byte_to_pass: u21,
     send_data: u21,
     id: u32,
+    last_packet: BlockDataPacket,
 }
 
 // It's safe to assume that data contains full header and some extra data.
 // Previous stage aligns block header and data, it also guarantees
 // new block headers in new packets.
 fn handle_idle_state(data: BlockDataPacket, state: DecoderDemuxState)
-  -> (BlockDataPacket, DecoderDemuxState) {
+  -> DecoderDemuxState {
     let header = block_header::extract_block_header(data.data[0:24] as u24);
     let data = BlockDataPacket {
         data: data.data[24:] as bits[DATA_WIDTH],
@@ -52,39 +53,40 @@ fn handle_idle_state(data: BlockDataPacket, state: DecoderDemuxState)
     };
     match header.btype {
         common::BlockType::RAW => {
-            let new_state = DecoderDemuxState {
+            DecoderDemuxState {
                 status: DecoderDemuxStatus::PASS_RAW,
                 byte_to_pass: header.size,
                 send_data: u21:0,
+                last_packet: data,
                 ..state
-            };
-            (data, new_state)
+            }
         },
         common::BlockType::RLE => {
-            let new_state = DecoderDemuxState {
+            DecoderDemuxState {
                 status: DecoderDemuxStatus::PASS_RLE,
                 byte_to_pass: header.size,
                 send_data: u21:0,
+                last_packet: data,
                 ..state
-            };
-            (data, new_state)
+            }
         },
         common::BlockType::COMPRESSED => {
-            let new_state = DecoderDemuxState {
+            DecoderDemuxState {
                 status: DecoderDemuxStatus::PASS_COMPRESSED,
                 byte_to_pass: header.size,
                 send_data: u21:0,
+                last_packet: data,
                 ..state
-            };
-            (data, new_state)
+            }
         },
         _ => {
-            fail!("Should_never_happen", (data, state))
+            fail!("Should_never_happen", state)
         }
     }
 }
 
 const ZERO_DECODER_DEMUX_STATE = zero!<DecoderDemuxState>();
+const ZERO_DATA = zero!<BlockDataPacket>();
 
 pub proc DecoderDemux {
     input_r: chan<BlockDataPacket> in;
@@ -107,16 +109,14 @@ pub proc DecoderDemux {
     )}
 
     next (tok: token, state: DecoderDemuxState) {
-        let (tok, data) = recv(tok, input_r);
-        let (data, state) = match state.status {
+        let (tok, data) = recv_if(tok, input_r, !state.last_packet.last, ZERO_DATA);
+        let (send_raw, send_rle, send_cmp, new_state) = match state.status {
             DecoderDemuxStatus::IDLE =>
-                handle_idle_state(data, state),
-            _ => (data, state)
-        };
-        let (send_raw, send_rle, send_cmp, state) = match state.status {
+                (false, false, false, handle_idle_state(data, state)),
             DecoderDemuxStatus::PASS_RAW => {
                 let new_state = DecoderDemuxState {
-                    send_data: state.send_data + (data.length >> 3) as u21,
+                    send_data: state.send_data + (state.last_packet.length >> 3) as u21,
+                    last_packet: data,
                     ..state
                 };
                 (true, false, false, new_state)
@@ -124,13 +124,15 @@ pub proc DecoderDemux {
             DecoderDemuxStatus::PASS_RLE => {
                 let new_state = DecoderDemuxState {
                     send_data: state.send_data + state.byte_to_pass,
+                    last_packet: data,
                     ..state
                 };
                 (false, true, false, new_state)
             },
             DecoderDemuxStatus::PASS_COMPRESSED => {
                 let new_state = DecoderDemuxState {
-                    send_data: state.send_data +(data.length >> 3) as u21,
+                    send_data: state.send_data +(state.last_packet.length >> 3) as u21,
+                    last_packet: data,
                     ..state
                 };
                 (false, false, true, new_state)
@@ -139,28 +141,28 @@ pub proc DecoderDemux {
         };
 
         let max_packet_width = DATA_WIDTH >> 3;
-        if (!send_rle) && ((state.byte_to_pass as u32 < max_packet_width) && ((state.byte_to_pass as u32 << 3) != data.length)) {
+        if (!send_rle) && ((state.byte_to_pass as u32 < max_packet_width) && ((state.byte_to_pass as u32 << 3) != state.last_packet.length)) {
             // For Raw and Compressed blocks it is illegal to have block of size smaller than
             // max size of packet and have packet length greater than this size.
             fail!("Should_never_happen", state)
         } else {
             state
         };
-        let data_to_send = BlockDataPacket {id: state.id, ..data};
+        let data_to_send = BlockDataPacket {id: state.id, ..state.last_packet};
         let tok = send_if(tok, raw_s, send_raw, data_to_send);
         // RLE module expects single byte in data field
         // and block length in length field. This is different from
         // Raw and Compressed modules.
         let rle_data = BlockDataPacket{
-            data: data.data[0:8] as bits[DATA_WIDTH],
+            data: state.last_packet.data[0:8] as bits[DATA_WIDTH],
             length: state.byte_to_pass as u32,
             id: state.id,
-            ..data
+            ..state.last_packet
         };
         let tok = send_if(tok, rle_s, send_rle, rle_data);
         let tok = send_if(tok, cmp_s, send_cmp, data_to_send);
-        if (state.send_data == state.byte_to_pass) {
-            let next_id = if (data.last && data.last_block) {
+        if (new_state.send_data == new_state.byte_to_pass) {
+            let next_id = if (state.last_packet.last && state.last_packet.last_block) {
                 u32: 0
             } else {
                 state.id + u32:1
@@ -170,9 +172,10 @@ pub proc DecoderDemux {
                 byte_to_pass: u21:0,
                 send_data: u21:0,
                 id: next_id,
+                last_packet: ZERO_DATA,
             }
         } else {
-            state
+            new_state
         }
     }
 }

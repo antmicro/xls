@@ -138,3 +138,24 @@ fn test_buffer_fixed_pop() {
 pub fn buffer128_pop32_fixed(buffer: Buffer<128>) -> (Buffer<128>, bits[32]) {
     buffer_fixed_pop<u32:128, u32:32>(buffer)
 }
+
+pub fn buffer_fixed_pop_original<CAPACITY: u32, DSIZE: u32> (buffer: Buffer<CAPACITY>) -> (Buffer<CAPACITY>, bits[DSIZE]) {
+    let (buffer, value) = buffer_pop(buffer, DSIZE);
+    (buffer, value as bits[DSIZE])
+}
+
+#[test]
+fn test_buffer_fixed_pop_original() {
+    let buffer = Buffer { content: u32:0xDEADBEEF, length: u32:32 };
+    let (buffer, data) = buffer_fixed_pop<u32:32, u32:16>(buffer);
+    assert_eq(data, u16:0xBEEF);
+    assert_eq(buffer, Buffer { content: u32:0xDEAD, length: u32:16 });
+    let (buffer, data) = buffer_fixed_pop<u32:32, u32:16>(buffer);
+    assert_eq(data, u16:0xDEAD);
+    assert_eq(buffer, Buffer { content: u32:0, length: u32:0 });
+}
+
+pub fn buffer128_pop32_fixed_original(buffer: Buffer<128>) -> (Buffer<128>, bits[32]) {
+    buffer_fixed_pop_original<u32:128, u32:32>(buffer)
+}
+

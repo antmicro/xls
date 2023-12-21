@@ -751,3 +751,117 @@ filegroup(
     srcs = glob(["*.x"]),
     visibility = ["//xls:xls_internal"],
 )
+
+xls_dslx_library(
+    name = "passthrough",
+    srcs = ["passthrough.x"],
+)
+
+#
+# Using xls_dslx_verilog to build verilog
+#
+
+xls_dslx_verilog(
+    name = "passthrough_dslx_verilog",
+    codegen_args = {
+        "module_name": "WrapperPassthrough",
+        "generator": "pipeline",
+        "pipeline_stages": "1",
+        "delay_model": "unit",
+        "use_system_verilog": "false",
+    },
+    dslx_top = "WrapperPassthrough",
+    library = ":passthrough",
+    verilog_file = "passthrough_dslx.v",
+)
+
+#
+# Step by step rules to generate verilog
+# Both ways yield the same result
+#
+
+xls_dslx_ir(
+    name = "passthrough_ir",
+    dslx_top = "WrapperPassthrough",
+    ir_file = "passthrough.ir",
+    library = "passthrough",
+)
+
+# IR has these procs
+# top proc __passthrough__WrapperPassthrough_0_next(__token: token, __state: (), init={()}) {
+# proc __passthrough__WrapperPassthrough__Passthrough_0_next(__token: token, __state: (), init={()}) {
+xls_ir_opt_ir(
+    name = "passthrough_ir_opt",
+    src = "passthrough.ir",
+    top = "__passthrough__WrapperPassthrough__Passthrough_0_next",
+)
+
+xls_ir_verilog(
+    name = "passthrough_verilog",
+    src = ":passthrough_ir_opt.opt.ir",
+    codegen_args = {
+        "module_name": "WrapperPassthrough",
+        "generator": "pipeline",
+        "reset": "rst",
+        "pipeline_stages": "1",
+        "delay_model": "unit",
+        "use_system_verilog": "false",
+    },
+    verilog_file = "passthrough.v",
+)
+
+# Dummy
+xls_dslx_library(
+    name = "passthrough_dummy",
+    srcs = ["passthrough_dummy.x"],
+)
+
+#
+# Using xls_dslx_verilog to build verilog
+#
+
+xls_dslx_verilog(
+    name = "passthrough_dummy_dslx_verilog",
+    codegen_args = {
+        "module_name": "WrapperPassthrough",
+        "generator": "pipeline",
+        "pipeline_stages": "1",
+        "reset": "rst",
+        "delay_model": "unit",
+        "use_system_verilog": "false",
+    },
+    dslx_top = "WrapperPassthrough",
+    library = ":passthrough_dummy",
+    verilog_file = "passthrough_dummy_dslx.v",
+)
+
+xls_dslx_ir(
+    name = "passthrough_dummy_ir",
+    dslx_top = "WrapperPassthrough",
+    ir_file = "passthrough_dummy.ir",
+    library = "passthrough_dummy",
+)
+
+# IR has these procs
+# top proc __passthrough_dummy__WrapperPassthrough_0_next(__token: token, __state: (), init={()}) {
+# proc __passthrough_dummy__WrapperPassthrough__PassthroughDummy_0_next(__token: token, __state: (), init={()}) {
+
+xls_ir_opt_ir(
+    name = "passthrough_dummy_ir_opt",
+    src = "passthrough_dummy.ir",
+    top = "__passthrough_dummy__WrapperPassthrough__PassthroughDummy_0_next",
+)
+
+xls_ir_verilog(
+    name = "passthrough_dummy_verilog",
+    src = ":passthrough_dummy_ir_opt.opt.ir",
+    codegen_args = {
+        "module_name": "WrapperPassthrough",
+        "generator": "pipeline",
+        "reset": "rst",
+        "pipeline_stages": "2",
+        "delay_model": "unit",
+        "use_system_verilog": "false",
+    },
+    verilog_file = "passthrough_dummy.v",
+)

@@ -393,6 +393,26 @@ xls_dslx_opt_ir(
     tags = ["optonly"],
 )
 
+xls_dslx_library(
+    name = "proc_iota_lib",
+    srcs = ["proc_iota.x"]
+)
+
+xls_dslx_verilog(
+    name = "proc_iota_verilog",
+    codegen_args = {
+        "module_name": "proc_iota",
+        "generator": "pipeline",
+        "pipeline_stages": "1",
+        "reset": "rst",
+        "delay_model": "unit",
+        "use_system_verilog": "false",
+    },
+    dslx_top = "main",
+    library = ":proc_iota_lib",
+    verilog_file = "proc_iota.v",
+)
+
 # -- tiny_adder sample
 
 xls_dslx_library(

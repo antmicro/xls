@@ -16,15 +16,16 @@
 
 proc producer {
   s: chan<u32> out;
-
+  d: chan<u32> in;
   init { u32:0 }
 
-  config(input_s: chan<u32> out) {
-    (input_s,)
+  config(input_s: chan<u32> out, d: chan<u32> in) {
+    (input_s,d)
   }
 
   next(tok: token, i: u32) {
-    let foo = i + u32:1;
+    let (tok, _) = recv(tok, d);
+    let foo = i + u32:105;
     let tok = send(tok, s, foo);
     foo
   }
@@ -32,30 +33,42 @@ proc producer {
 
 proc consumer<N:u32> {
   r: chan<u32> in;
+  d: chan<u32> in;
 
   init { u32: 0 }
 
-  config(input_r: chan<u32> in) {
-    (input_r,)
+  config(input_r: chan<u32> in, d: chan<u32> in) {
+    (input_r,d)
   }
 
   next(tok: token, i: u32) {
+    let (tok, _) = recv(tok, d);
     let (tok, e) = recv(tok, r);
     i + e + N
   }
 }
 
 proc main {
+
+  dummy_ch : chan<u32> out;
+  dummy_ch2 : chan<u32> out;
+
   init { () }
 
   config() {
+    let (dummy_ch_s, dummy_ch_r) = chan<u32>;
+    let (dummy_ch2_s, dummy_ch2_r) = chan<u32>;
+
+
     let (s, r) = chan<u32>;
-    spawn producer(s);
-    spawn consumer<u32:2>(r);
-    ()
+    spawn producer(s, dummy_ch_r);
+    spawn consumer<u32:2>(r, dummy_ch2_r);
+
+    (dummy_ch_s,dummy_ch2_s)
   }
 
   next(tok: token, state: ()) {
-    ()
+    let tok = send(tok, dummy_ch, u32:164);
+    let tok = send(tok, dummy_ch2, u32:902);
   }
 }

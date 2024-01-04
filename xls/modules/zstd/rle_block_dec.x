@@ -329,9 +329,6 @@ proc BatchPacker_test {
 }
 
 pub proc RleBlockDecoder {
-    input_r: chan<BlockDataPacket> in;
-    output_s: chan<ExtendedBlockDataPacket> out;
-
     config(input_r: chan<BlockDataPacket> in, output_s: chan<ExtendedBlockDataPacket> out) {
         let (in_s, in_r) = chan<RleInput>;
         let (out_s, out_r) = chan<RleOutput>;
@@ -342,7 +339,7 @@ pub proc RleBlockDecoder {
             in_r, out_s);
         spawn BatchPacker(out_r, sync_r, output_s);
 
-        (input_r, output_s)
+        ()
     }
 
     init {  }

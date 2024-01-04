@@ -18,12 +18,15 @@ load(
     "//xls/build_rules:xls_build_defs.bzl",
     "xls_dslx_library",
     "xls_dslx_test",
+	"xls_ir_opt_ir",
+	"xls_ir_verilog",
     "xls_dslx_ir",
 )
 
 load("//xls/build_rules:xls_macros.bzl", "xls_full_benchmark_ir_macro")
 load("@rules_hdl//place_and_route:build_defs.bzl", "place_and_route")
 load("@rules_hdl//synthesis:build_defs.bzl", "benchmark_synth", "synthesize_rtl")
+load("@rules_hdl//verilog:providers.bzl", "verilog_library")
 
 package(
     default_applicable_licenses = ["//:license"],
@@ -186,38 +189,30 @@ xls_dslx_ir(
     library = "rle_block_dec_dslx",
 )
 
-xls_full_benchmark_ir_macro(
-    name = "rle_block_dec_benchmark",
-    src = ":rle_block_dec.ir",
+xls_ir_opt_ir(
+    name = "rle_block_dec_opt_ir",
+    src = "rle_block_dec.ir",
+    top = "__rle_block_dec__RleBlockDecoder_0_next",
+)
+
+xls_ir_verilog(
+    name = "rle_block_dec_verilog",
+    src = ":rle_block_dec_opt_ir.opt.ir",
     codegen_args = {
         "module_name": "RleBlockDecoder",
         "delay_model": "asap7",
-        "pipeline_stages": "1",
+        "pipeline_stages": "2",
         "reset": "rst",
         "use_system_verilog": "false",
     },
-    benchmark_ir_args = {
-        "pipeline_stages": "1",
-        "delay_model": "asap7",
-    },
-    standard_cells = "@org_theopenroadproject_asap7sc7p5t_28//:asap7-sc7p5t_rev28_rvt",
+    verilog_file = "rle_block_dec.v",
 )
 
-benchmark_synth(
-    name = "rle_block_dec_benchmark_synth",
-    synth_target = ":rle_block_dec_benchmark.default_asap7.synth",
-)
-
-place_and_route(
-    name = "rle_block_dec_place_and_route",
-    clock_period = "750",
-    core_padding_microns = 10,
-    placement_density = "0.16",
-    synthesized_rtl = ":rle_block_dec_benchmark.default_asap7.synth",
-    die_width_microns = 500,
-    die_height_microns = 500,
-    min_pin_distance = "0.5",
-	skip_detailed_routing = True,
+verilog_library(
+    name = "rle_block_dec_verilog_lib",
+    srcs = [
+        ":rle_block_dec.v",
+    ],
 )
 
 xls_dslx_library(

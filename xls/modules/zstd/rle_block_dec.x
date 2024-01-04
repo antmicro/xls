@@ -329,22 +329,39 @@ proc BatchPacker_test {
 }
 
 pub proc RleBlockDecoder {
+    input_r: chan<BlockDataPacket> in;
+    output_s: chan<ExtendedBlockDataPacket> out;
+    // Internal channels
+    rle_data_packer_input_s: chan<BlockDataPacket> out;
+    batch_packer_output_r: chan<ExtendedBlockDataPacket> in;
+
     config(input_r: chan<BlockDataPacket> in, output_s: chan<ExtendedBlockDataPacket> out) {
+        let (rle_data_packer_input_s, rle_data_packer_input_r) = chan<BlockDataPacket>;
+        let (batch_packer_output_s, batch_packer_output_r) = chan<ExtendedBlockDataPacket>;
         let (in_s, in_r) = chan<RleInput>;
         let (out_s, out_r) = chan<RleOutput>;
         let (sync_s, sync_r) = chan<BlockSyncData>;
 
-        spawn RleDataPacker(input_r, in_s, sync_s);
+        spawn RleDataPacker(rle_data_packer_input_r, in_s, sync_s);
         spawn rle_dec::RunLengthDecoder<SYMBOL_WIDTH, BLOCK_SIZE_WIDTH>(
             in_r, out_s);
-        spawn BatchPacker(out_r, sync_r, output_s);
+        spawn BatchPacker(out_r, sync_r, batch_packer_output_s);
 
-        ()
+        (input_r, output_s, rle_data_packer_input_s, batch_packer_output_r)
     }
 
     init {  }
 
-    next(tok: token, state: ()) {  }
+    next(tok: token, state: ()) {
+        // Handle Inputs
+        // TODO rename received_encoded_packet to valid
+        let (tok, encoded_packet, received_encoded_packet) = recv_non_blocking(tok, input_r, zero!<BlockDataPacket>());
+        let tok = send_if(tok, rle_data_packer_input_s, received_encoded_packet, encoded_packet);
+
+        // Handle Outputs
+        let (tok, decoded_packet, received_decoded_packet) = recv_non_blocking(tok, batch_packer_output_r, zero!<ExtendedBlockDataPacket>());
+        let tok = send_if(tok, output_s, received_decoded_packet, decoded_packet);
+    }
 }
 
 #[test_proc]

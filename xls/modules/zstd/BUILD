@@ -192,7 +192,7 @@ xls_dslx_ir(
 xls_ir_opt_ir(
     name = "rle_block_dec_opt_ir",
     src = "rle_block_dec.ir",
-    top = "__rle_block_dec__RleBlockDecoder__BatchPacker_0_next",
+    top = "__rle_block_dec__RleBlockDecoder_0_next",
 )
 
 xls_ir_verilog(

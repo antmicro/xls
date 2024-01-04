@@ -20,6 +20,8 @@ pub const BLOCK_SIZE_WIDTH = u32:21;
 pub type BlockData = bits[DATA_WIDTH];
 pub type BlockPacketLength = u32;
 pub type BlockSize = bits[BLOCK_SIZE_WIDTH];
+pub type CopyOrMatchContent = BlockData;
+pub type CopyOrMatchLength = u64;
 
 pub enum BlockType : u2 {
     RAW = 0,
@@ -44,4 +46,11 @@ pub enum SequenceExecutorMessageType : u1 {
 pub struct ExtendedBlockDataPacket {
     msg_type: SequenceExecutorMessageType,
     packet: BlockDataPacket,
+}
+
+pub struct SequenceExecutorPacket {
+    msg_type: SequenceExecutorMessageType,
+    length: CopyOrMatchLength, // Literal length or match length
+    content: CopyOrMatchContent, // Literal data or match offset
+    last: bool, // Last packet in frame
 }

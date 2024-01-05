@@ -785,3 +785,68 @@ filegroup(
     srcs = glob(["*.x"]),
     visibility = ["//xls:xls_internal"],
 )
+
+xls_dslx_library(
+    name = "ram_bug_dslx",
+    srcs = ["ram_bug.x"],
+    deps = ["//xls/examples:ram_dslx"],
+)
+
+xls_dslx_test(
+    name = "ram_bug_dslx_test",
+    library = ":ram_bug_dslx",
+)
+
+xls_dslx_verilog(
+    name = "ram_bug_single_proc_ram_example_verilog",
+    dslx_top = "SingleProcRamExample",
+    library = ":ram_bug_dslx",
+    codegen_args = {
+        "module_name": "single_proc_ram_example",
+        "generator": "pipeline",
+        "delay_model": "unit",
+        "ram_configurations": "ram:1RW:{req}:{resp}:{wr_comp}".format(
+            req = "ram_bug__req_s",
+            resp = "ram_bug__resp_r",
+            wr_comp = "ram_bug__wr_comp_r"
+        ),
+        "pipeline_stages": "10",
+        "reset": "rst",
+        "reset_data_path": "true",
+        "reset_active_low": "false",
+        "reset_asynchronous": "true",
+        "flop_inputs": "false",
+        "flop_single_value_channels": "false",
+        "flop_outputs": "false",
+        "worst_case_throughput": "1",
+        "use_system_verilog": "false",
+    },
+    verilog_file = "single_proc_ram_example.v",
+)
+
+xls_dslx_verilog(
+    name = "ram_bug_nested_proc_ram_example_verilog",
+    dslx_top = "NestedProcRamExample",
+    library = ":ram_bug_dslx",
+    codegen_args = {
+        "module_name": "nested_proc_ram_example",
+        "generator": "pipeline",
+        "delay_model": "unit",
+        "ram_configurations": "ram:1RW:{req}:{resp}:{wr_comp}".format(
+                req = "ram_bug__req_s",
+                resp = "ram_bug__resp_r",
+                wr_comp = "ram_bug__wr_comp_r"
+        ),
+        "pipeline_stages": "10",
+        "reset": "rst",
+        "reset_data_path": "true",
+        "reset_active_low": "false",
+        "reset_asynchronous": "true",
+        "flop_inputs": "false",
+        "flop_single_value_channels": "false",
+        "flop_outputs": "false",
+        "worst_case_throughput": "1",
+        "use_system_verilog": "false",
+    },
+    verilog_file = "nested_proc_ram_example.v",
+)

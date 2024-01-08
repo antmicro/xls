@@ -848,5 +848,8 @@ xls_dslx_verilog(
         "worst_case_throughput": "1",
         "use_system_verilog": "false",
     },
+    opt_ir_args = {
+        "inline_procs": "true",
+    },
     verilog_file = "nested_proc_ram_example.v",
 )

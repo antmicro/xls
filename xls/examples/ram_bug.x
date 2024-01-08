@@ -82,7 +82,7 @@ proc NestedProcRamExample {
         resp_r: chan<ram::RWRamResp<DATA_WIDTH>> in,
         wr_comp_r: chan<()> in
     ) {
-        let (ram_input_s, ram_input_r) = chan<Data>;
+        let (ram_input_s, ram_input_r) = chan<Data, u32:1>;
         spawn RamWriter(ram_input_r, req_s);
         (input_r, output_s, ram_input_s, req_s, resp_r, wr_comp_r)
     }

@@ -785,3 +785,17 @@ filegroup(
     srcs = glob(["*.x"]),
     visibility = ["//xls:xls_internal"],
 )
+
+cc_binary(
+    name = "convert_one_function",
+    srcs = [
+        "convert_one_function.cc",
+    ],
+    deps = [
+        "//xls/dslx:create_import_data",
+        "//xls/dslx:interp_value",
+        "//xls/dslx:parse_and_typecheck",
+        "//xls/dslx/ir_convert:ir_converter",
+        "//xls/dslx/type_system:parametric_env",
+    ],
+)

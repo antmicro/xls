@@ -202,16 +202,13 @@ pub fn buffer_pop_checked<CAPACITY: u32> (buffer: Buffer<CAPACITY>, length: u32)
             bits[CAPACITY]:0
         )
     } else {
-        let mask = (bits[CAPACITY]:1 << length) - bits[CAPACITY]:1;
+        let (buffer_leftover, content) = buffer_pop(buffer, length);
         (
             BufferResult {
                 status: BufferStatus::OK,
-                buffer: Buffer {
-                    content: buffer.content >> length,
-                    length: buffer.length - length
-                }
+                buffer: buffer_leftover
             },
-            buffer.content & mask
+            content
         )
     }
 }

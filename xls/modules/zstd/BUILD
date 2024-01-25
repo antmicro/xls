@@ -44,6 +44,21 @@ xls_dslx_test(
 )
 
 xls_dslx_library(
+    name = "buffer_window_dslx",
+    srcs = [
+        "buffer_window.x",
+    ],
+    deps = [
+        ":buffer_dslx",
+    ],
+)
+
+xls_dslx_test(
+    name = "buffer_window_dslx_test",
+    library = ":buffer_window_dslx",
+)
+
+xls_dslx_library(
     name = "magic_dslx",
     srcs = [
         "magic.x",

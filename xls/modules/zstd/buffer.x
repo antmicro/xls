@@ -128,10 +128,7 @@ pub fn buffer_append_checked<CAPACITY: u32, DSIZE: u32> (buffer: Buffer<CAPACITY
     } else {
         BufferResult {
             status: BufferStatus::OK,
-            buffer: Buffer {
-                content: (data as bits[CAPACITY] << buffer.length) | buffer.content,
-                length: DSIZE + buffer.length
-            }
+            buffer: buffer_append(buffer, data)
         }
     }
 }

@@ -1287,3 +1287,28 @@ build_test(
     name = "xls_pipeline_build_test",
     targets = [":xls_pipeline"],
 )
+
+
+xls_dslx_library(
+    name = "derived_parametrics_fn_dslx",
+    srcs = [
+        "derived_parametrics_fn.x",
+    ],
+)
+
+xls_dslx_test(
+    name = "derived_parametrics_fn_dslx_test",
+    library = ":derived_parametrics_fn_dslx",
+)
+
+xls_dslx_library(
+    name = "derived_parametrics_proc_dslx",
+    srcs = [
+        "derived_parametrics_proc.x",
+    ],
+)
+
+xls_dslx_test(
+    name = "derived_parametrics_proc_dslx_test",
+    library = ":derived_parametrics_proc_dslx",
+)

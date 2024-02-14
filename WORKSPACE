@@ -22,19 +22,19 @@ load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
 
 # Commit on  2023-07-17, current as of 2023-08-05.
 http_archive(
-    name = "com_grail_bazel_toolchain",
-    sha256 = "5fb0a6ae0f5bc72a7d80e6de0edad906c9936729734009f1c01dac4b06f966e0",
+    name = "com_bazel_contrib_toolchains_llvm",
+    sha256 = "d53a35bede7628332f2dbbffeefbd6928efea28d729e19c8a3413e3ac7731950",
     strip_prefix = "bazel-toolchain-f94335f1f5434256b1793dafbb7dd07773b0e76e",
     urls = [
-        "https://github.com/grailbio/bazel-toolchain/archive/f94335f1f5434256b1793dafbb7dd07773b0e76e.zip",
+        "https://github.com/bazel-contrib/toolchains_llvm/archive/f94335f1f5434256b1793dafbb7dd07773b0e76e.zip",
     ],
 )
 
-load("@com_grail_bazel_toolchain//toolchain:deps.bzl", "bazel_toolchain_dependencies")
+load("@com_bazel_contrib_toolchains_llvm//toolchain:deps.bzl", "bazel_toolchain_dependencies")
 
 bazel_toolchain_dependencies()
 
-load("@com_grail_bazel_toolchain//toolchain:rules.bzl", "llvm_toolchain")
+load("@com_bazel_contrib_toolchains_llvm//toolchain:rules.bzl", "llvm_toolchain")
 
 llvm_toolchain(
     name = "llvm_toolchain",

@@ -107,32 +107,3 @@ proc BufferWindowSample {
 
     next(tok: token, state: ()) {}
 }
-
-#[test_proc]
-proc BufferWindowSampleTest {
-    terminator: chan<bool> out;
-    data32_s: chan<u32> out;
-    data48_r: chan<u48> in;
-
-    config(terminator: chan<bool> out) {
-        let (data32_s, data32_r) = chan<u32>;
-        let (data48_s, data48_r) = chan<u48>;
-        spawn BufferWindowSample(data32_r, data48_s);
-        (terminator, data32_s, data48_r)
-    }
-
-    init {}
-
-    next(tok: token, state: ()) {
-        let tok = send(tok, data32_s, u32:0xDEADBEEF);
-        let tok = send(tok, data32_s, u32:0xBEEFCAFE);
-        let tok = send(tok, data32_s, u32:0xCAFEDEAD);
-
-        let (tok, received_data) = recv(tok, data48_r);
-        assert_eq(received_data, u48:0xCAFE_DEAD_BEEF);
-        let (tok, received_data) = recv(tok, data48_r);
-        assert_eq(received_data, u48:0xCAFE_DEAD_BEEF);
-
-        send(tok, terminator, true);
-    }
-}

@@ -27,14 +27,9 @@ import xls.modules.zstd.buffer as buff;
 
 type Buffer = buff::Buffer;
 
-// Buffer example use case
-//
-// The Buffer structure is meant to aggregate data received from the Proc's
-// channels. This data may be collected in multiple evaluations of the next
-// functions. Once the required amount of data is collected, it can be poped-out
-// in chanks of any length. A simple example that shows how the Buffer structure
-// can be used is presented below. It uses the structure to combine several
-// smaller transactions into bigger ones.
+// WindowBuffer is a simple Proc that uses the Buffer structure to aggregate data
+// in transactions of <INPUT_WIDTH> length and output it in transactions of
+// <OUTPUT_WIDTH> length. <BUFFER_SIZE> defines the maximal size of the buffer.
 
 proc WindowBuffer<BUFFER_SIZE: u32, INPUT_WIDTH: u32, OUTPUT_WIDTH: u32> {
     input_r: chan<uN[INPUT_WIDTH]> in;

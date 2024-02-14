@@ -91,7 +91,7 @@ proc WindowBufferTest {
 }
 
 // Sample for codegen
-proc WindowBufferSample {
+proc WindowBuffer64 {
     input_r: chan<u32> in;
     output_s: chan<u48> out;
 

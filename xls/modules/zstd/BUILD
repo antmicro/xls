@@ -61,19 +61,19 @@ xls_dslx_test(
 xls_dslx_verilog(
     name = "window_buffer_verilog",
     codegen_args = {
-        "module_name": "WindowBufferSample",
+        "module_name": "WindowBuffer64",
         "delay_model": "asap7",
         "pipeline_stages": "2",
         "reset": "rst",
         "use_system_verilog": "false",
     },
-    dslx_top = "WindowBufferSample",
+    dslx_top = "WindowBuffer64",
     library = ":window_buffer_dslx",
     # TODO: 2024-01-25: Workaround for https://github.com/google/xls/issues/869
     # Force proc inlining and set last internal proc as top proc for IR optimization
     opt_ir_args = {
         "inline_procs": "true",
-        "top": "__window_buffer__WindowBufferSample__WindowBuffer_0__64_32_48_next",
+        "top": "__window_buffer__WindowBuffer64__WindowBuffer_0__64_32_48_next",
     },
     verilog_file = "buffer.v",
 )
@@ -97,7 +97,7 @@ verilog_library(
 synthesize_rtl(
     name = "window_buffer_synth_asap7",
     standard_cells = "@org_theopenroadproject_asap7sc7p5t_28//:asap7-sc7p5t_rev28_rvt",
-    top_module = "WindowBufferSample",
+    top_module = "WindowBuffer64",
     deps = [
         ":window_buffer_verilog_lib",
     ],

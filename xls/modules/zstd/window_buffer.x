@@ -36,7 +36,7 @@ type Buffer = buff::Buffer;
 // can be used is presented below. It uses the structure to combine several
 // smaller transactions into bigger ones.
 
-proc BufferWindow<BUFFER_SIZE: u32, INPUT_WIDTH: u32, OUTPUT_WIDTH: u32> {
+proc WindowBuffer<BUFFER_SIZE: u32, INPUT_WIDTH: u32, OUTPUT_WIDTH: u32> {
     input_r: chan<uN[INPUT_WIDTH]> in;
     output_s: chan<uN[OUTPUT_WIDTH]> out;
 
@@ -62,7 +62,7 @@ proc BufferWindow<BUFFER_SIZE: u32, INPUT_WIDTH: u32, OUTPUT_WIDTH: u32> {
 }
 
 #[test_proc]
-proc BufferWindowTest {
+proc WindowBufferTest {
     terminator: chan<bool> out;
     data32_s: chan<u32> out;
     data48_r: chan<u48> in;
@@ -70,7 +70,7 @@ proc BufferWindowTest {
     config(terminator: chan<bool> out) {
         let (data32_s, data32_r) = chan<u32>;
         let (data48_s, data48_r) = chan<u48>;
-        spawn BufferWindow<u32:64, u32:32, u32:48>(data32_r, data48_s);
+        spawn WindowBuffer<u32:64, u32:32, u32:48>(data32_r, data48_s);
         (terminator, data32_s, data48_r)
     }
 
@@ -91,7 +91,7 @@ proc BufferWindowTest {
 }
 
 // Sample for codegen
-proc BufferWindowSample {
+proc WindowBufferSample {
     input_r: chan<u32> in;
     output_s: chan<u48> out;
 
@@ -99,7 +99,7 @@ proc BufferWindowSample {
         input_r: chan<u32> in,
         output_s: chan<u48> out
     ) {
-        spawn BufferWindow<u32:64, u32:32, u32:48>(input_r, output_s);
+        spawn WindowBuffer<u32:64, u32:32, u32:48>(input_r, output_s);
         (input_r, output_s)
     }
 

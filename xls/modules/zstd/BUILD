@@ -44,9 +44,9 @@ xls_dslx_test(
 )
 
 xls_dslx_library(
-    name = "buffer_window_dslx",
+    name = "window_buffer_dslx",
     srcs = [
-        "buffer_window.x",
+        "window_buffer.x",
     ],
     deps = [
         ":buffer_dslx",
@@ -54,33 +54,33 @@ xls_dslx_library(
 )
 
 xls_dslx_test(
-    name = "buffer_window_dslx_test",
-    library = ":buffer_window_dslx",
+    name = "window_buffer_dslx_test",
+    library = ":window_buffer_dslx",
 )
 
 xls_dslx_verilog(
-    name = "buffer_window_verilog",
+    name = "window_buffer_verilog",
     codegen_args = {
-        "module_name": "BufferWindowSample",
+        "module_name": "WindowBufferSample",
         "delay_model": "asap7",
         "pipeline_stages": "2",
         "reset": "rst",
         "use_system_verilog": "false",
     },
-    dslx_top = "BufferWindowSample",
-    library = ":buffer_window_dslx",
+    dslx_top = "WindowBufferSample",
+    library = ":window_buffer_dslx",
     # TODO: 2024-01-25: Workaround for https://github.com/google/xls/issues/869
     # Force proc inlining and set last internal proc as top proc for IR optimization
     opt_ir_args = {
         "inline_procs": "true",
-        "top": "__buffer_window__BufferWindowSample__BufferWindow_0__64_32_48_next",
+        "top": "__window_buffer__WindowBufferSample__WindowBuffer_0__64_32_48_next",
     },
     verilog_file = "buffer.v",
 )
 
 xls_benchmark_ir(
-    name = "buffer_window_opt_ir_benchmark",
-    src = ":buffer_window_verilog.opt.ir",
+    name = "window_buffer_opt_ir_benchmark",
+    src = ":window_buffer_verilog.opt.ir",
     benchmark_ir_args = {
         "pipeline_stages": "2",
         "delay_model": "asap7",
@@ -88,34 +88,34 @@ xls_benchmark_ir(
 )
 
 verilog_library(
-    name = "buffer_window_verilog_lib",
+    name = "window_buffer_verilog_lib",
     srcs = [
         ":buffer.v",
     ],
 )
 
 synthesize_rtl(
-    name = "buffer_window_synth_asap7",
+    name = "window_buffer_synth_asap7",
     standard_cells = "@org_theopenroadproject_asap7sc7p5t_28//:asap7-sc7p5t_rev28_rvt",
-    top_module = "BufferWindowSample",
+    top_module = "WindowBufferSample",
     deps = [
-        ":buffer_window_verilog_lib",
+        ":window_buffer_verilog_lib",
     ],
 )
 
 benchmark_synth(
-    name = "buffer_window_benchmark_synth",
-    synth_target = ":buffer_window_synth_asap7",
+    name = "window_buffer_benchmark_synth",
+    synth_target = ":window_buffer_synth_asap7",
 )
 
 place_and_route(
-    name = "buffer_window_place_and_route",
+    name = "window_buffer_place_and_route",
     clock_period = "750",
     core_padding_microns = 2,
     min_pin_distance = "0.5",
     placement_density = "0.30",
     skip_detailed_routing = True,
-    synthesized_rtl = ":buffer_window_synth_asap7",
+    synthesized_rtl = ":window_buffer_synth_asap7",
     target_die_utilization_percentage = "10",
 )
 

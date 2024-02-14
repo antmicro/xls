@@ -75,7 +75,7 @@ xls_dslx_verilog(
         "inline_procs": "true",
         "top": "__window_buffer__WindowBuffer64__WindowBuffer_0__64_32_48_next",
     },
-    verilog_file = "buffer.v",
+    verilog_file = "window_buffer.v",
 )
 
 xls_benchmark_ir(
@@ -90,7 +90,7 @@ xls_benchmark_ir(
 verilog_library(
     name = "window_buffer_verilog_lib",
     srcs = [
-        ":buffer.v",
+        ":window_buffer.v",
     ],
 )
 

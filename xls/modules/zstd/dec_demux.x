@@ -140,48 +140,55 @@ pub proc DecoderDemux {
             _ => fail!("IDLE_STATE_IMPOSSIBLE", (false, false, false, state))
         };
 
-        let max_packet_width = DATA_WIDTH >> 3;
-        if (!send_rle) && ((state.byte_to_pass as u32 < max_packet_width) &&
-            ((state.byte_to_pass as u32 << 3) != state.last_packet.length)) {
-            // Demuxer expect that blocks would be received in a separate packets,
-            // even if 2 block would fit entirely or even partially in a single packet.
-            // It is the job of top-level ZSTD decoder to split each block into at least one
-            // BlockDataPacket.
-            // For Raw and Compressed blocks it is illegal to have block of size smaller than
-            // max size of packet and have packet length greater than this size.
-            fail!("Should_never_happen", state)
-        } else {
-            state
-        };
-        let data_to_send = BlockDataPacket {id: state.id, ..state.last_packet};
-        let tok = send_if(tok, raw_s, send_raw, data_to_send);
-        // RLE module expects single byte in data field
-        // and block length in length field. This is different from
-        // Raw and Compressed modules.
-        let rle_data = BlockDataPacket{
-            data: state.last_packet.data[0:8] as bits[DATA_WIDTH],
-            length: state.byte_to_pass as u32,
-            id: state.id,
-            ..state.last_packet
-        };
-        let tok = send_if(tok, rle_s, send_rle, rle_data);
-        let tok = send_if(tok, cmp_s, send_cmp, data_to_send);
-        if (new_state.send_data == new_state.byte_to_pass) {
-            let next_id = if (state.last_packet.last && state.last_packet.last_block) {
-                u32: 0
+        let end_state = if (send_raw || send_rle || send_cmp) {
+            let max_packet_width = DATA_WIDTH >> 3;
+            if (!send_rle) && ((state.byte_to_pass as u32 < max_packet_width) &&
+                ((state.byte_to_pass as u32 << 3) != state.last_packet.length)) {
+                // Demuxer expect that blocks would be received in a separate packets,
+                // even if 2 block would fit entirely or even partially in a single packet.
+                // It is the job of top-level ZSTD decoder to split each block into at least one
+                // BlockDataPacket.
+                // For Raw and Compressed blocks it is illegal to have block of size smaller than
+                // max size of packet and have packet length greater than this size.
+                fail!("Should_never_happen", state)
             } else {
-                state.id + u32:1
+                state
             };
-            DecoderDemuxState {
-                status: DecoderDemuxStatus::IDLE,
-                byte_to_pass: u21:0,
-                send_data: u21:0,
-                id: next_id,
-                last_packet: ZERO_DATA,
-            }
+            let data_to_send = BlockDataPacket {id: state.id, ..state.last_packet};
+            let tok = send_if(tok, raw_s, send_raw, data_to_send);
+            // RLE module expects single byte in data field
+            // and block length in length field. This is different from
+            // Raw and Compressed modules.
+            let rle_data = BlockDataPacket{
+                data: state.last_packet.data[0:8] as bits[DATA_WIDTH],
+                length: state.byte_to_pass as u32,
+                id: state.id,
+                ..state.last_packet
+            };
+            let tok = send_if(tok, rle_s, send_rle, rle_data);
+            let tok = send_if(tok, cmp_s, send_cmp, data_to_send);
+            let end_state = if (new_state.send_data == new_state.byte_to_pass) {
+                let next_id = if (state.last_packet.last && state.last_packet.last_block) {
+                    u32: 0
+                } else {
+                    state.id + u32:1
+                };
+                DecoderDemuxState {
+                    status: DecoderDemuxStatus::IDLE,
+                    byte_to_pass: u21:0,
+                    send_data: u21:0,
+                    id: next_id,
+                    last_packet: ZERO_DATA,
+                }
+            } else {
+                new_state
+            };
+            end_state
         } else {
             new_state
-        }
+        };
+
+        end_state
     }
 }
 

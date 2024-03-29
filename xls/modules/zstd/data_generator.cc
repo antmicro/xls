@@ -118,6 +118,8 @@ absl::StatusOr<std::vector<uint8_t>> GenerateFrame(int seed, BlockType btype) {
   if (btype != BlockType::RANDOM)
     args.push_back("--block-type=" + std::to_string(btype));
   if (btype == BlockType::RLE) args.push_back("--content-size");
+  // Test payloads up to 16KB
+  args.push_back("--max-content-size-log=14");
 
   XLS_ASSIGN_OR_RETURN(auto result, CallDecodecorpus(args));
   auto raw_data = ReadFileAsRawData(output_path);

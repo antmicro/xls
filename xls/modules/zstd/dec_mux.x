@@ -85,7 +85,7 @@ pub proc DecoderMux {
         let compressed_id = if state.compressed_data_valid { state.compressed_data.packet.id } else { MAX_ID };
         let any_valid = state.raw_data_valid || state.rle_data_valid || state.compressed_data_valid;
 
-        if (any_valid) {
+        let state = if (any_valid) {
             if state.prev_last_block && state.prev_last {
                 let min_id = std::umin(std::umin(rle_id, raw_id), compressed_id);
                 trace_fmt!("rle_id: {}, raw_id: {}, compressed_id: {}", rle_id, raw_id, compressed_id);
@@ -94,67 +94,71 @@ pub proc DecoderMux {
             } else {
                 assert!(!(state.prev_id > (std::umin(std::umin(rle_id, raw_id), compressed_id)) && (state.prev_valid)), "wrong_id");
             };
-        } else {()};
 
-        let (do_send, data_to_send, state) = if (state.raw_data_valid &&
-          ((state.raw_data.packet.id < std::umin(rle_id, compressed_id)) ||
-           (state.raw_data.packet.id == state.prev_id))) {
-            (true,
-             SequenceExecutorPacket {
-                 msg_type: state.raw_data.msg_type,
-                 length: state.raw_data.packet.length as CopyOrMatchLength,
-                 content: state.raw_data.packet.data as CopyOrMatchContent,
-                 last: state.raw_data.packet.last && state.raw_data.packet.last_block,
-             },
-             DecoderMuxState {
-                 raw_data_valid: false,
-                 prev_valid : true,
-                 prev_id: state.raw_data.packet.id,
-                 prev_last: state.raw_data.packet.last,
-                 prev_last_block: state.raw_data.packet.last_block,
-                 ..state})
-        } else if (state.rle_data_valid &&
-                 ((state.rle_data.packet.id < std::umin(raw_id, compressed_id)) ||
-                  (state.rle_data.packet.id == state.prev_id))) {
-            (true,
-             SequenceExecutorPacket {
-                 msg_type: state.rle_data.msg_type,
-                 length: state.rle_data.packet.length as CopyOrMatchLength,
-                 content: state.rle_data.packet.data as CopyOrMatchContent,
-                 last: state.rle_data.packet.last && state.rle_data.packet.last_block,
-             },
-             DecoderMuxState {
-                 rle_data_valid: false,
-                 prev_valid : true,
-                 prev_id: state.rle_data.packet.id,
-                 prev_last: state.rle_data.packet.last,
-                 prev_last_block: state.rle_data.packet.last_block,
-                 ..state})
-        } else if (state.compressed_data_valid &&
-                 ((state.compressed_data.packet.id < std::umin(raw_id, rle_id)) ||
-                  (state.compressed_data.packet.id == state.prev_id))) {
-            (true,
-             SequenceExecutorPacket {
-                 msg_type: state.compressed_data.msg_type,
-                 length: state.compressed_data.packet.length as CopyOrMatchLength,
-                 content: state.compressed_data.packet.data as CopyOrMatchContent,
-                 last: state.compressed_data.packet.last && state.compressed_data.packet.last_block,
-             },
-             DecoderMuxState {
-                 compressed_data_valid: false,
-                 prev_valid : true,
-                 prev_id: state.compressed_data.packet.id,
-                 prev_last: state.compressed_data.packet.last,
-                 prev_last_block: state.compressed_data.packet.last_block,
-                 ..state})
+            let (do_send, data_to_send, state) = if (state.raw_data_valid &&
+              ((state.raw_data.packet.id < std::umin(rle_id, compressed_id)) ||
+               (state.raw_data.packet.id == state.prev_id))) {
+                (true,
+                 SequenceExecutorPacket {
+                     msg_type: state.raw_data.msg_type,
+                     length: state.raw_data.packet.length as CopyOrMatchLength,
+                     content: state.raw_data.packet.data as CopyOrMatchContent,
+                     last: state.raw_data.packet.last && state.raw_data.packet.last_block,
+                 },
+                 DecoderMuxState {
+                     raw_data_valid: false,
+                     prev_valid : true,
+                     prev_id: state.raw_data.packet.id,
+                     prev_last: state.raw_data.packet.last,
+                     prev_last_block: state.raw_data.packet.last_block,
+                     ..state})
+            } else if (state.rle_data_valid &&
+                     ((state.rle_data.packet.id < std::umin(raw_id, compressed_id)) ||
+                      (state.rle_data.packet.id == state.prev_id))) {
+                (true,
+                 SequenceExecutorPacket {
+                     msg_type: state.rle_data.msg_type,
+                     length: state.rle_data.packet.length as CopyOrMatchLength,
+                     content: state.rle_data.packet.data as CopyOrMatchContent,
+                     last: state.rle_data.packet.last && state.rle_data.packet.last_block,
+                 },
+                 DecoderMuxState {
+                     rle_data_valid: false,
+                     prev_valid : true,
+                     prev_id: state.rle_data.packet.id,
+                     prev_last: state.rle_data.packet.last,
+                     prev_last_block: state.rle_data.packet.last_block,
+                     ..state})
+            } else if (state.compressed_data_valid &&
+                     ((state.compressed_data.packet.id < std::umin(raw_id, rle_id)) ||
+                      (state.compressed_data.packet.id == state.prev_id))) {
+                (true,
+                 SequenceExecutorPacket {
+                     msg_type: state.compressed_data.msg_type,
+                     length: state.compressed_data.packet.length as CopyOrMatchLength,
+                     content: state.compressed_data.packet.data as CopyOrMatchContent,
+                     last: state.compressed_data.packet.last && state.compressed_data.packet.last_block,
+                 },
+                 DecoderMuxState {
+                     compressed_data_valid: false,
+                     prev_valid : true,
+                     prev_id: state.compressed_data.packet.id,
+                     prev_last: state.compressed_data.packet.last,
+                     prev_last_block: state.compressed_data.packet.last_block,
+                     ..state})
+            } else {
+                (false, zero!<SequenceExecutorPacket>(), state)
+            };
+
+            let tok = send_if(tok, output_s, do_send, data_to_send);
+            if (do_send) {
+                trace_fmt!("sent {:#x}", data_to_send);
+            } else {()};
+            state
         } else {
-            (false, zero!<SequenceExecutorPacket>(), state)
+            state
         };
 
-        let tok = send_if(tok, output_s, do_send, data_to_send);
-        if (do_send) {
-            trace_fmt!("sent {:#x}", data_to_send);
-        } else {()};
         state
     }
 }

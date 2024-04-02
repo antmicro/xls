@@ -31,7 +31,7 @@ fn calculate_ram_addr_width(hb_size_kb: u32, ram_data_width: u32, ram_num: u32) 
 }
 
 // Configurable RAM parameters
-const RAM_DATA_WIDTH = common::SYMBOL_WIDTH;
+pub const RAM_DATA_WIDTH = common::SYMBOL_WIDTH;
 const RAM_NUM = u32:8;
 
 type RamData = bits[RAM_DATA_WIDTH];
@@ -40,7 +40,7 @@ type RamData = bits[RAM_DATA_WIDTH];
 const RAM_NUM_WIDTH = std::clog2(RAM_NUM);
 const RAM_WORD_PARTITION_SIZE = RAM_DATA_WIDTH;
 const RAM_ORDER_WIDTH = std::clog2(RAM_DATA_WIDTH);
-const RAM_NUM_PARTITIONS = ram::num_partitions(RAM_WORD_PARTITION_SIZE, RAM_DATA_WIDTH);
+pub const RAM_NUM_PARTITIONS = ram::num_partitions(RAM_WORD_PARTITION_SIZE, RAM_DATA_WIDTH);
 const RAM_REQ_MASK_ALL = std::unsigned_max_value<RAM_NUM_PARTITIONS>();
 const RAM_REQ_MASK_NONE = bits[RAM_NUM_PARTITIONS]:0;
 
@@ -1136,9 +1136,9 @@ proc SequenceExecutor<HISTORY_BUFFER_SIZE_KB: u32,
     }
 }
 
-const ZSTD_HISTORY_BUFFER_SIZE_KB: u32 = u32:64;
+pub const ZSTD_HISTORY_BUFFER_SIZE_KB: u32 = u32:64;
 const ZSTD_RAM_SIZE = ram_size(ZSTD_HISTORY_BUFFER_SIZE_KB);
-const ZSTD_RAM_ADDR_WIDTH = ram_addr_width(ZSTD_HISTORY_BUFFER_SIZE_KB);
+pub const ZSTD_RAM_ADDR_WIDTH = ram_addr_width(ZSTD_HISTORY_BUFFER_SIZE_KB);
 
 pub proc SequenceExecutorZstd {
 

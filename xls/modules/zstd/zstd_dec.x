@@ -192,10 +192,16 @@ fn feed_block_decoder(state: ZstdDecoderState) -> (bool, BlockDataPacket, ZstdDe
                     data: data_to_send[0: DATA_WIDTH as s32],
                     length: remaining_bits_to_send_now,
                 };
-                let new_fsm_status = if (last_packet && state.last) {
-                    ZstdDecoderStatus::DECODE_CHECKSUM
-                } else if (last_packet) {
-                    ZstdDecoderStatus::DECODE_BLOCK_HEADER
+                let new_fsm_status = if (last_packet) {
+                    if (state.last) {
+                        if (state.frame_header.content_checksum_flag) {
+                            ZstdDecoderStatus::DECODE_CHECKSUM
+                        } else {
+                            ZstdDecoderStatus::DECODE_MAGIC_NUMBER
+                        }
+                    } else {
+                        ZstdDecoderStatus::DECODE_BLOCK_HEADER
+                    }
                 } else {
                     ZstdDecoderStatus::FEED_BLOCK_DECODER
                 };

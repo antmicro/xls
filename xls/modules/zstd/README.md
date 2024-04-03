@@ -36,8 +36,7 @@ The states defined for the processing of ZSTD frame are as follows:
 
 After going through initial stages of decoding magic number and frame header, decoder starts the block division process.
 It decodes block headers to calculate how many bytes must be sent to the block dispatcher and when the current frame's last data block is being processed.
-Knowing that it starts feeding the block decoder with data required for decoding current block.
-For this task it uses an 8 byte native interface: a 64-bit data bus and a 64-bit length field that contains the number of correct bits on the data bus.
+Knowing that, it starts feeding the block decoder with data required for decoding current block.
 After transmitting all data required for current block, it loops around to the block header decoding state and when next block header is not found it decodes checksum when it was requested in frame header or finishes ZSTD frame decoding and loops around to magic number decoding.
 
 ### ZSTD frame header decoder
@@ -48,16 +47,17 @@ If the frame header has the checksum option enabled, this will enable `DECODE_CH
 ### Block dispatcher (demux)
 At this stage, block headers are parsed and removed from the block data stream.
 Based on parse values, it directs the block data stream to either RAW, RLE or compressed block sections.
-It attaches a unique block ID value to each processed data block.
+For this task it uses an 8 byte native interface: a 64-bit data bus and a 64-bit length field that contains the number of correct bits on the data bus.
+It also attaches a unique block ID value to each processed data block.
 The IDs are sequential starting from 0 and are reset only after receiving and processing the current frame's last data block.
 
 ### RAW
-This module passes the received data directly to its output channel.
+This proc passes the received data directly to its output channel.
 It preserves the block ID and attaches a tag, stating that the data contains literals and should be placed in the history buffer unchanged, to each data output.
 
 ### RLE decoder
-This module receives a tuple (s, N), where s is an 8 bit symbol and N is an accompanying `symbol_count`.
-The module produces `N*s` repeats of the given symbol.
+This proc receives a tuple (s, N), where s is an 8 bit symbol and N is an accompanying `symbol_count`.
+The proc produces `N*s` repeats of the given symbol.
 This step preserves the block ID and attaches the literals tag to all its outputs.
 
 ### Compressed block decoder
@@ -65,7 +65,7 @@ This part of the design is responsible for decoding the compressed data blocks.
 It ingests the bytes stream, internally translates and interprets incoming data.
 Only this part of the design creates data chunks tagged both with `literals` and/or `copy`.
 This step preserves the block ID.
-More in depth description can be found in Compressed block decoder architecture paragraph of this doc.
+More in depth description can be found in [Compressed block decoder architecture](#compressed-block-decoder-architecture) paragraph of this doc.
 
 ### Commands aggregator (mux)
 This stage takes the output from either RAW, RLE or Command constructor and sends it to the History buffer and command execution stage.
@@ -101,9 +101,9 @@ Literals path uses Hufman trees to decode some types of compressed blocks: Compr
 ![](img/ZSTD_compressed_block_decoder.png)
 
 #### Compressed block dispatcher
-This module parses literals section headers to calculate block compression format, Huffmman tree size (if applicable based on compression format), compressed and regenerated sizes for literals.
+This proc parses literals section headers to calculate block compression format, Huffmman tree size (if applicable based on compression format), compressed and regenerated sizes for literals.
 If compressed block format is `Compressed_Literals_Block`, dispatcher reads Huffman tree header byte from Huffman bitstream, and directs expected number of bytes to the Huffman tree decoder.
-Following this step, the module sends an appropriate number of bytes to the literals decoder dispatcher.
+Following this step, the proc sends an appropriate number of bytes to the literals decoder dispatcher.
 
 After sending literals to literals decompression, it redirects the remaining bytes to the sequence parsing stages.
 
@@ -118,7 +118,7 @@ Formed commands are sent to the Commands aggregator (mux).
 ![](img/ZSTD_compressed_block_literals_decoder.png)
 
 #### Literals decoder dispatcher
-This module parses and consumes the literals section header.
+This proc parses and consumes the literals section header.
 Based on the received values it passes the remaining bytes to RAW/RLE/Huffman tree/Huffman code decoders.
 It also controls the 4 stream operation mode [4-stream mode in RFC](https://www.rfc-editor.org/rfc/rfc8878.html#name-jump_table).
 
@@ -129,7 +129,7 @@ If the compressed literals use the 4 streams encoding, the dispatcher will send 
 This stage simply passes the incoming bytes as literals to the literals buffer.
 
 #### RLE Literals
-This stage works similarly to the `RLE stage` for RLE data blocks.
+This stage works similarly to the [RLE stage](#rle-decoder) for RLE data blocks.
 
 #### Huffman bitstream buffer
 This stage takes data from the literals decoder dispatcher and stores it in the buffer memory.
@@ -186,34 +186,34 @@ This stage monitors and triggers sequence decoding phases starting from initiali
 FSE decoders send each other the number of bits they read.
 
 #### Literals FSE decoder
-This stage reconfigures its FSE table when triggered from `sequence header parse and dispatcher`.
+This stage reconfigures its FSE table when triggered from [sequence header parse and dispatcher](#sequence-header-parser-and-dispatcher).
 It initializes its state as the first FSE decoder.
 In the decode phase, this stage is the last one to decode extra raw bits from the bitstream, and the number of ingested bits is transmitted to all other decoders.
 This stage is the first stage to get a new FSE state from the bitstream, and it transmits the number of bits it used.
 
 #### Offset FSE decoder
-This stage reconfigures its FSE table when triggered from `sequence header parse and dispatcher`.
+This stage reconfigures its FSE table when triggered from [sequence header parse and dispatcher](#sequence-header-parser-and-dispatcher).
 It initializes its state as the second FSE decoder.
 In the decode phase, this stage is the first one to decode extra raw bits from bitstream, and the number of ingested bits is transmitted to all other decoders.
 This stage is the last decoder to update its FSE state after the decode phase, and it transmits the number of used bits to other decoders.
 
 #### Match FSE decoder
-This stage reconfigures its FSE table when triggered from `sequence header parse and dispatcher`.
+This stage reconfigures its FSE table when triggered from [sequence header parse and dispatcher](#sequence-header-parser-and-dispatcher).
 It initializes its state as the last FSE decoder.
 In the decode phase, this stage is the second one to decode extra raw bits from the bitstream, and the number of ingested bits is transmitted to all other decoders.
 This stage is the second stage to update its state after the decode phase, and the number of used bits is sent to all other decoders.
 
 ### Repacketizer
-This module is used at the end of the processing flow in the ZSTD decoder.
+This proc is used at the end of the processing flow in the ZSTD decoder.
 It gathers the output of `SequenceExecutor` proc and processes it to form final output packets of the ZSTD decoder.
 Input packets coming from the `SequenceExecutor` consist of:
 
-* data - bitvector of constant length
-* length - field describing how many bits in bitvector are valid
+* data - bit vector of constant length
+* length - field describing how many bits in bit vector are valid
 * last - flag which marks the last packet in currently decoded ZSTD frame.
 
-It is not guaranteed that all bits in data bitvectors in packets received from `SequenceExecutor` are valid as those can include padding bits which were added in previous decoding steps and now have to be removed.
-Repacketizer buffers input packets, removes the padding bits and forms new packets with all bits of the bitvector valid, meaning that all bits are decoded data.
+It is not guaranteed that all bits in data bit vectors in packets received from `SequenceExecutor` are valid as those can include padding bits which were added in previous decoding steps and now have to be removed.
+Repacketizer buffers input packets, removes the padding bits and forms new packets with all bits of the bit vector valid, meaning that all bits are decoded data.
 Newly formed packets are then sent out to the output of the whole ZSTD decoder.
 
 ## Testing against [libzstd](https://github.com/facebook/zstd)

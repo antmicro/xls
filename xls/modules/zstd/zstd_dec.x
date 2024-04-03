@@ -330,8 +330,8 @@ pub proc ZstdDecoder {
         trace_fmt!("zstd_dec: next(): state: {:#x}", state);
         let can_fit = buff::buffer_can_fit(state.buffer, BlockData:0);
         trace_fmt!("zstd_dec: next(): can_fit: {}", can_fit);
-        let (tok, data) = recv_if(tok, input_r, can_fit, BlockData:0);
-        let state = if (can_fit) {
+        let (tok, data, recv_valid) = recv_if_non_blocking(tok, input_r, can_fit, BlockData:0);
+        let state = if (can_fit && recv_valid) {
             let buffer = buff::buffer_append(state.buffer, data);
             trace_fmt!("zstd_dec: next(): received more data: {:#x}", data);
             ZstdDecoderState {buffer, ..state}

@@ -877,12 +877,13 @@ xls_dslx_verilog(
         "generator": "pipeline",
         "delay_model": "asap7",
         "ram_configurations": ",".join([
-            "{ram_name}:1RW:{req}:{resp}:{wr_comp}:{latency}".format(
+            "{ram_name}:1R1W:{rd_req}:{rd_resp}:{wr_req}:{wr_resp}:{latency}".format(
                 latency = 5,
                 ram_name = "ram{}".format(num),
-                req = "zstd_dec__req{}_s".format(num),
-                resp = "zstd_dec__resp{}_r".format(num),
-                wr_comp = "zstd_dec__wr_comp{}_r".format(num),
+                rd_req = "zstd_dec__ram_rd_req_{}_s".format(num),
+                rd_resp = "zstd_dec__ram_rd_resp_{}_r".format(num),
+                wr_req = "zstd_dec__ram_wr_req_{}_s".format(num),
+                wr_resp = "zstd_dec__ram_wr_resp_{}_r".format(num),
             )
             for num in range(7)
         ]),

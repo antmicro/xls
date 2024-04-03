@@ -37,8 +37,11 @@ type ZstdDecodedPacket = common::ZstdDecodedPacket;
 
 // TODO: all of this porboably should be in common.x
 const TEST_WINDOW_LOG_MAX_LIBZSTD = frame_header_test::TEST_WINDOW_LOG_MAX_LIBZSTD;
-type RWRamReq = sequence_executor::RWRamReq;
-type RWRamResp = sequence_executor::RWRamResp;
+
+const ZSTD_RAM_ADDR_WIDTH = sequence_executor::ZSTD_RAM_ADDR_WIDTH;
+const RAM_DATA_WIDTH = sequence_executor::RAM_DATA_WIDTH;
+const RAM_NUM_PARTITIONS = sequence_executor::RAM_NUM_PARTITIONS;
+const ZSTD_HISTORY_BUFFER_SIZE_KB = sequence_executor::ZSTD_HISTORY_BUFFER_SIZE_KB;
 
 const BUFFER_WIDTH = common::BUFFER_WIDTH;
 const DATA_WIDTH = common::DATA_WIDTH;
@@ -244,60 +247,80 @@ pub proc ZstdDecoder {
     input_r: chan<BlockData> in;
     block_dec_in_s: chan<BlockDataPacket> out;
     output_s: chan<ZstdDecodedPacket> out;
-    req0_s: chan<RWRamReq> out;
-    req1_s: chan<RWRamReq> out;
-    req2_s: chan<RWRamReq> out;
-    req3_s: chan<RWRamReq> out;
-    req4_s: chan<RWRamReq> out;
-    req5_s: chan<RWRamReq> out;
-    req6_s: chan<RWRamReq> out;
-    req7_s: chan<RWRamReq> out;
-    resp0_r: chan<RWRamResp> in;
-    resp1_r: chan<RWRamResp> in;
-    resp2_r: chan<RWRamResp> in;
-    resp3_r: chan<RWRamResp> in;
-    resp4_r: chan<RWRamResp> in;
-    resp5_r: chan<RWRamResp> in;
-    resp6_r: chan<RWRamResp> in;
-    resp7_r: chan<RWRamResp> in;
-    wr_comp0_r: chan<()> in;
-    wr_comp1_r: chan<()> in;
-    wr_comp2_r: chan<()> in;
-    wr_comp3_r: chan<()> in;
-    wr_comp4_r: chan<()> in;
-    wr_comp5_r: chan<()> in;
-    wr_comp6_r: chan<()> in;
-    wr_comp7_r: chan<()> in;
+    looped_channel_r: chan<SequenceExecutorPacket> in;
+    looped_channel_s: chan<SequenceExecutorPacket> out;
+    ram_rd_req_0_s: chan<ram::ReadReq<ZSTD_RAM_ADDR_WIDTH, RAM_NUM_PARTITIONS>> out;
+    ram_rd_req_1_s: chan<ram::ReadReq<ZSTD_RAM_ADDR_WIDTH, RAM_NUM_PARTITIONS>> out;
+    ram_rd_req_2_s: chan<ram::ReadReq<ZSTD_RAM_ADDR_WIDTH, RAM_NUM_PARTITIONS>> out;
+    ram_rd_req_3_s: chan<ram::ReadReq<ZSTD_RAM_ADDR_WIDTH, RAM_NUM_PARTITIONS>> out;
+    ram_rd_req_4_s: chan<ram::ReadReq<ZSTD_RAM_ADDR_WIDTH, RAM_NUM_PARTITIONS>> out;
+    ram_rd_req_5_s: chan<ram::ReadReq<ZSTD_RAM_ADDR_WIDTH, RAM_NUM_PARTITIONS>> out;
+    ram_rd_req_6_s: chan<ram::ReadReq<ZSTD_RAM_ADDR_WIDTH, RAM_NUM_PARTITIONS>> out;
+    ram_rd_req_7_s: chan<ram::ReadReq<ZSTD_RAM_ADDR_WIDTH, RAM_NUM_PARTITIONS>> out;
+    ram_rd_resp_0_r: chan<ram::ReadResp<RAM_DATA_WIDTH>> in;
+    ram_rd_resp_1_r: chan<ram::ReadResp<RAM_DATA_WIDTH>> in;
+    ram_rd_resp_2_r: chan<ram::ReadResp<RAM_DATA_WIDTH>> in;
+    ram_rd_resp_3_r: chan<ram::ReadResp<RAM_DATA_WIDTH>> in;
+    ram_rd_resp_4_r: chan<ram::ReadResp<RAM_DATA_WIDTH>> in;
+    ram_rd_resp_5_r: chan<ram::ReadResp<RAM_DATA_WIDTH>> in;
+    ram_rd_resp_6_r: chan<ram::ReadResp<RAM_DATA_WIDTH>> in;
+    ram_rd_resp_7_r: chan<ram::ReadResp<RAM_DATA_WIDTH>> in;
+    ram_wr_req_0_s: chan<ram::WriteReq<ZSTD_RAM_ADDR_WIDTH, RAM_DATA_WIDTH, RAM_NUM_PARTITIONS>> out;
+    ram_wr_req_1_s: chan<ram::WriteReq<ZSTD_RAM_ADDR_WIDTH, RAM_DATA_WIDTH, RAM_NUM_PARTITIONS>> out;
+    ram_wr_req_2_s: chan<ram::WriteReq<ZSTD_RAM_ADDR_WIDTH, RAM_DATA_WIDTH, RAM_NUM_PARTITIONS>> out;
+    ram_wr_req_3_s: chan<ram::WriteReq<ZSTD_RAM_ADDR_WIDTH, RAM_DATA_WIDTH, RAM_NUM_PARTITIONS>> out;
+    ram_wr_req_4_s: chan<ram::WriteReq<ZSTD_RAM_ADDR_WIDTH, RAM_DATA_WIDTH, RAM_NUM_PARTITIONS>> out;
+    ram_wr_req_5_s: chan<ram::WriteReq<ZSTD_RAM_ADDR_WIDTH, RAM_DATA_WIDTH, RAM_NUM_PARTITIONS>> out;
+    ram_wr_req_6_s: chan<ram::WriteReq<ZSTD_RAM_ADDR_WIDTH, RAM_DATA_WIDTH, RAM_NUM_PARTITIONS>> out;
+    ram_wr_req_7_s: chan<ram::WriteReq<ZSTD_RAM_ADDR_WIDTH, RAM_DATA_WIDTH, RAM_NUM_PARTITIONS>> out;
+    ram_wr_resp_0_r: chan<ram::WriteResp> in;
+    ram_wr_resp_1_r: chan<ram::WriteResp> in;
+    ram_wr_resp_2_r: chan<ram::WriteResp> in;
+    ram_wr_resp_3_r: chan<ram::WriteResp> in;
+    ram_wr_resp_4_r: chan<ram::WriteResp> in;
+    ram_wr_resp_5_r: chan<ram::WriteResp> in;
+    ram_wr_resp_6_r: chan<ram::WriteResp> in;
+    ram_wr_resp_7_r: chan<ram::WriteResp> in;
 
     init {(ZERO_DECODER_STATE)}
 
     config (
         input_r: chan<BlockData> in,
         output_s: chan<ZstdDecodedPacket> out,
-        req0_s: chan<RWRamReq> out,
-        req1_s: chan<RWRamReq> out,
-        req2_s: chan<RWRamReq> out,
-        req3_s: chan<RWRamReq> out,
-        req4_s: chan<RWRamReq> out,
-        req5_s: chan<RWRamReq> out,
-        req6_s: chan<RWRamReq> out,
-        req7_s: chan<RWRamReq> out,
-        resp0_r: chan<RWRamResp> in,
-        resp1_r: chan<RWRamResp> in,
-        resp2_r: chan<RWRamResp> in,
-        resp3_r: chan<RWRamResp> in,
-        resp4_r: chan<RWRamResp> in,
-        resp5_r: chan<RWRamResp> in,
-        resp6_r: chan<RWRamResp> in,
-        resp7_r: chan<RWRamResp> in,
-        wr_comp0_r: chan<()> in,
-        wr_comp1_r: chan<()> in,
-        wr_comp2_r: chan<()> in,
-        wr_comp3_r: chan<()> in,
-        wr_comp4_r: chan<()> in,
-        wr_comp5_r: chan<()> in,
-        wr_comp6_r: chan<()> in,
-        wr_comp7_r: chan<()> in
+        looped_channel_r: chan<SequenceExecutorPacket> in,
+        looped_channel_s: chan<SequenceExecutorPacket> out,
+        ram_rd_req_0_s: chan<ram::ReadReq<ZSTD_RAM_ADDR_WIDTH, RAM_NUM_PARTITIONS>> out,
+        ram_rd_req_1_s: chan<ram::ReadReq<ZSTD_RAM_ADDR_WIDTH, RAM_NUM_PARTITIONS>> out,
+        ram_rd_req_2_s: chan<ram::ReadReq<ZSTD_RAM_ADDR_WIDTH, RAM_NUM_PARTITIONS>> out,
+        ram_rd_req_3_s: chan<ram::ReadReq<ZSTD_RAM_ADDR_WIDTH, RAM_NUM_PARTITIONS>> out,
+        ram_rd_req_4_s: chan<ram::ReadReq<ZSTD_RAM_ADDR_WIDTH, RAM_NUM_PARTITIONS>> out,
+        ram_rd_req_5_s: chan<ram::ReadReq<ZSTD_RAM_ADDR_WIDTH, RAM_NUM_PARTITIONS>> out,
+        ram_rd_req_6_s: chan<ram::ReadReq<ZSTD_RAM_ADDR_WIDTH, RAM_NUM_PARTITIONS>> out,
+        ram_rd_req_7_s: chan<ram::ReadReq<ZSTD_RAM_ADDR_WIDTH, RAM_NUM_PARTITIONS>> out,
+        ram_rd_resp_0_r: chan<ram::ReadResp<RAM_DATA_WIDTH>> in,
+        ram_rd_resp_1_r: chan<ram::ReadResp<RAM_DATA_WIDTH>> in,
+        ram_rd_resp_2_r: chan<ram::ReadResp<RAM_DATA_WIDTH>> in,
+        ram_rd_resp_3_r: chan<ram::ReadResp<RAM_DATA_WIDTH>> in,
+        ram_rd_resp_4_r: chan<ram::ReadResp<RAM_DATA_WIDTH>> in,
+        ram_rd_resp_5_r: chan<ram::ReadResp<RAM_DATA_WIDTH>> in,
+        ram_rd_resp_6_r: chan<ram::ReadResp<RAM_DATA_WIDTH>> in,
+        ram_rd_resp_7_r: chan<ram::ReadResp<RAM_DATA_WIDTH>> in,
+        ram_wr_req_0_s: chan<ram::WriteReq<ZSTD_RAM_ADDR_WIDTH, RAM_DATA_WIDTH, RAM_NUM_PARTITIONS>> out,
+        ram_wr_req_1_s: chan<ram::WriteReq<ZSTD_RAM_ADDR_WIDTH, RAM_DATA_WIDTH, RAM_NUM_PARTITIONS>> out,
+        ram_wr_req_2_s: chan<ram::WriteReq<ZSTD_RAM_ADDR_WIDTH, RAM_DATA_WIDTH, RAM_NUM_PARTITIONS>> out,
+        ram_wr_req_3_s: chan<ram::WriteReq<ZSTD_RAM_ADDR_WIDTH, RAM_DATA_WIDTH, RAM_NUM_PARTITIONS>> out,
+        ram_wr_req_4_s: chan<ram::WriteReq<ZSTD_RAM_ADDR_WIDTH, RAM_DATA_WIDTH, RAM_NUM_PARTITIONS>> out,
+        ram_wr_req_5_s: chan<ram::WriteReq<ZSTD_RAM_ADDR_WIDTH, RAM_DATA_WIDTH, RAM_NUM_PARTITIONS>> out,
+        ram_wr_req_6_s: chan<ram::WriteReq<ZSTD_RAM_ADDR_WIDTH, RAM_DATA_WIDTH, RAM_NUM_PARTITIONS>> out,
+        ram_wr_req_7_s: chan<ram::WriteReq<ZSTD_RAM_ADDR_WIDTH, RAM_DATA_WIDTH, RAM_NUM_PARTITIONS>> out,
+        ram_wr_resp_0_r: chan<ram::WriteResp> in,
+        ram_wr_resp_1_r: chan<ram::WriteResp> in,
+        ram_wr_resp_2_r: chan<ram::WriteResp> in,
+        ram_wr_resp_3_r: chan<ram::WriteResp> in,
+        ram_wr_resp_4_r: chan<ram::WriteResp> in,
+        ram_wr_resp_5_r: chan<ram::WriteResp> in,
+        ram_wr_resp_6_r: chan<ram::WriteResp> in,
+        ram_wr_resp_7_r: chan<ram::WriteResp> in,
     ) {
         let (block_dec_in_s, block_dec_in_r) = chan<BlockDataPacket, u32:1>;
         let (seq_exec_in_s, seq_exec_in_r) = chan<SequenceExecutorPacket, u32:1>;
@@ -305,25 +328,30 @@ pub proc ZstdDecoder {
 
         spawn block_dec::BlockDecoder(block_dec_in_r, seq_exec_in_s);
 
-        spawn sequence_executor::SequenceExecutor(
+        spawn sequence_executor::SequenceExecutor<ZSTD_HISTORY_BUFFER_SIZE_KB>(
             seq_exec_in_r, repacketizer_in_s,
-            req0_s, req1_s, req2_s, req3_s,
-            req4_s, req5_s, req6_s, req7_s,
-            resp0_r, resp1_r, resp2_r, resp3_r,
-            resp4_r, resp5_r, resp6_r, resp7_r,
-            wr_comp0_r, wr_comp1_r, wr_comp2_r, wr_comp3_r,
-            wr_comp4_r, wr_comp5_r, wr_comp6_r, wr_comp7_r
+            looped_channel_r, looped_channel_s,
+            ram_rd_req_0_s,  ram_rd_req_1_s,  ram_rd_req_2_s,  ram_rd_req_3_s,
+            ram_rd_req_4_s,  ram_rd_req_5_s,  ram_rd_req_6_s,  ram_rd_req_7_s,
+            ram_rd_resp_0_r, ram_rd_resp_1_r, ram_rd_resp_2_r, ram_rd_resp_3_r,
+            ram_rd_resp_4_r, ram_rd_resp_5_r, ram_rd_resp_6_r, ram_rd_resp_7_r,
+            ram_wr_req_0_s,  ram_wr_req_1_s,  ram_wr_req_2_s,  ram_wr_req_3_s,
+            ram_wr_req_4_s,  ram_wr_req_5_s,  ram_wr_req_6_s,  ram_wr_req_7_s,
+            ram_wr_resp_0_r, ram_wr_resp_1_r, ram_wr_resp_2_r, ram_wr_resp_3_r,
+            ram_wr_resp_4_r, ram_wr_resp_5_r, ram_wr_resp_6_r, ram_wr_resp_7_r,
         );
 
         spawn repacketizer::Repacketizer(repacketizer_in_r, output_s);
 
-        (input_r, block_dec_in_s, output_s,
-         req0_s, req1_s, req2_s, req3_s,
-         req4_s, req5_s, req6_s, req7_s,
-         resp0_r, resp1_r, resp2_r, resp3_r,
-         resp4_r, resp5_r, resp6_r, resp7_r,
-         wr_comp0_r, wr_comp1_r, wr_comp2_r, wr_comp3_r,
-         wr_comp4_r, wr_comp5_r, wr_comp6_r, wr_comp7_r)
+        (input_r, block_dec_in_s, output_s, looped_channel_r, looped_channel_s,
+         ram_rd_req_0_s,  ram_rd_req_1_s,  ram_rd_req_2_s,  ram_rd_req_3_s,
+         ram_rd_req_4_s,  ram_rd_req_5_s,  ram_rd_req_6_s,  ram_rd_req_7_s,
+         ram_rd_resp_0_r, ram_rd_resp_1_r, ram_rd_resp_2_r, ram_rd_resp_3_r,
+         ram_rd_resp_4_r, ram_rd_resp_5_r, ram_rd_resp_6_r, ram_rd_resp_7_r,
+         ram_wr_req_0_s,  ram_wr_req_1_s,  ram_wr_req_2_s,  ram_wr_req_3_s,
+         ram_wr_req_4_s,  ram_wr_req_5_s,  ram_wr_req_6_s,  ram_wr_req_7_s,
+         ram_wr_resp_0_r, ram_wr_resp_1_r, ram_wr_resp_2_r, ram_wr_resp_3_r,
+         ram_wr_resp_4_r, ram_wr_resp_5_r, ram_wr_resp_6_r, ram_wr_resp_7_r)
     }
 
     next (tok: token, state: ZstdDecoderState) {

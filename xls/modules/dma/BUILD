@@ -121,7 +121,7 @@ place_and_route(
     core_padding_microns = 2,
     min_pin_distance = "0.5",
     placement_density = "0.30",
-    skip_detailed_routing = True,
+    stop_after_step = "global_routing",
     synthesized_rtl = ":csr_synth_asap7",
     target_die_utilization_percentage = "10",
 )
@@ -196,7 +196,7 @@ place_and_route(
     core_padding_microns = 2,
     min_pin_distance = "0.5",
     placement_density = "0.30",
-    skip_detailed_routing = True,
+    stop_after_step = "global_routing",
     synthesized_rtl = ":axi_csr_synth_asap7",
     target_die_utilization_percentage = "10",
 )
@@ -321,7 +321,7 @@ place_and_route(
     core_padding_microns = 2,
     min_pin_distance = "0.5",
     placement_density = "0.30",
-    skip_detailed_routing = True,
+    stop_after_step = "global_routing",
     synthesized_rtl = ":address_generator_synth_asap7",
     target_die_utilization_percentage = "10",
 )
@@ -397,7 +397,7 @@ place_and_route(
     core_padding_microns = 2,
     min_pin_distance = "0.5",
     placement_density = "0.30",
-    skip_detailed_routing = True,
+    stop_after_step = "global_routing",
     synthesized_rtl = ":frontend_reader_synth_asap7",
     target_die_utilization_percentage = "10",
 )
@@ -473,7 +473,7 @@ place_and_route(
     core_padding_microns = 2,
     min_pin_distance = "0.5",
     placement_density = "0.30",
-    skip_detailed_routing = True,
+    stop_after_step = "global_routing",
     synthesized_rtl = ":frontend_writer_synth_asap7",
     target_die_utilization_percentage = "10",
 )
@@ -556,7 +556,7 @@ xls_dslx_test(
 #     core_padding_microns = 2,
 #     min_pin_distance = "0.5",
 #     placement_density = "0.30",
-#     skip_detailed_routing = True,
+#     stop_after_step = "global_routing",
 #     synthesized_rtl = ":main_controller_synth_asap7",
 #     target_die_utilization_percentage = "10",
 # )

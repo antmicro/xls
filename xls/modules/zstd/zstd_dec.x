@@ -388,3 +388,109 @@ pub proc ZstdDecoder {
         state
     }
 }
+
+const TEST_RAM_SIZE = sequence_executor::ram_size(ZSTD_HISTORY_BUFFER_SIZE_KB);
+const RAM_WORD_PARTITION_SIZE = sequence_executor::RAM_WORD_PARTITION_SIZE;
+const TEST_RAM_SIMULTANEOUS_READ_WRITE_BEHAVIOR = sequence_executor::TEST_RAM_SIMULTANEOUS_READ_WRITE_BEHAVIOR;
+const TEST_RAM_INITIALIZED = sequence_executor::TEST_RAM_INITIALIZED;
+const TEST_RAM_ASSERT_VALID_READ:bool = {false};
+
+pub proc ZstdDecoderTest {
+    input_r: chan<BlockData> in;
+    output_s: chan<ZstdDecodedPacket> out;
+
+    init {()}
+
+    config (
+        input_r: chan<BlockData> in,
+        output_s: chan<ZstdDecodedPacket> out,
+    ) {
+        let (looped_channel_s, looped_channel_r) = chan<SequenceExecutorPacket, u32:1>;
+
+        let (ram_rd_req_0_s, ram_rd_req_0_r) = chan<ram::ReadReq<ZSTD_RAM_ADDR_WIDTH, RAM_NUM_PARTITIONS>, u32:1>;
+        let (ram_rd_req_1_s, ram_rd_req_1_r) = chan<ram::ReadReq<ZSTD_RAM_ADDR_WIDTH, RAM_NUM_PARTITIONS>, u32:1>;
+        let (ram_rd_req_2_s, ram_rd_req_2_r) = chan<ram::ReadReq<ZSTD_RAM_ADDR_WIDTH, RAM_NUM_PARTITIONS>, u32:1>;
+        let (ram_rd_req_3_s, ram_rd_req_3_r) = chan<ram::ReadReq<ZSTD_RAM_ADDR_WIDTH, RAM_NUM_PARTITIONS>, u32:1>;
+        let (ram_rd_req_4_s, ram_rd_req_4_r) = chan<ram::ReadReq<ZSTD_RAM_ADDR_WIDTH, RAM_NUM_PARTITIONS>, u32:1>;
+        let (ram_rd_req_5_s, ram_rd_req_5_r) = chan<ram::ReadReq<ZSTD_RAM_ADDR_WIDTH, RAM_NUM_PARTITIONS>, u32:1>;
+        let (ram_rd_req_6_s, ram_rd_req_6_r) = chan<ram::ReadReq<ZSTD_RAM_ADDR_WIDTH, RAM_NUM_PARTITIONS>, u32:1>;
+        let (ram_rd_req_7_s, ram_rd_req_7_r) = chan<ram::ReadReq<ZSTD_RAM_ADDR_WIDTH, RAM_NUM_PARTITIONS>, u32:1>;
+
+        let (ram_rd_resp_0_s, ram_rd_resp_0_r) = chan<ram::ReadResp<RAM_DATA_WIDTH>, u32:1>;
+        let (ram_rd_resp_1_s, ram_rd_resp_1_r) = chan<ram::ReadResp<RAM_DATA_WIDTH>, u32:1>;
+        let (ram_rd_resp_2_s, ram_rd_resp_2_r) = chan<ram::ReadResp<RAM_DATA_WIDTH>, u32:1>;
+        let (ram_rd_resp_3_s, ram_rd_resp_3_r) = chan<ram::ReadResp<RAM_DATA_WIDTH>, u32:1>;
+        let (ram_rd_resp_4_s, ram_rd_resp_4_r) = chan<ram::ReadResp<RAM_DATA_WIDTH>, u32:1>;
+        let (ram_rd_resp_5_s, ram_rd_resp_5_r) = chan<ram::ReadResp<RAM_DATA_WIDTH>, u32:1>;
+        let (ram_rd_resp_6_s, ram_rd_resp_6_r) = chan<ram::ReadResp<RAM_DATA_WIDTH>, u32:1>;
+        let (ram_rd_resp_7_s, ram_rd_resp_7_r) = chan<ram::ReadResp<RAM_DATA_WIDTH>, u32:1>;
+
+        let (ram_wr_req_0_s, ram_wr_req_0_r) = chan<ram::WriteReq<ZSTD_RAM_ADDR_WIDTH, RAM_DATA_WIDTH, RAM_NUM_PARTITIONS>, u32:1>;
+        let (ram_wr_req_1_s, ram_wr_req_1_r) = chan<ram::WriteReq<ZSTD_RAM_ADDR_WIDTH, RAM_DATA_WIDTH, RAM_NUM_PARTITIONS>, u32:1>;
+        let (ram_wr_req_2_s, ram_wr_req_2_r) = chan<ram::WriteReq<ZSTD_RAM_ADDR_WIDTH, RAM_DATA_WIDTH, RAM_NUM_PARTITIONS>, u32:1>;
+        let (ram_wr_req_3_s, ram_wr_req_3_r) = chan<ram::WriteReq<ZSTD_RAM_ADDR_WIDTH, RAM_DATA_WIDTH, RAM_NUM_PARTITIONS>, u32:1>;
+        let (ram_wr_req_4_s, ram_wr_req_4_r) = chan<ram::WriteReq<ZSTD_RAM_ADDR_WIDTH, RAM_DATA_WIDTH, RAM_NUM_PARTITIONS>, u32:1>;
+        let (ram_wr_req_5_s, ram_wr_req_5_r) = chan<ram::WriteReq<ZSTD_RAM_ADDR_WIDTH, RAM_DATA_WIDTH, RAM_NUM_PARTITIONS>, u32:1>;
+        let (ram_wr_req_6_s, ram_wr_req_6_r) = chan<ram::WriteReq<ZSTD_RAM_ADDR_WIDTH, RAM_DATA_WIDTH, RAM_NUM_PARTITIONS>, u32:1>;
+        let (ram_wr_req_7_s, ram_wr_req_7_r) = chan<ram::WriteReq<ZSTD_RAM_ADDR_WIDTH, RAM_DATA_WIDTH, RAM_NUM_PARTITIONS>, u32:1>;
+
+        let (ram_wr_resp_0_s, ram_wr_resp_0_r) = chan<ram::WriteResp, u32:1>;
+        let (ram_wr_resp_1_s, ram_wr_resp_1_r) = chan<ram::WriteResp, u32:1>;
+        let (ram_wr_resp_2_s, ram_wr_resp_2_r) = chan<ram::WriteResp, u32:1>;
+        let (ram_wr_resp_3_s, ram_wr_resp_3_r) = chan<ram::WriteResp, u32:1>;
+        let (ram_wr_resp_4_s, ram_wr_resp_4_r) = chan<ram::WriteResp, u32:1>;
+        let (ram_wr_resp_5_s, ram_wr_resp_5_r) = chan<ram::WriteResp, u32:1>;
+        let (ram_wr_resp_6_s, ram_wr_resp_6_r) = chan<ram::WriteResp, u32:1>;
+        let (ram_wr_resp_7_s, ram_wr_resp_7_r) = chan<ram::WriteResp, u32:1>;
+
+        spawn ZstdDecoder(
+            input_r, output_s,
+            looped_channel_r, looped_channel_s,
+            ram_rd_req_0_s,  ram_rd_req_1_s,  ram_rd_req_2_s,  ram_rd_req_3_s,
+            ram_rd_req_4_s,  ram_rd_req_5_s,  ram_rd_req_6_s,  ram_rd_req_7_s,
+            ram_rd_resp_0_r, ram_rd_resp_1_r, ram_rd_resp_2_r, ram_rd_resp_3_r,
+            ram_rd_resp_4_r, ram_rd_resp_5_r, ram_rd_resp_6_r, ram_rd_resp_7_r,
+            ram_wr_req_0_s,  ram_wr_req_1_s,  ram_wr_req_2_s,  ram_wr_req_3_s,
+            ram_wr_req_4_s,  ram_wr_req_5_s,  ram_wr_req_6_s,  ram_wr_req_7_s,
+            ram_wr_resp_0_r, ram_wr_resp_1_r, ram_wr_resp_2_r, ram_wr_resp_3_r,
+            ram_wr_resp_4_r, ram_wr_resp_5_r, ram_wr_resp_6_r, ram_wr_resp_7_r,
+        );
+
+        spawn ram::RamModel<
+            RAM_DATA_WIDTH, TEST_RAM_SIZE, RAM_WORD_PARTITION_SIZE,
+            TEST_RAM_SIMULTANEOUS_READ_WRITE_BEHAVIOR, TEST_RAM_INITIALIZED, TEST_RAM_ASSERT_VALID_READ>
+            (ram_rd_req_0_r, ram_rd_resp_0_s, ram_wr_req_0_r, ram_wr_resp_0_s);
+        spawn ram::RamModel<
+            RAM_DATA_WIDTH, TEST_RAM_SIZE, RAM_WORD_PARTITION_SIZE,
+            TEST_RAM_SIMULTANEOUS_READ_WRITE_BEHAVIOR, TEST_RAM_INITIALIZED, TEST_RAM_ASSERT_VALID_READ>
+            (ram_rd_req_1_r, ram_rd_resp_1_s, ram_wr_req_1_r, ram_wr_resp_1_s);
+        spawn ram::RamModel<
+            RAM_DATA_WIDTH, TEST_RAM_SIZE, RAM_WORD_PARTITION_SIZE,
+            TEST_RAM_SIMULTANEOUS_READ_WRITE_BEHAVIOR, TEST_RAM_INITIALIZED, TEST_RAM_ASSERT_VALID_READ>
+            (ram_rd_req_2_r, ram_rd_resp_2_s, ram_wr_req_2_r, ram_wr_resp_2_s);
+        spawn ram::RamModel<
+            RAM_DATA_WIDTH, TEST_RAM_SIZE, RAM_WORD_PARTITION_SIZE,
+            TEST_RAM_SIMULTANEOUS_READ_WRITE_BEHAVIOR, TEST_RAM_INITIALIZED, TEST_RAM_ASSERT_VALID_READ>
+            (ram_rd_req_3_r, ram_rd_resp_3_s, ram_wr_req_3_r, ram_wr_resp_3_s);
+        spawn ram::RamModel<
+            RAM_DATA_WIDTH, TEST_RAM_SIZE, RAM_WORD_PARTITION_SIZE,
+            TEST_RAM_SIMULTANEOUS_READ_WRITE_BEHAVIOR, TEST_RAM_INITIALIZED, TEST_RAM_ASSERT_VALID_READ>
+            (ram_rd_req_4_r, ram_rd_resp_4_s, ram_wr_req_4_r, ram_wr_resp_4_s);
+        spawn ram::RamModel<
+            RAM_DATA_WIDTH, TEST_RAM_SIZE, RAM_WORD_PARTITION_SIZE,
+            TEST_RAM_SIMULTANEOUS_READ_WRITE_BEHAVIOR, TEST_RAM_INITIALIZED, TEST_RAM_ASSERT_VALID_READ>
+            (ram_rd_req_5_r, ram_rd_resp_5_s, ram_wr_req_5_r, ram_wr_resp_5_s);
+        spawn ram::RamModel<
+            RAM_DATA_WIDTH, TEST_RAM_SIZE, RAM_WORD_PARTITION_SIZE,
+            TEST_RAM_SIMULTANEOUS_READ_WRITE_BEHAVIOR, TEST_RAM_INITIALIZED, TEST_RAM_ASSERT_VALID_READ>
+            (ram_rd_req_6_r, ram_rd_resp_6_s, ram_wr_req_6_r, ram_wr_resp_6_s);
+        spawn ram::RamModel<
+            RAM_DATA_WIDTH, TEST_RAM_SIZE, RAM_WORD_PARTITION_SIZE,
+            TEST_RAM_SIMULTANEOUS_READ_WRITE_BEHAVIOR, TEST_RAM_INITIALIZED, TEST_RAM_ASSERT_VALID_READ>
+            (ram_rd_req_7_r, ram_rd_resp_7_s, ram_wr_req_7_r, ram_wr_resp_7_s);
+
+        (input_r, output_s)
+    }
+
+    next (tok: token, state: ()) {}
+}

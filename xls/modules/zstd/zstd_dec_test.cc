@@ -22,6 +22,7 @@
 #include "xls/common/status/matchers.h"
 #include "xls/interpreter/interpreter_proc_runtime.h"
 #include "xls/interpreter/serial_proc_runtime.h"
+#include "xls/jit/jit_proc_runtime.h"
 #include "xls/ir/events.h"
 #include "xls/ir/ir_parser.h"
 #include "xls/modules/zstd/data_generator.h"
@@ -94,7 +95,7 @@ class ZstdDecoderTest : public ::testing::Test {
     XLS_ASSERT_OK_AND_ASSIGN(this->package, xls::Parser::ParsePackage(ir_text));
     XLS_ASSERT_OK_AND_ASSIGN(
         this->interpreter,
-        CreateInterpreterSerialProcRuntime(this->package.get()));
+        CreateJitSerialProcRuntime(this->package.get()));
 
     auto& queue_manager = this->interpreter->queue_manager();
     XLS_ASSERT_OK_AND_ASSIGN(this->recv_queue, queue_manager.GetQueueByName(
@@ -115,11 +116,11 @@ class ZstdDecoderTest : public ::testing::Test {
     }
   }
 
-  const char* proc_name = "__zstd_dec__ZstdDecoder_0_next";
+  const char* proc_name = "__zstd_dec__ZstdDecoderTest_0_next";
   const char* recv_channel_name = "zstd_dec__output_s";
   const char* send_channel_name = "zstd_dec__input_r";
 
-  const char* ir_file = "xls/modules/zstd/zstd_dec_verilog.ir";
+  const char* ir_file = "xls/modules/zstd/zstd_dec_test.ir";
 
   std::unique_ptr<Package> package;
   std::unique_ptr<SerialProcRuntime> interpreter;
@@ -190,7 +191,7 @@ class ZstdDecoderTest : public ::testing::Test {
       XLS_EXPECT_OK(this->send_queue->Write(value));
       XLS_EXPECT_OK(this->interpreter->Tick());
     }
-    PrintTraceMessages("__zstd_dec__ZstdDecoder_0_next");
+    PrintTraceMessages("__zstd_dec__ZstdDecoderTest_0_next");
 
     // Tick decoder simulation until we get expected amount of output data
     // batches on output channel queue

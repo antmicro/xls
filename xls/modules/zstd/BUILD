@@ -20,9 +20,11 @@ load("@rules_hdl//verilog:providers.bzl", "verilog_library")
 load(
     "//xls/build_rules:xls_build_defs.bzl",
     "xls_benchmark_ir",
+    "xls_dslx_ir",
     "xls_benchmark_verilog",
     "xls_dslx_library",
     "xls_dslx_test",
+    "xls_ir_opt_ir",
     "xls_dslx_verilog",
 )
 
@@ -908,13 +910,29 @@ xls_dslx_verilog(
     verilog_file = "zstd_dec.v",
 )
 
+xls_dslx_ir(
+    name = "zstd_dec_test_ir",
+    dslx_top = "ZstdDecoderTest",
+    ir_file = "zstd_dec_test.ir",
+    library = ":zstd_dec_dslx",
+)
+
+xls_ir_opt_ir(
+    name = "zstd_dec_test_opt_ir",
+    src = "zstd_dec_test.ir",
+    opt_ir_args = {
+        "inline_procs": "true",
+        "top": "__xls_modules_zstd_repacketizer__ZstdDecoderTest__ZstdDecoder__Repacketizer_0_next"
+    },
+)
+
 cc_test(
     name = "zstd_dec_cc_test",
     srcs = [
         "zstd_dec_test.cc",
     ],
     data = [
-        ":zstd_dec_verilog.ir",
+        ":zstd_dec_test.ir",
     ],
     shard_count = 50,
     deps = [
@@ -924,6 +942,7 @@ cc_test(
         "//xls/common/file:get_runfile_path",
         "//xls/common/status:matchers",
         "//xls/interpreter:interpreter_proc_runtime",
+        "//xls/jit:jit_proc_runtime",
         "//xls/ir:events",
         "//xls/ir:ir_parser",
         "//xls/ir:value",

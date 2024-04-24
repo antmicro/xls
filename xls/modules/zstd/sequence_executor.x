@@ -38,7 +38,7 @@ type RamData = bits[RAM_DATA_WIDTH];
 
 // Constants calculated from RAM parameters
 const RAM_NUM_WIDTH = std::clog2(RAM_NUM);
-const RAM_WORD_PARTITION_SIZE = RAM_DATA_WIDTH;
+pub const RAM_WORD_PARTITION_SIZE = RAM_DATA_WIDTH;
 const RAM_ORDER_WIDTH = std::clog2(RAM_DATA_WIDTH);
 pub const RAM_NUM_PARTITIONS = ram::num_partitions(RAM_WORD_PARTITION_SIZE, RAM_DATA_WIDTH);
 const RAM_REQ_MASK_ALL = std::unsigned_max_value<RAM_NUM_PARTITIONS>();
@@ -47,7 +47,7 @@ const RAM_REQ_MASK_NONE = bits[RAM_NUM_PARTITIONS]:0;
 type RamNumber = bits[RAM_NUM_WIDTH];
 type RamOrder = bits[RAM_ORDER_WIDTH];
 
-fn ram_size(hb_size_kb: u32) -> u32 { (hb_size_kb * u32:1024 * u32:8) / RAM_DATA_WIDTH / RAM_NUM }
+pub fn ram_size(hb_size_kb: u32) -> u32 { (hb_size_kb * u32:1024 * u32:8) / RAM_DATA_WIDTH / RAM_NUM }
 
 fn ram_addr_width(hb_size_kb: u32) -> u32 { std::clog2(ram_size(hb_size_kb)) }
 
@@ -55,8 +55,8 @@ fn ram_addr_width(hb_size_kb: u32) -> u32 { std::clog2(ram_size(hb_size_kb)) }
 const TEST_HISTORY_BUFFER_SIZE_KB = u32:1;
 const TEST_RAM_SIZE = ram_size(TEST_HISTORY_BUFFER_SIZE_KB);
 const TEST_RAM_ADDR_WIDTH = ram_addr_width(TEST_HISTORY_BUFFER_SIZE_KB);
-const TEST_RAM_INITIALIZED = true;
-const TEST_RAM_SIMULTANEOUS_READ_WRITE_BEHAVIOR = ram::SimultaneousReadWriteBehavior::READ_BEFORE_WRITE;
+pub const TEST_RAM_INITIALIZED = true;
+pub const TEST_RAM_SIMULTANEOUS_READ_WRITE_BEHAVIOR = ram::SimultaneousReadWriteBehavior::READ_BEFORE_WRITE;
 
 type TestRamAddr = bits[TEST_RAM_ADDR_WIDTH];
 type TestWriteReq = ram::WriteReq<TEST_RAM_ADDR_WIDTH, RAM_DATA_WIDTH, RAM_NUM_PARTITIONS>;

@@ -322,9 +322,9 @@ pub proc ZstdDecoder {
         ram_wr_resp_6_r: chan<ram::WriteResp> in,
         ram_wr_resp_7_r: chan<ram::WriteResp> in,
     ) {
-        let (block_dec_in_s, block_dec_in_r) = chan<BlockDataPacket, u32:1>;
-        let (seq_exec_in_s, seq_exec_in_r) = chan<SequenceExecutorPacket, u32:1>;
-        let (repacketizer_in_s, repacketizer_in_r) = chan<ZstdDecodedPacket, u32:1>;
+        let (block_dec_in_s, block_dec_in_r) = chan<BlockDataPacket, u32:1>("block_dec_in");
+        let (seq_exec_in_s, seq_exec_in_r) = chan<SequenceExecutorPacket, u32:1>("seq_exec_in");
+        let (repacketizer_in_s, repacketizer_in_r) = chan<ZstdDecodedPacket, u32:1>("repacketizer_in");
 
         spawn block_dec::BlockDecoder(block_dec_in_r, seq_exec_in_s);
 
@@ -405,43 +405,43 @@ pub proc ZstdDecoderTest {
         input_r: chan<BlockData> in,
         output_s: chan<ZstdDecodedPacket> out,
     ) {
-        let (looped_channel_s, looped_channel_r) = chan<SequenceExecutorPacket, u32:1>;
+        let (looped_channel_s, looped_channel_r) = chan<SequenceExecutorPacket, u32:1>("looped_channel");
 
-        let (ram_rd_req_0_s, ram_rd_req_0_r) = chan<ram::ReadReq<ZSTD_RAM_ADDR_WIDTH, RAM_NUM_PARTITIONS>, u32:1>;
-        let (ram_rd_req_1_s, ram_rd_req_1_r) = chan<ram::ReadReq<ZSTD_RAM_ADDR_WIDTH, RAM_NUM_PARTITIONS>, u32:1>;
-        let (ram_rd_req_2_s, ram_rd_req_2_r) = chan<ram::ReadReq<ZSTD_RAM_ADDR_WIDTH, RAM_NUM_PARTITIONS>, u32:1>;
-        let (ram_rd_req_3_s, ram_rd_req_3_r) = chan<ram::ReadReq<ZSTD_RAM_ADDR_WIDTH, RAM_NUM_PARTITIONS>, u32:1>;
-        let (ram_rd_req_4_s, ram_rd_req_4_r) = chan<ram::ReadReq<ZSTD_RAM_ADDR_WIDTH, RAM_NUM_PARTITIONS>, u32:1>;
-        let (ram_rd_req_5_s, ram_rd_req_5_r) = chan<ram::ReadReq<ZSTD_RAM_ADDR_WIDTH, RAM_NUM_PARTITIONS>, u32:1>;
-        let (ram_rd_req_6_s, ram_rd_req_6_r) = chan<ram::ReadReq<ZSTD_RAM_ADDR_WIDTH, RAM_NUM_PARTITIONS>, u32:1>;
-        let (ram_rd_req_7_s, ram_rd_req_7_r) = chan<ram::ReadReq<ZSTD_RAM_ADDR_WIDTH, RAM_NUM_PARTITIONS>, u32:1>;
+        let (ram_rd_req_0_s, ram_rd_req_0_r) = chan<ram::ReadReq<ZSTD_RAM_ADDR_WIDTH, RAM_NUM_PARTITIONS>, u32:1>("ram_rd_req_0");
+        let (ram_rd_req_1_s, ram_rd_req_1_r) = chan<ram::ReadReq<ZSTD_RAM_ADDR_WIDTH, RAM_NUM_PARTITIONS>, u32:1>("ram_rd_req_1");
+        let (ram_rd_req_2_s, ram_rd_req_2_r) = chan<ram::ReadReq<ZSTD_RAM_ADDR_WIDTH, RAM_NUM_PARTITIONS>, u32:1>("ram_rd_req_2");
+        let (ram_rd_req_3_s, ram_rd_req_3_r) = chan<ram::ReadReq<ZSTD_RAM_ADDR_WIDTH, RAM_NUM_PARTITIONS>, u32:1>("ram_rd_req_3");
+        let (ram_rd_req_4_s, ram_rd_req_4_r) = chan<ram::ReadReq<ZSTD_RAM_ADDR_WIDTH, RAM_NUM_PARTITIONS>, u32:1>("ram_rd_req_4");
+        let (ram_rd_req_5_s, ram_rd_req_5_r) = chan<ram::ReadReq<ZSTD_RAM_ADDR_WIDTH, RAM_NUM_PARTITIONS>, u32:1>("ram_rd_req_5");
+        let (ram_rd_req_6_s, ram_rd_req_6_r) = chan<ram::ReadReq<ZSTD_RAM_ADDR_WIDTH, RAM_NUM_PARTITIONS>, u32:1>("ram_rd_req_6");
+        let (ram_rd_req_7_s, ram_rd_req_7_r) = chan<ram::ReadReq<ZSTD_RAM_ADDR_WIDTH, RAM_NUM_PARTITIONS>, u32:1>("ram_rd_req_7");
 
-        let (ram_rd_resp_0_s, ram_rd_resp_0_r) = chan<ram::ReadResp<RAM_DATA_WIDTH>, u32:1>;
-        let (ram_rd_resp_1_s, ram_rd_resp_1_r) = chan<ram::ReadResp<RAM_DATA_WIDTH>, u32:1>;
-        let (ram_rd_resp_2_s, ram_rd_resp_2_r) = chan<ram::ReadResp<RAM_DATA_WIDTH>, u32:1>;
-        let (ram_rd_resp_3_s, ram_rd_resp_3_r) = chan<ram::ReadResp<RAM_DATA_WIDTH>, u32:1>;
-        let (ram_rd_resp_4_s, ram_rd_resp_4_r) = chan<ram::ReadResp<RAM_DATA_WIDTH>, u32:1>;
-        let (ram_rd_resp_5_s, ram_rd_resp_5_r) = chan<ram::ReadResp<RAM_DATA_WIDTH>, u32:1>;
-        let (ram_rd_resp_6_s, ram_rd_resp_6_r) = chan<ram::ReadResp<RAM_DATA_WIDTH>, u32:1>;
-        let (ram_rd_resp_7_s, ram_rd_resp_7_r) = chan<ram::ReadResp<RAM_DATA_WIDTH>, u32:1>;
+        let (ram_rd_resp_0_s, ram_rd_resp_0_r) = chan<ram::ReadResp<RAM_DATA_WIDTH>, u32:1>("ram_rd_resp_0");
+        let (ram_rd_resp_1_s, ram_rd_resp_1_r) = chan<ram::ReadResp<RAM_DATA_WIDTH>, u32:1>("ram_rd_resp_1");
+        let (ram_rd_resp_2_s, ram_rd_resp_2_r) = chan<ram::ReadResp<RAM_DATA_WIDTH>, u32:1>("ram_rd_resp_2");
+        let (ram_rd_resp_3_s, ram_rd_resp_3_r) = chan<ram::ReadResp<RAM_DATA_WIDTH>, u32:1>("ram_rd_resp_3");
+        let (ram_rd_resp_4_s, ram_rd_resp_4_r) = chan<ram::ReadResp<RAM_DATA_WIDTH>, u32:1>("ram_rd_resp_4");
+        let (ram_rd_resp_5_s, ram_rd_resp_5_r) = chan<ram::ReadResp<RAM_DATA_WIDTH>, u32:1>("ram_rd_resp_5");
+        let (ram_rd_resp_6_s, ram_rd_resp_6_r) = chan<ram::ReadResp<RAM_DATA_WIDTH>, u32:1>("ram_rd_resp_6");
+        let (ram_rd_resp_7_s, ram_rd_resp_7_r) = chan<ram::ReadResp<RAM_DATA_WIDTH>, u32:1>("ram_rd_resp_7");
 
-        let (ram_wr_req_0_s, ram_wr_req_0_r) = chan<ram::WriteReq<ZSTD_RAM_ADDR_WIDTH, RAM_DATA_WIDTH, RAM_NUM_PARTITIONS>, u32:1>;
-        let (ram_wr_req_1_s, ram_wr_req_1_r) = chan<ram::WriteReq<ZSTD_RAM_ADDR_WIDTH, RAM_DATA_WIDTH, RAM_NUM_PARTITIONS>, u32:1>;
-        let (ram_wr_req_2_s, ram_wr_req_2_r) = chan<ram::WriteReq<ZSTD_RAM_ADDR_WIDTH, RAM_DATA_WIDTH, RAM_NUM_PARTITIONS>, u32:1>;
-        let (ram_wr_req_3_s, ram_wr_req_3_r) = chan<ram::WriteReq<ZSTD_RAM_ADDR_WIDTH, RAM_DATA_WIDTH, RAM_NUM_PARTITIONS>, u32:1>;
-        let (ram_wr_req_4_s, ram_wr_req_4_r) = chan<ram::WriteReq<ZSTD_RAM_ADDR_WIDTH, RAM_DATA_WIDTH, RAM_NUM_PARTITIONS>, u32:1>;
-        let (ram_wr_req_5_s, ram_wr_req_5_r) = chan<ram::WriteReq<ZSTD_RAM_ADDR_WIDTH, RAM_DATA_WIDTH, RAM_NUM_PARTITIONS>, u32:1>;
-        let (ram_wr_req_6_s, ram_wr_req_6_r) = chan<ram::WriteReq<ZSTD_RAM_ADDR_WIDTH, RAM_DATA_WIDTH, RAM_NUM_PARTITIONS>, u32:1>;
-        let (ram_wr_req_7_s, ram_wr_req_7_r) = chan<ram::WriteReq<ZSTD_RAM_ADDR_WIDTH, RAM_DATA_WIDTH, RAM_NUM_PARTITIONS>, u32:1>;
+        let (ram_wr_req_0_s, ram_wr_req_0_r) = chan<ram::WriteReq<ZSTD_RAM_ADDR_WIDTH, RAM_DATA_WIDTH, RAM_NUM_PARTITIONS>, u32:1>("ram_wr_req_0");
+        let (ram_wr_req_1_s, ram_wr_req_1_r) = chan<ram::WriteReq<ZSTD_RAM_ADDR_WIDTH, RAM_DATA_WIDTH, RAM_NUM_PARTITIONS>, u32:1>("ram_wr_req_1");
+        let (ram_wr_req_2_s, ram_wr_req_2_r) = chan<ram::WriteReq<ZSTD_RAM_ADDR_WIDTH, RAM_DATA_WIDTH, RAM_NUM_PARTITIONS>, u32:1>("ram_wr_req_2");
+        let (ram_wr_req_3_s, ram_wr_req_3_r) = chan<ram::WriteReq<ZSTD_RAM_ADDR_WIDTH, RAM_DATA_WIDTH, RAM_NUM_PARTITIONS>, u32:1>("ram_wr_req_3");
+        let (ram_wr_req_4_s, ram_wr_req_4_r) = chan<ram::WriteReq<ZSTD_RAM_ADDR_WIDTH, RAM_DATA_WIDTH, RAM_NUM_PARTITIONS>, u32:1>("ram_wr_req_4");
+        let (ram_wr_req_5_s, ram_wr_req_5_r) = chan<ram::WriteReq<ZSTD_RAM_ADDR_WIDTH, RAM_DATA_WIDTH, RAM_NUM_PARTITIONS>, u32:1>("ram_wr_req_5");
+        let (ram_wr_req_6_s, ram_wr_req_6_r) = chan<ram::WriteReq<ZSTD_RAM_ADDR_WIDTH, RAM_DATA_WIDTH, RAM_NUM_PARTITIONS>, u32:1>("ram_wr_req_6");
+        let (ram_wr_req_7_s, ram_wr_req_7_r) = chan<ram::WriteReq<ZSTD_RAM_ADDR_WIDTH, RAM_DATA_WIDTH, RAM_NUM_PARTITIONS>, u32:1>("ram_wr_req_7");
 
-        let (ram_wr_resp_0_s, ram_wr_resp_0_r) = chan<ram::WriteResp, u32:1>;
-        let (ram_wr_resp_1_s, ram_wr_resp_1_r) = chan<ram::WriteResp, u32:1>;
-        let (ram_wr_resp_2_s, ram_wr_resp_2_r) = chan<ram::WriteResp, u32:1>;
-        let (ram_wr_resp_3_s, ram_wr_resp_3_r) = chan<ram::WriteResp, u32:1>;
-        let (ram_wr_resp_4_s, ram_wr_resp_4_r) = chan<ram::WriteResp, u32:1>;
-        let (ram_wr_resp_5_s, ram_wr_resp_5_r) = chan<ram::WriteResp, u32:1>;
-        let (ram_wr_resp_6_s, ram_wr_resp_6_r) = chan<ram::WriteResp, u32:1>;
-        let (ram_wr_resp_7_s, ram_wr_resp_7_r) = chan<ram::WriteResp, u32:1>;
+        let (ram_wr_resp_0_s, ram_wr_resp_0_r) = chan<ram::WriteResp, u32:1>("ram_wr_resp_0");
+        let (ram_wr_resp_1_s, ram_wr_resp_1_r) = chan<ram::WriteResp, u32:1>("ram_wr_resp_1");
+        let (ram_wr_resp_2_s, ram_wr_resp_2_r) = chan<ram::WriteResp, u32:1>("ram_wr_resp_2");
+        let (ram_wr_resp_3_s, ram_wr_resp_3_r) = chan<ram::WriteResp, u32:1>("ram_wr_resp_3");
+        let (ram_wr_resp_4_s, ram_wr_resp_4_r) = chan<ram::WriteResp, u32:1>("ram_wr_resp_4");
+        let (ram_wr_resp_5_s, ram_wr_resp_5_r) = chan<ram::WriteResp, u32:1>("ram_wr_resp_5");
+        let (ram_wr_resp_6_s, ram_wr_resp_6_r) = chan<ram::WriteResp, u32:1>("ram_wr_resp_6");
+        let (ram_wr_resp_7_s, ram_wr_resp_7_r) = chan<ram::WriteResp, u32:1>("ram_wr_resp_7");
 
         spawn ZstdDecoder(
             input_r, output_s,

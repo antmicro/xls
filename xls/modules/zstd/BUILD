@@ -917,15 +917,6 @@ xls_dslx_ir(
     library = ":zstd_dec_dslx",
 )
 
-xls_ir_opt_ir(
-    name = "zstd_dec_test_opt_ir",
-    src = "zstd_dec_test.ir",
-    opt_ir_args = {
-        "inline_procs": "true",
-        "top": "__xls_modules_zstd_repacketizer__ZstdDecoderTest__ZstdDecoder__Repacketizer_0_next"
-    },
-)
-
 cc_test(
     name = "zstd_dec_cc_test",
     srcs = [

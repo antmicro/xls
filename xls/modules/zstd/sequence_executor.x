@@ -1199,7 +1199,7 @@ pub proc SequenceExecutorZstd {
     next (tok: token, state: ()) { }
 }
 
-const LITERAL_TEST_INPUT_DATA = SequenceExecutorPacket[6]:[
+const LITERAL_TEST_INPUT_DATA = SequenceExecutorPacket[8]:[
      SequenceExecutorPacket {
         msg_type: SequenceExecutorMessageType::LITERAL,
         length: CopyOrMatchLength:64,
@@ -1234,6 +1234,18 @@ const LITERAL_TEST_INPUT_DATA = SequenceExecutorPacket[6]:[
         msg_type: SequenceExecutorMessageType::LITERAL,
         length: CopyOrMatchLength:64,
         content: CopyOrMatchContent:0x157D8C7EB8B97CA3,
+        last: true
+    },
+    SequenceExecutorPacket {
+        msg_type: SequenceExecutorMessageType::LITERAL,
+        length: CopyOrMatchLength:0,
+        content: CopyOrMatchContent:0x0,
+        last: false
+    },
+    SequenceExecutorPacket {
+        msg_type: SequenceExecutorMessageType::LITERAL,
+        length: CopyOrMatchLength:0,
+        content: CopyOrMatchContent:0x0,
         last: true
     },
 ];

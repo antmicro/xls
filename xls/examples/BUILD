@@ -888,6 +888,41 @@ xls_dslx_test(
     deps = [":hack_cpu_dslx"],
 )
 
+xls_dslx_library(
+    name = "send_match_dslx",
+    srcs = ["send_match.x"],
+    deps = [
+    ],
+)
+
+xls_dslx_test(
+    name = "send_match_dslx_test",
+    dslx_test_args = {"compare": "jit"},
+    library = ":send_match_dslx",
+)
+
+xls_dslx_verilog(
+    name = "send_match_verilog",
+    codegen_args = {
+        "module_name": "send_match",
+        "generator": "pipeline",
+        "delay_model": "asap7",
+        "pipeline_stages": "12",
+        "reset": "rst",
+        "reset_data_path": "true",
+        "reset_active_low": "false",
+        "reset_asynchronous": "true",
+        "flop_inputs": "false",
+        "flop_single_value_channels": "false",
+        "flop_outputs": "false",
+        "worst_case_throughput": "6",
+        "use_system_verilog": "false",
+    },
+    dslx_top = "DummyProc",
+    library = ":send_match_dslx",
+    verilog_file = "send_match.v",
+)
+
 filegroup(
     name = "x_files",
     srcs = glob(["*.x"]),

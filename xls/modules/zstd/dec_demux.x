@@ -110,6 +110,9 @@ pub proc DecoderDemux {
 
     next (tok: token, state: DecoderDemuxState) {
         let (tok, data) = recv_if(tok, input_r, !state.last_packet.last, ZERO_DATA);
+        if (!state.last_packet.last) {
+            trace_fmt!("DecoderDemux: recv: {:#x}", data);
+        } else {};
         let (send_raw, send_rle, send_cmp, new_state) = match state.status {
             DecoderDemuxStatus::IDLE =>
                 (false, false, false, handle_idle_state(data, state)),
@@ -156,6 +159,9 @@ pub proc DecoderDemux {
             };
             let data_to_send = BlockDataPacket {id: state.id, ..state.last_packet};
             let tok = send_if(tok, raw_s, send_raw, data_to_send);
+            if (send_raw) {
+                trace_fmt!("DecoderDemux: send_raw: {:#x}", data_to_send);
+            } else {};
             // RLE module expects single byte in data field
             // and block length in length field. This is different from
             // Raw and Compressed modules.
@@ -166,7 +172,13 @@ pub proc DecoderDemux {
                 ..state.last_packet
             };
             let tok = send_if(tok, rle_s, send_rle, rle_data);
+            if (send_rle) {
+                trace_fmt!("DecoderDemux: send_rle: {:#x}", rle_data);
+            } else {};
             let tok = send_if(tok, cmp_s, send_cmp, data_to_send);
+            if (send_cmp) {
+                trace_fmt!("DecoderDemux: send_cmp: {:#x}", data_to_send);
+            } else {};
             let end_state = if (new_state.send_data == new_state.byte_to_pass) {
                 let next_id = if (state.last_packet.last && state.last_packet.last_block) {
                     u32: 0

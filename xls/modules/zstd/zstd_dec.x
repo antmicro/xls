@@ -171,6 +171,7 @@ fn decode_block_header(state: ZstdDecoderState) -> (bool, BlockDataPacket, ZstdD
 }
 
 fn feed_block_decoder(state: ZstdDecoderState) -> (bool, BlockDataPacket, ZstdDecoderState) {
+    trace_fmt!("zstd_dec: feed_block_decoder: FEEDING BLOCK DECODER");
     trace_fmt!("zstd_dec: feed_block_decoder: state: {:#x}", state);
     let remaining_bytes_to_send = state.block_size_bytes - state.bytes_sent;
     trace_fmt!("zstd_dec: feed_block_decoder: remaining_bytes_to_send: {}", remaining_bytes_to_send);
@@ -229,6 +230,7 @@ fn feed_block_decoder(state: ZstdDecoderState) -> (bool, BlockDataPacket, ZstdDe
 }
 
 fn decode_checksum(state: ZstdDecoderState) -> (bool, BlockDataPacket, ZstdDecoderState) {
+    trace_fmt!("zstd_dec: decode_checksum: DECODE CHECKSUM");
     trace_fmt!("zstd_dec: decode_checksum: state: {:#x}", state);
     // Pop fixed checksum size of 4 bytes
     let (buffer_result, _) = buff::buffer_pop_checked(state.buffer, u32:32);
@@ -493,4 +495,115 @@ pub proc ZstdDecoderTest {
     }
 
     next (tok: token, state: ()) {}
+}
+
+#[test_proc]
+proc ZstdDecoderDslxTest {
+    terminator: chan<bool> out;
+    input_s: chan<BlockData> out;
+    output_r: chan<ZstdDecodedPacket> in;
+
+    init {}
+
+    config (terminator: chan<bool> out) {
+        let (input_s, input_r) = chan<BlockData>("input");
+        let (output_s, output_r) = chan<ZstdDecodedPacket>("output");
+
+        spawn ZstdDecoderTest(input_r, output_s);
+
+        (terminator, input_s, output_r)
+    }
+
+    next (tok: token, state: ()) {
+        let EncodedData: BlockData[5] = [
+            // frame #1 - RAW blocks only + empty blocks + frame end not aligned to 8 bytes
+            //BlockData:0x0004_23c4_fd2f_b528,
+            //BlockData:0x0020_0000_0000_0000,
+            //BlockData:0x0000_007d_cf70_c100,
+            //BlockData:0x0000_0000_0000_0000,
+            //BlockData:0x0000_0000_0000_0000,
+            //BlockData:0xbd7e_df00_0001_0000,
+            //BlockData:0x0000_0000_0000_0031, // Decoder will end up in ERROR state after consuming
+                                             // the checksum because there is no magic number of
+                                             // the next frame after this one.
+            // frame #2 - RAW blocks only + empty blocks + frame end not aligned to 8 bytes
+            //BlockData:0x109d_5b84_fd2f_b528,
+            //BlockData:0x1e4e_9900_c0e0_0000,
+            //BlockData:0x88ae_263e_ebba_439f,
+            //BlockData:0xd81d_9d33_821e_5cbe,
+            //BlockData:0xd715_37f5_40af_ffc7,
+            //BlockData:0x4540_59ed_e57d_4c32,
+            //BlockData:0x0030_5049_e91f_b446,
+            //BlockData:0x76e0_22ce_a35e_a1bf,
+            //BlockData:0x9120_18cc_fab7_1370,
+            //BlockData:0x4345_9b74_5728_5980,
+            //BlockData:0x496f_c1c0_d785_a373,
+            //BlockData:0x2ffc_8fac_a694_506d,
+            //BlockData:0xe874_b26e_53df_8044,
+            //BlockData:0x6bba_9f9f_c262_99dd,
+            //BlockData:0xd2a4_ece9_64c6_c9f9,
+            //BlockData:0x7a55_b0f7_e443_3962,
+            //BlockData:0x5780_84cd_f872_3659,
+            //BlockData:0x36df_6045_2053_27e6,
+            //BlockData:0x63e9_1f97_45d3_d8e5,
+            //BlockData:0x5190_1197_c7b3_11e4,
+            //BlockData:0xe7eb_4fa6_b094_ed6d,
+            //BlockData:0x5690_6c4c_de57_5700,
+            //BlockData:0x24c6_4efb_e730_9f4f,
+            //BlockData:0x3cbc_79af_5ce0_963c,
+            //BlockData:0x5e13_c0e2_4caa_c218,
+            //BlockData:0x1e62_92dd_37ad_92b5,
+            //BlockData:0x475b_d126_6a8b_10a6,
+            //BlockData:0x4c6d_7db6_9532_465c,
+            //BlockData:0x60ce_bb38_1f50_844b,
+            //BlockData:0x2f22_e4dc_a249_f892,
+            //BlockData:0x1110_1d55_191d_3d31,
+            //BlockData:0xb19e_a4bd_46b2_6258,
+            //BlockData:0x89f8_678c_c0a2_36dc,
+            //BlockData:0x1db2_8b5b_ed51_55d0,
+            //BlockData:0xf7e1_d650_8f36_a47b,
+            //BlockData:0x8950_8373_315a_e79f,
+            //BlockData:0x2e77_1430_5f95_20f5,
+            //BlockData:0x5e91_68d1_bf1d_1133,
+            //BlockData:0x4498_898a_8f25_9b72,
+            //BlockData:0xb7c5_2170_a85b_3d23,
+            //BlockData:0x9f89_1295_3ebd_c531,
+            //BlockData:0x37ed_d2b2_c0da_629c,
+            //BlockData:0x5087_b584_b052_d85a,
+            //BlockData:0x4ad3_96e0_b824_80ef,
+            //BlockData:0xe4e3_f860_d499_8113,
+            //BlockData:0x79d4_136f_6284_7be8,
+            //BlockData:0xaf1f_4a41_aad1_89d4,
+            //BlockData:0xfe5b_6a25_bcca_391b,
+            //BlockData:0xc1ed_f1b1_613f_b241,
+            //BlockData:0x83a3_8a62_6045_5775,
+            //BlockData:0xda89_9993_3e7b_1d27,
+            //BlockData:0xcc4b_3ea7_3f1c_00ac,
+            //BlockData:0xa974_916d_bfe8_80c0,
+            //BlockData:0xc300_0080_0000_0023,
+            //BlockData:0x9e82_0000_1000_0000,
+            //BlockData:0x0000_0000_0000_f684,
+
+            // frame #3 - RLE blocks only + empty blocks
+             BlockData:0x0081_3b84_fd2f_b528,
+             BlockData:0x01ea_2500_01da_0000,
+             BlockData:0x000a_9c00_0002_5c00,
+             BlockData:0xe5b1_9d00_0043_2d00,
+             BlockData:0x0000_0000_0000_3d2d,
+        ];
+
+        let tok = for ((counter, block_data), tok): ((u32, BlockData), token) in enumerate(EncodedData) {
+            let tok = send(tok, input_s, block_data);
+            trace_fmt!("Sent #{} encoded block data, {:#x}", counter + u32:1, block_data);
+            (tok)
+        }(tok);
+
+        let tok = for (counter, tok): (u32, token) in range(u32:0, u32:17) {
+            let (tok, decoded_packet) = recv(tok, output_r);
+            trace_fmt!("Received #{} decoded packet, data: {:#x}", counter, decoded_packet);
+            tok
+        }(tok);
+
+        send(tok, terminator, true);
+    }
 }

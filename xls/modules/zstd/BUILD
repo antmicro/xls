@@ -872,6 +872,11 @@ xls_dslx_library(
     ],
 )
 
+xls_dslx_test(
+    name = "zstd_dec_dslx_test",
+    library = ":zstd_dec_dslx",
+)
+
 xls_dslx_verilog(
     name = "zstd_dec_verilog",
     codegen_args = {

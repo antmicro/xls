@@ -131,7 +131,7 @@ class ZstdDecoderTest : public ::testing::Test {
       std::cout << "0x" << std::hex << std::setw(3) << std::left << i
                 << std::dec << ": ";
       for (int j = 0; j < sizeof(uint64_t) && (i + j) < vec.size(); j++) {
-        std::cout << std::setw(2) << std::hex << (unsigned int)vec[i + j]
+        std::cout << std::setfill('0') << std::setw(2) << std::hex << (unsigned int)vec[i + j]
                   << std::dec << " ";
       }
       std::cout << std::endl;
@@ -191,7 +191,6 @@ class ZstdDecoderTest : public ::testing::Test {
       XLS_EXPECT_OK(this->send_queue->Write(value));
       XLS_EXPECT_OK(this->interpreter->Tick());
     }
-    PrintTraceMessages("__zstd_dec__ZstdDecoderTest_0_next");
 
     // Tick decoder simulation until we get expected amount of output data
     // batches on output channel queue
@@ -214,6 +213,22 @@ class ZstdDecoderTest : public ::testing::Test {
                 back_inserter(sim_decomp));
     }
 
+    PrintTraceMessages("__zstd_dec__ZstdDecoderTest_0_next");
+    PrintTraceMessages("__zstd_dec__ZstdDecoderTest__ZstdDecoder_0_next");
+    PrintTraceMessages("__xls_modules_zstd_dec_demux__ZstdDecoderTest__ZstdDecoder__BlockDecoder__DecoderDemux_0_next");
+    PrintTraceMessages("__xls_modules_zstd_raw_block_dec__ZstdDecoderTest__ZstdDecoder__BlockDecoder__RawBlockDecoder_0_next");
+    PrintTraceMessages("__xls_modules_zstd_rle_block_dec__ZstdDecoderTest__ZstdDecoder__BlockDecoder__RleBlockDecoder__RleDataPacker_0_next");
+    PrintTraceMessages("__xls_modules_rle_rle_dec__ZstdDecoderTest__ZstdDecoder__BlockDecoder__RleBlockDecoder__RunLengthDecoder_0__21_8_next");
+    PrintTraceMessages("__xls_modules_zstd_rle_block_dec__ZstdDecoderTest__ZstdDecoder__BlockDecoder__RleBlockDecoder__BatchPacker_0_next");
+    PrintTraceMessages("__xls_modules_zstd_rle_block_dec__ZstdDecoderTest__ZstdDecoder__BlockDecoder__RleBlockDecoder_0_next");
+    PrintTraceMessages("__xls_modules_zstd_raw_block_dec__ZstdDecoderTest__ZstdDecoder__BlockDecoder__RawBlockDecoder_1_next");
+    PrintTraceMessages("__xls_modules_zstd_dec_mux__ZstdDecoderTest__ZstdDecoder__BlockDecoder__DecoderMux_0_next");
+    PrintTraceMessages("__xls_modules_zstd_block_dec__ZstdDecoderTest__ZstdDecoder__BlockDecoder_0_next");
+    PrintTraceMessages("__xls_modules_zstd_sequence_executor__ZstdDecoderTest__ZstdDecoder__SequenceExecutor__RamWrRespHandler_0__13_next");
+    PrintTraceMessages("__xls_modules_zstd_sequence_executor__ZstdDecoderTest__ZstdDecoder__SequenceExecutor__RamRdRespHandler_0_next");
+    PrintTraceMessages("__xls_modules_zstd_sequence_executor__ZstdDecoderTest__ZstdDecoder__SequenceExecutor_0__64_0_0_0_13_8192_65536_next");
+    PrintTraceMessages("__xls_modules_zstd_repacketizer__ZstdDecoderTest__ZstdDecoder__Repacketizer_0_next");
+
     EXPECT_EQ(lib_decomp_size, sim_decomp.size());
     for (int i = 0; i < lib_decomp_size; i++) {
       EXPECT_EQ(lib_decomp[i], sim_decomp[i]);
@@ -225,17 +240,51 @@ class ZstdDecoderTest : public ::testing::Test {
 
 TEST(ZstdLib, Version) { ASSERT_EQ(ZSTD_VERSION_STRING, "1.4.7"); }
 
-TEST_F(ZstdDecoderTest, ParseFrameWithRawBlocks) {
+TEST_F(ZstdDecoderTest, ParseFrameWithEmptyRawBlocks) {
   int seed = 3;  // Arbitrary seed value for small ZSTD frame
   auto frame = zstd::GenerateFrame(seed, zstd::BlockType::RAW);
+  PrintVector(absl::MakeSpan(frame->data(), frame->size()));
+  EXPECT_TRUE(frame.ok());
+  this->ParseAndCompareWithZstd(frame.value());
+}
+
+TEST_F(ZstdDecoderTest, ParseFrameWithEmptyRawBlocks1) {
+  int seed = 12;  // Arbitrary seed value for small ZSTD frame
+  auto frame = zstd::GenerateFrame(seed, zstd::BlockType::RAW);
+  PrintVector(absl::MakeSpan(frame->data(), frame->size()));
+  EXPECT_TRUE(frame.ok());
+  this->ParseAndCompareWithZstd(frame.value());
+}
+
+TEST_F(ZstdDecoderTest, ParseFrameWithEmptyRawBlocks2) {
+  int seed = 15;  // Arbitrary seed value for small ZSTD frame
+  auto frame = zstd::GenerateFrame(seed, zstd::BlockType::RAW);
+  PrintVector(absl::MakeSpan(frame->data(), frame->size()));
+  EXPECT_TRUE(frame.ok());
+  this->ParseAndCompareWithZstd(frame.value());
+}
+
+TEST_F(ZstdDecoderTest, ParseFrameWithEmptyRawBlocks3) {
+  int seed = 17;  // Arbitrary seed value for small ZSTD frame
+  auto frame = zstd::GenerateFrame(seed, zstd::BlockType::RAW);
+  PrintVector(absl::MakeSpan(frame->data(), frame->size()));
+  EXPECT_TRUE(frame.ok());
+  this->ParseAndCompareWithZstd(frame.value());
+}
+
+TEST_F(ZstdDecoderTest, ParseFrameWithEmptyRawBlocks4) {
+  int seed = 32;  // Arbitrary seed value for small ZSTD frame
+  auto frame = zstd::GenerateFrame(seed, zstd::BlockType::RAW);
+  PrintVector(absl::MakeSpan(frame->data(), frame->size()));
   EXPECT_TRUE(frame.ok());
   this->ParseAndCompareWithZstd(frame.value());
 }
 
 TEST_F(ZstdDecoderTest, ParseFrameWithRleBlocks) {
-  int seed = 3;  // Arbitrary seed value for small ZSTD frame
+  int seed = 6;  // Arbitrary seed value for small ZSTD frame
   auto frame = zstd::GenerateFrame(seed, zstd::BlockType::RLE);
   EXPECT_TRUE(frame.ok());
+  PrintVector(absl::MakeSpan(frame->data(), frame->size()));
   this->ParseAndCompareWithZstd(frame.value());
 }
 

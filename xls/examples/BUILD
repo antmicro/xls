@@ -899,3 +899,18 @@ filegroup(
     srcs = glob(["*.x"]),
     visibility = ["//xls:xls_internal"],
 )
+
+xls_dslx_library(
+    name = "passthrough_dslx",
+    srcs = [
+        "passthrough.x",
+    ],
+)
+
+xls_dslx_test(
+    name = "passthrough_dslx_test",
+    dslx_test_args = {
+        #"compare": "none", # uncommenting this line removes errors
+    },
+    library = ":passthrough_dslx"
+)

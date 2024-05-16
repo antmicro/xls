@@ -1073,6 +1073,12 @@ class ImportModuleWithTypeErrorTest(test_base.TestCase):
     )
     self.assertIn('ABORTED: Assertion failure via assert!', stderr)
 
+  def test_assert_with_false_predicate_proc(self):
+    stderr = self._run(
+        'xls/dslx/tests/errors/assert_with_false_predicate_proc.x',
+    )
+    self.assertIn('ABORTED: Assertion failure via assert!', stderr)
+
   def test_warning_on_assert_pattern(self):
     stderr = self._run(
         'xls/dslx/tests/errors/warning_on_assert_pattern.x',

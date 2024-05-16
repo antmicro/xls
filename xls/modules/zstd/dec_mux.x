@@ -38,10 +38,13 @@ struct DecoderMuxState {
     prev_valid: bool,
     raw_data: ExtendedBlockDataPacket,
     raw_data_valid: bool,
+    raw_data_valid_next_frame: bool,
     rle_data: ExtendedBlockDataPacket,
     rle_data_valid: bool,
+    rle_data_valid_next_frame: bool,
     compressed_data: ExtendedBlockDataPacket,
     compressed_data_valid: bool,
+    compressed_data_valid_next_frame: bool,
 }
 
 const ZERO_DECODER_MUX_STATE = zero!<DecoderMuxState>();
@@ -52,7 +55,7 @@ pub proc DecoderMux {
     cmp_r: chan<ExtendedBlockDataPacket> in;
     output_s: chan<SequenceExecutorPacket> out;
 
-    init {(ZERO_DECODER_MUX_STATE)}
+    init {( DecoderMuxState { prev_id: u32:0xFFFFFFFF, prev_last: true, prev_last_block: true, ..ZERO_DECODER_MUX_STATE } )}
 
     config (
         raw_r: chan<ExtendedBlockDataPacket> in,
@@ -63,41 +66,72 @@ pub proc DecoderMux {
 
     next (tok: token, state: DecoderMuxState) {
         let (tok, raw_data, raw_data_valid) = recv_if_non_blocking(
-            tok, raw_r, !state.raw_data_valid, zero!<ExtendedBlockDataPacket>());
+            tok, raw_r, !state.raw_data_valid && !state.raw_data_valid_next_frame, zero!<ExtendedBlockDataPacket>());
         let state = if (raw_data_valid) {
-            DecoderMuxState {raw_data, raw_data_valid, ..state}
-        } else { state };
+            let state = if (raw_data.packet.id <= state.prev_id && state.prev_last && state.prev_valid && !state.prev_last_block) {
+                // received ID the same as previous, but `last` occurred
+                // this might be a packet from the next frame
+                let raw_data_valid_next_frame = raw_data_valid;
+                DecoderMuxState {raw_data, raw_data_valid_next_frame, ..state}
+            } else {
+                DecoderMuxState {raw_data, raw_data_valid, ..state}
+            };
+            state
+        } else {
+            state
+        };
 
         let (tok, rle_data, rle_data_valid) = recv_if_non_blocking(
-            tok, rle_r, !state.rle_data_valid, zero!<ExtendedBlockDataPacket>());
+            tok, rle_r, !state.rle_data_valid && !state.rle_data_valid_next_frame, zero!<ExtendedBlockDataPacket>());
         let state = if (rle_data_valid) {
-            DecoderMuxState { rle_data, rle_data_valid, ..state}
-        } else { state };
+            let state = if (rle_data.packet.id <= state.prev_id && state.prev_last && state.prev_valid && !state.prev_last_block) {
+                // received ID the same as previous, but `last` occurred
+                // this might be a packet from the next frame
+                let rle_data_valid_next_frame = rle_data_valid;
+                DecoderMuxState {rle_data, rle_data_valid_next_frame, ..state}
+            } else {
+                DecoderMuxState {rle_data, rle_data_valid, ..state}
+            };
+            state
+        } else {
+            state
+        };
 
         let (tok, compressed_data, compressed_data_valid) = recv_if_non_blocking(
-            tok, cmp_r, !state.compressed_data_valid, zero!<ExtendedBlockDataPacket>());
+            tok, cmp_r, !state.compressed_data_valid && !state.compressed_data_valid_next_frame, zero!<ExtendedBlockDataPacket>());
         let state = if (compressed_data_valid) {
-            DecoderMuxState { compressed_data, compressed_data_valid, ..state}
-        } else { state };
+            let state = if (compressed_data.packet.id <= state.prev_id && state.prev_last && state.prev_valid && !state.prev_last_block) {
+                // received ID the same as previous, but `last` occurred
+                // this might be a packet from the next frame
+                let compressed_data_valid_next_frame = compressed_data_valid;
+                DecoderMuxState {compressed_data, compressed_data_valid_next_frame, ..state}
+            } else {
+                DecoderMuxState {compressed_data, compressed_data_valid, ..state}
+            };
+            state
+        } else {
+            state
+        };
 
         let raw_id = if state.raw_data_valid { state.raw_data.packet.id } else { MAX_ID };
         let rle_id = if state.rle_data_valid { state.rle_data.packet.id } else { MAX_ID };
         let compressed_id = if state.compressed_data_valid { state.compressed_data.packet.id } else { MAX_ID };
         let any_valid = state.raw_data_valid || state.rle_data_valid || state.compressed_data_valid;
+        let all_valid = state.raw_data_valid && state.rle_data_valid && state.compressed_data_valid;
 
         let state = if (any_valid) {
-            if state.prev_last_block && state.prev_last {
-                let min_id = std::umin(std::umin(rle_id, raw_id), compressed_id);
-                trace_fmt!("rle_id: {}, raw_id: {}, compressed_id: {}", rle_id, raw_id, compressed_id);
-                trace_fmt!("min_id: {}", min_id);
-                assert!(min_id == u32:0, "wrong_id_expected_0");
-            } else {
-                assert!(!(state.prev_id > (std::umin(std::umin(rle_id, raw_id), compressed_id)) && (state.prev_valid)), "wrong_id");
-            };
+            let min_id = std::umin(std::umin(rle_id, raw_id), compressed_id);
+            trace_fmt!("rle_id: {}, raw_id: {}, compressed_id: {}", rle_id, raw_id, compressed_id);
+            trace_fmt!("min_id: {}", min_id);
+
+            assert!((state.prev_id <= min_id) || !state.prev_valid || state.prev_last_block, "wrong_id");
+            assert!(!state.prev_last_block || !state.prev_last || min_id == u32:0, "wrong_id_expected_0");
+            assert!(state.prev_last_block || !state.prev_last || !all_valid || (min_id == (state.prev_id + u32:1)) || (min_id == state.prev_id), "id_continuity_failure");
 
             let (do_send, data_to_send, state) = if (state.raw_data_valid &&
-              ((state.raw_data.packet.id < std::umin(rle_id, compressed_id)) ||
-               (state.raw_data.packet.id == state.prev_id))) {
+              (((state.raw_data.packet.id == (state.prev_id + u32:1)) && state.prev_last) ||
+               ((state.raw_data.packet.id == state.prev_id) && !state.prev_last))) {
+                assert!(!state.raw_data_valid_next_frame, "raw_packet_valid_in_current_and_next_frame");
                 (true,
                  SequenceExecutorPacket {
                      msg_type: state.raw_data.msg_type,
@@ -107,14 +141,20 @@ pub proc DecoderMux {
                  },
                  DecoderMuxState {
                      raw_data_valid: false,
+                     raw_data_valid_next_frame: if (state.raw_data.packet.last_block) {false} else {state.raw_data_valid_next_frame},
+                     rle_data_valid: if (state.raw_data.packet.last_block) {state.rle_data_valid_next_frame} else {state.rle_data_valid},
+                     rle_data_valid_next_frame: if (state.raw_data.packet.last_block) {false} else {state.rle_data_valid_next_frame},
+                     compressed_data_valid: if (state.raw_data.packet.last_block) {state.compressed_data_valid_next_frame} else {state.compressed_data_valid},
+                     compressed_data_valid_next_frame: if (state.raw_data.packet.last_block) {false} else {state.compressed_data_valid_next_frame},
                      prev_valid : true,
-                     prev_id: state.raw_data.packet.id,
+                     prev_id: if (state.raw_data.packet.last_block) {u32:0xffffffff} else {state.raw_data.packet.id},
                      prev_last: state.raw_data.packet.last,
                      prev_last_block: state.raw_data.packet.last_block,
                      ..state})
             } else if (state.rle_data_valid &&
-                     ((state.rle_data.packet.id < std::umin(raw_id, compressed_id)) ||
-                      (state.rle_data.packet.id == state.prev_id))) {
+              (((state.rle_data.packet.id == (state.prev_id + u32:1)) && state.prev_last) ||
+               ((state.rle_data.packet.id == state.prev_id) && !state.prev_last))) {
+                assert!(!state.rle_data_valid_next_frame, "rle_packet_valid_in_current_and_next_frame");
                 (true,
                  SequenceExecutorPacket {
                      msg_type: state.rle_data.msg_type,
@@ -123,15 +163,21 @@ pub proc DecoderMux {
                      last: state.rle_data.packet.last && state.rle_data.packet.last_block,
                  },
                  DecoderMuxState {
+                     raw_data_valid: if (state.rle_data.packet.last_block) {state.raw_data_valid_next_frame} else {state.raw_data_valid},
+                     raw_data_valid_next_frame: if (state.rle_data.packet.last_block) {false} else {state.raw_data_valid_next_frame},
                      rle_data_valid: false,
+                     rle_data_valid_next_frame: if (state.rle_data.packet.last_block) {false} else {state.rle_data_valid_next_frame},
+                     compressed_data_valid: if (state.rle_data.packet.last_block) {state.compressed_data_valid_next_frame} else {state.compressed_data_valid},
+                     compressed_data_valid_next_frame: if (state.rle_data.packet.last_block) {false} else {state.compressed_data_valid_next_frame},
                      prev_valid : true,
-                     prev_id: state.rle_data.packet.id,
+                     prev_id: if (state.rle_data.packet.last_block) {u32:0xffffffff} else {state.rle_data.packet.id},
                      prev_last: state.rle_data.packet.last,
                      prev_last_block: state.rle_data.packet.last_block,
                      ..state})
             } else if (state.compressed_data_valid &&
-                     ((state.compressed_data.packet.id < std::umin(raw_id, rle_id)) ||
-                      (state.compressed_data.packet.id == state.prev_id))) {
+              (((state.compressed_data.packet.id == (state.prev_id + u32:1)) && state.prev_last) ||
+               ((state.compressed_data.packet.id == state.prev_id) && !state.prev_last))) {
+                assert!(!state.compressed_data_valid_next_frame, "compressed_packet_valid_in_current_and_next_frame");
                 (true,
                  SequenceExecutorPacket {
                      msg_type: state.compressed_data.msg_type,
@@ -140,9 +186,14 @@ pub proc DecoderMux {
                      last: state.compressed_data.packet.last && state.compressed_data.packet.last_block,
                  },
                  DecoderMuxState {
+                     raw_data_valid: if (state.compressed_data.packet.last_block) {state.raw_data_valid_next_frame} else {state.raw_data_valid},
+                     raw_data_valid_next_frame: if (state.compressed_data.packet.last_block) {false} else {state.raw_data_valid_next_frame},
+                     rle_data_valid: if (state.compressed_data.packet.last_block) {state.rle_data_valid_next_frame} else {state.rle_data_valid},
+                     rle_data_valid_next_frame: if (state.compressed_data.packet.last_block) {false} else {state.rle_data_valid_next_frame},
                      compressed_data_valid: false,
+                     compressed_data_valid_next_frame: if (state.compressed_data.packet.last_block) {false} else {state.compressed_data_valid_next_frame},
                      prev_valid : true,
-                     prev_id: state.compressed_data.packet.id,
+                     prev_id: if (state.compressed_data.packet.last_block) {u32:0xffffffff} else {state.compressed_data.packet.id},
                      prev_last: state.compressed_data.packet.last,
                      prev_last_block: state.compressed_data.packet.last_block,
                      ..state})

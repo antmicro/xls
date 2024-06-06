@@ -77,9 +77,7 @@ pub proc DecoderMux {
                 DecoderMuxState {raw_data, raw_data_valid, ..state}
             };
             state
-        } else {
-            state
-        };
+        } else { state };
 
         let (tok, rle_data, rle_data_valid) = recv_if_non_blocking(
             tok, rle_r, !state.rle_data_valid && !state.rle_data_valid_next_frame, zero!<ExtendedBlockDataPacket>());
@@ -93,9 +91,7 @@ pub proc DecoderMux {
                 DecoderMuxState {rle_data, rle_data_valid, ..state}
             };
             state
-        } else {
-            state
-        };
+        } else { state };
 
         let (tok, compressed_data, compressed_data_valid) = recv_if_non_blocking(
             tok, cmp_r, !state.compressed_data_valid && !state.compressed_data_valid_next_frame, zero!<ExtendedBlockDataPacket>());
@@ -109,9 +105,7 @@ pub proc DecoderMux {
                 DecoderMuxState {compressed_data, compressed_data_valid, ..state}
             };
             state
-        } else {
-            state
-        };
+        } else { state };
 
         let raw_id = if state.raw_data_valid { state.raw_data.packet.id } else { MAX_ID };
         let rle_id = if state.rle_data_valid { state.rle_data.packet.id } else { MAX_ID };
@@ -128,78 +122,79 @@ pub proc DecoderMux {
             assert!(!state.prev_last_block || !state.prev_last || min_id == u32:0, "wrong_id_expected_0");
             assert!(state.prev_last_block || !state.prev_last || !all_valid || (min_id == (state.prev_id + u32:1)) || (min_id == state.prev_id), "id_continuity_failure");
 
-            let (do_send, data_to_send, state) = if (state.raw_data_valid &&
-              (((state.raw_data.packet.id == (state.prev_id + u32:1)) && state.prev_last) ||
-               ((state.raw_data.packet.id == state.prev_id) && !state.prev_last))) {
-                assert!(!state.raw_data_valid_next_frame, "raw_packet_valid_in_current_and_next_frame");
-                (true,
-                 SequenceExecutorPacket {
-                     msg_type: state.raw_data.msg_type,
-                     length: state.raw_data.packet.length as CopyOrMatchLength,
-                     content: state.raw_data.packet.data as CopyOrMatchContent,
-                     last: state.raw_data.packet.last && state.raw_data.packet.last_block,
-                 },
-                 DecoderMuxState {
-                     raw_data_valid: false,
-                     raw_data_valid_next_frame: if (state.raw_data.packet.last_block) {false} else {state.raw_data_valid_next_frame},
-                     rle_data_valid: if (state.raw_data.packet.last_block) {state.rle_data_valid_next_frame} else {state.rle_data_valid},
-                     rle_data_valid_next_frame: if (state.raw_data.packet.last_block) {false} else {state.rle_data_valid_next_frame},
-                     compressed_data_valid: if (state.raw_data.packet.last_block) {state.compressed_data_valid_next_frame} else {state.compressed_data_valid},
-                     compressed_data_valid_next_frame: if (state.raw_data.packet.last_block) {false} else {state.compressed_data_valid_next_frame},
-                     prev_valid : true,
-                     prev_id: if (state.raw_data.packet.last_block) {u32:0xffffffff} else {state.raw_data.packet.id},
-                     prev_last: state.raw_data.packet.last,
-                     prev_last_block: state.raw_data.packet.last_block,
-                     ..state})
-            } else if (state.rle_data_valid &&
-              (((state.rle_data.packet.id == (state.prev_id + u32:1)) && state.prev_last) ||
-               ((state.rle_data.packet.id == state.prev_id) && !state.prev_last))) {
-                assert!(!state.rle_data_valid_next_frame, "rle_packet_valid_in_current_and_next_frame");
-                (true,
-                 SequenceExecutorPacket {
-                     msg_type: state.rle_data.msg_type,
-                     length: state.rle_data.packet.length as CopyOrMatchLength,
-                     content: state.rle_data.packet.data as CopyOrMatchContent,
-                     last: state.rle_data.packet.last && state.rle_data.packet.last_block,
-                 },
-                 DecoderMuxState {
-                     raw_data_valid: if (state.rle_data.packet.last_block) {state.raw_data_valid_next_frame} else {state.raw_data_valid},
-                     raw_data_valid_next_frame: if (state.rle_data.packet.last_block) {false} else {state.raw_data_valid_next_frame},
-                     rle_data_valid: false,
-                     rle_data_valid_next_frame: if (state.rle_data.packet.last_block) {false} else {state.rle_data_valid_next_frame},
-                     compressed_data_valid: if (state.rle_data.packet.last_block) {state.compressed_data_valid_next_frame} else {state.compressed_data_valid},
-                     compressed_data_valid_next_frame: if (state.rle_data.packet.last_block) {false} else {state.compressed_data_valid_next_frame},
-                     prev_valid : true,
-                     prev_id: if (state.rle_data.packet.last_block) {u32:0xffffffff} else {state.rle_data.packet.id},
-                     prev_last: state.rle_data.packet.last,
-                     prev_last_block: state.rle_data.packet.last_block,
-                     ..state})
-            } else if (state.compressed_data_valid &&
-              (((state.compressed_data.packet.id == (state.prev_id + u32:1)) && state.prev_last) ||
-               ((state.compressed_data.packet.id == state.prev_id) && !state.prev_last))) {
-                assert!(!state.compressed_data_valid_next_frame, "compressed_packet_valid_in_current_and_next_frame");
-                (true,
-                 SequenceExecutorPacket {
-                     msg_type: state.compressed_data.msg_type,
-                     length: state.compressed_data.packet.length as CopyOrMatchLength,
-                     content: state.compressed_data.packet.data as CopyOrMatchContent,
-                     last: state.compressed_data.packet.last && state.compressed_data.packet.last_block,
-                 },
-                 DecoderMuxState {
-                     raw_data_valid: if (state.compressed_data.packet.last_block) {state.raw_data_valid_next_frame} else {state.raw_data_valid},
-                     raw_data_valid_next_frame: if (state.compressed_data.packet.last_block) {false} else {state.raw_data_valid_next_frame},
-                     rle_data_valid: if (state.compressed_data.packet.last_block) {state.rle_data_valid_next_frame} else {state.rle_data_valid},
-                     rle_data_valid_next_frame: if (state.compressed_data.packet.last_block) {false} else {state.rle_data_valid_next_frame},
-                     compressed_data_valid: false,
-                     compressed_data_valid_next_frame: if (state.compressed_data.packet.last_block) {false} else {state.compressed_data_valid_next_frame},
-                     prev_valid : true,
-                     prev_id: if (state.compressed_data.packet.last_block) {u32:0xffffffff} else {state.compressed_data.packet.id},
-                     prev_last: state.compressed_data.packet.last,
-                     prev_last_block: state.compressed_data.packet.last_block,
-                     ..state})
-            } else {
-                (false, zero!<SequenceExecutorPacket>(), state)
-            };
+            let (do_send, data_to_send, state) =
+                if (state.raw_data_valid &&
+                 (((state.raw_data.packet.id == (state.prev_id + u32:1)) && state.prev_last) ||
+                  ((state.raw_data.packet.id == state.prev_id) && !state.prev_last))) {
+                    assert!(!state.raw_data_valid_next_frame, "raw_packet_valid_in_current_and_next_frame");
+                    (true,
+                     SequenceExecutorPacket {
+                         msg_type: state.raw_data.msg_type,
+                         length: state.raw_data.packet.length as CopyOrMatchLength,
+                         content: state.raw_data.packet.data as CopyOrMatchContent,
+                         last: state.raw_data.packet.last && state.raw_data.packet.last_block,
+                     },
+                     DecoderMuxState {
+                         raw_data_valid: false,
+                         raw_data_valid_next_frame: if (state.raw_data.packet.last_block) {false} else {state.raw_data_valid_next_frame},
+                         rle_data_valid: if (state.raw_data.packet.last_block) {state.rle_data_valid_next_frame} else {state.rle_data_valid},
+                         rle_data_valid_next_frame: if (state.raw_data.packet.last_block) {false} else {state.rle_data_valid_next_frame},
+                         compressed_data_valid: if (state.raw_data.packet.last_block) {state.compressed_data_valid_next_frame} else {state.compressed_data_valid},
+                         compressed_data_valid_next_frame: if (state.raw_data.packet.last_block) {false} else {state.compressed_data_valid_next_frame},
+                         prev_valid : true,
+                         prev_id: if (state.raw_data.packet.last_block) {u32:0xffffffff} else {state.raw_data.packet.id},
+                         prev_last: state.raw_data.packet.last,
+                         prev_last_block: state.raw_data.packet.last_block,
+                         ..state})
+                } else if (state.rle_data_valid &&
+                        (((state.rle_data.packet.id == (state.prev_id + u32:1)) && state.prev_last) ||
+                         ((state.rle_data.packet.id == state.prev_id) && !state.prev_last))) {
+                    assert!(!state.rle_data_valid_next_frame, "rle_packet_valid_in_current_and_next_frame");
+                    (true,
+                     SequenceExecutorPacket {
+                         msg_type: state.rle_data.msg_type,
+                         length: state.rle_data.packet.length as CopyOrMatchLength,
+                         content: state.rle_data.packet.data as CopyOrMatchContent,
+                         last: state.rle_data.packet.last && state.rle_data.packet.last_block,
+                     },
+                     DecoderMuxState {
+                         raw_data_valid: if (state.rle_data.packet.last_block) {state.raw_data_valid_next_frame} else {state.raw_data_valid},
+                         raw_data_valid_next_frame: if (state.rle_data.packet.last_block) {false} else {state.raw_data_valid_next_frame},
+                         rle_data_valid: false,
+                         rle_data_valid_next_frame: if (state.rle_data.packet.last_block) {false} else {state.rle_data_valid_next_frame},
+                         compressed_data_valid: if (state.rle_data.packet.last_block) {state.compressed_data_valid_next_frame} else {state.compressed_data_valid},
+                         compressed_data_valid_next_frame: if (state.rle_data.packet.last_block) {false} else {state.compressed_data_valid_next_frame},
+                         prev_valid : true,
+                         prev_id: if (state.rle_data.packet.last_block) {u32:0xffffffff} else {state.rle_data.packet.id},
+                         prev_last: state.rle_data.packet.last,
+                         prev_last_block: state.rle_data.packet.last_block,
+                         ..state})
+                } else if (state.compressed_data_valid &&
+                        (((state.compressed_data.packet.id == (state.prev_id + u32:1)) && state.prev_last) ||
+                         ((state.compressed_data.packet.id == state.prev_id) && !state.prev_last))) {
+                    assert!(!state.compressed_data_valid_next_frame, "compressed_packet_valid_in_current_and_next_frame");
+                    (true,
+                     SequenceExecutorPacket {
+                         msg_type: state.compressed_data.msg_type,
+                         length: state.compressed_data.packet.length as CopyOrMatchLength,
+                         content: state.compressed_data.packet.data as CopyOrMatchContent,
+                         last: state.compressed_data.packet.last && state.compressed_data.packet.last_block,
+                     },
+                     DecoderMuxState {
+                         raw_data_valid: if (state.compressed_data.packet.last_block) {state.raw_data_valid_next_frame} else {state.raw_data_valid},
+                         raw_data_valid_next_frame: if (state.compressed_data.packet.last_block) {false} else {state.raw_data_valid_next_frame},
+                         rle_data_valid: if (state.compressed_data.packet.last_block) {state.rle_data_valid_next_frame} else {state.rle_data_valid},
+                         rle_data_valid_next_frame: if (state.compressed_data.packet.last_block) {false} else {state.rle_data_valid_next_frame},
+                         compressed_data_valid: false,
+                         compressed_data_valid_next_frame: if (state.compressed_data.packet.last_block) {false} else {state.compressed_data_valid_next_frame},
+                         prev_valid : true,
+                         prev_id: if (state.compressed_data.packet.last_block) {u32:0xffffffff} else {state.compressed_data.packet.id},
+                         prev_last: state.compressed_data.packet.last,
+                         prev_last_block: state.compressed_data.packet.last_block,
+                         ..state})
+                } else {
+                    (false, zero!<SequenceExecutorPacket>(), state)
+                };
 
             let tok = send_if(tok, output_s, do_send, data_to_send);
             if (do_send) {

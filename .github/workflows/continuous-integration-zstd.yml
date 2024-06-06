@@ -1,18 +1,16 @@
-# https://docs.github.com/en/actions/reference/workflow-syntax-for-github-actions
-# See also: https://github.com/marketplace/actions/bazel-action
-
-name: Continuous Integration
+name: Continuous Integration - ZSTD Module
 on:
   # Avoid triggering on pushes to /all/ open PR branches.
   push:
     branches:
       - main
-    paths-ignore:
-      # Do not trigger action when docs are updated.
-      - 'docs/**'
+    paths:
+      - 'xls/modules/zstd/**'
   pull_request:
     branches:
       - main
+    paths:
+      - 'xls/modules/zstd/**'
   # This lets us trigger manually from the UI.
   workflow_dispatch:
 
@@ -41,4 +39,4 @@ jobs:
 
       - name: Bazel Test All (opt)
         run: |
-          bazel test -c opt --test_output=errors -- //xls/... -//xls/modules/zstd/...
+          bazel test -c opt --test_output=errors -- //xls/modules/zstd/...

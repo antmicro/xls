@@ -22,6 +22,7 @@ load(
     "//xls/build_rules:xls_build_defs.bzl",
     "cc_xls_ir_jit_wrapper",
     "xls_benchmark_ir",
+    "xls_benchmark_verilog",
     "xls_dslx_fmt_test",
     "xls_dslx_ir",
     "xls_dslx_library",
@@ -1022,4 +1023,143 @@ xls_dslx_test(
     size = "small",
     srcs = ["gcd.x"],
     deps = [":gcd_dslx"],
+)
+
+### IF experiments ###
+
+xls_dslx_library(
+    name = "if_dslx",
+    srcs = [
+        "if.x",
+    ],
+)
+
+## Slow IF
+
+xls_dslx_verilog(
+    name = "slow_if_verilog",
+    codegen_args = {
+        "module_name": "slow_if",
+        "generator": "pipeline",
+        "delay_model": "asap7",
+        "pipeline_stages": "1",
+        "worst_case_throughput": "1",
+        "use_system_verilog": "false",
+    },
+    dslx_top = "slow_if_inst",
+    library = ":if_dslx",
+    verilog_file = "slow_if.v",
+)
+
+xls_benchmark_ir(
+    name = "slow_if_opt_ir_benchmark",
+    src = ":slow_if_verilog.opt.ir",
+    benchmark_ir_args = {
+        "pipeline_stages": "10",
+        "delay_model": "asap7",
+    },
+)
+
+verilog_library(
+    name = "slow_if_verilog_lib",
+    srcs = [
+        ":slow_if.v",
+    ],
+)
+
+synthesize_rtl(
+    name = "slow_if_asap7_synth",
+    standard_cells = "@org_theopenroadproject_asap7sc7p5t_28//:asap7-sc7p5t_rev28_rvt",
+    top_module = "slow_if",
+    deps = [
+        ":slow_if_verilog_lib",
+    ],
+)
+
+place_and_route(
+    name = "slow_if_place_and_route",
+    clock_period = "650",
+    core_padding_microns = 2,
+    die_height_microns = 500,
+    die_width_microns = 500,
+    min_pin_distance = "0.5",
+    placement_density = "0.30",
+    stop_after_step = "global_routing",
+    synthesized_rtl = ":slow_if_asap7_synth",
+    target_die_utilization_percentage = "10",
+)
+
+benchmark_synth(
+    name = "slow_if_asap7_synth_benchmark",
+    synth_target = ":slow_if_asap7_synth",
+)
+
+xls_benchmark_verilog(
+    name = "slow_if_verilog_benchmark",
+    verilog_target = "slow_if_verilog",
+)
+
+## Fast IF
+
+xls_dslx_verilog(
+    name = "fast_if_verilog",
+    codegen_args = {
+        "module_name": "fast_if",
+        "generator": "pipeline",
+        "delay_model": "asap7",
+        "pipeline_stages": "1",
+        "worst_case_throughput": "1",
+        "use_system_verilog": "false",
+    },
+    dslx_top = "fast_if_inst",
+    library = ":if_dslx",
+    verilog_file = "fast_if.v",
+)
+
+xls_benchmark_ir(
+    name = "fast_if_opt_ir_benchmark",
+    src = ":fast_if_verilog.opt.ir",
+    benchmark_ir_args = {
+        "pipeline_stages": "10",
+        "delay_model": "asap7",
+    },
+)
+
+verilog_library(
+    name = "fast_if_verilog_lib",
+    srcs = [
+        ":fast_if.v",
+    ],
+)
+
+synthesize_rtl(
+    name = "fast_if_asap7_synth",
+    standard_cells = "@org_theopenroadproject_asap7sc7p5t_28//:asap7-sc7p5t_rev28_rvt",
+    top_module = "fast_if",
+    deps = [
+        ":fast_if_verilog_lib",
+    ],
+)
+
+place_and_route(
+    name = "fast_if_place_and_route",
+    clock_period = "650",
+    core_padding_microns = 2,
+    die_height_microns = 500,
+    die_width_microns = 500,
+    min_pin_distance = "0.5",
+    placement_density = "0.30",
+    stop_after_step = "global_routing",
+    synthesized_rtl = ":fast_if_asap7_synth",
+    target_die_utilization_percentage = "10",
+)
+
+benchmark_synth(
+    name = "fast_if_asap7_synth_benchmark",
+    synth_target = ":fast_if_asap7_synth",
+)
+
+xls_benchmark_verilog(
+    name = "fast_if_verilog_benchmark",
+    verilog_target = "fast_if_verilog",
 )

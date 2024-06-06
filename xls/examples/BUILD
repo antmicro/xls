@@ -1027,7 +1027,7 @@ xls_dslx_opt_ir(
 xls_dslx_opt_ir(
     name = "passthrough_wrapped_opt_ir",
     library = "passthrough_dslx",
-    dslx_top = "PassthrougWrapped",
+    dslx_top = "PassthroughWrapped",
     opt_ir_args = { "inline_procs": "true" },
 )
 

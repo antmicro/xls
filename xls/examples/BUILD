@@ -1017,6 +1017,20 @@ xls_dslx_verilog(
     verilog_file = "passthrough.sv",
 )
 
+xls_dslx_opt_ir(
+    name = "passthrough_nested_opt_ir",
+    library = "passthrough_dslx",
+    dslx_top = "PassthroughNested",
+    opt_ir_args = { "inline_procs": "true" },
+)
+
+xls_dslx_opt_ir(
+    name = "passthrough_wrapped_opt_ir",
+    library = "passthrough_dslx",
+    dslx_top = "PassthrougWrapped",
+    opt_ir_args = { "inline_procs": "true" },
+)
+
 xls_dslx_library(
     name = "gcd_dslx",
     srcs = ["gcd.x"],

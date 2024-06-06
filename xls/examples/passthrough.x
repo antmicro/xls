@@ -31,6 +31,33 @@ proc Passthrough {
     }
 }
 
+proc PassthroughNested {
+    intr_r: chan<u32> in;
+    data_s: chan<u32> out;
+    config(data_r: chan<u32> in, data_s: chan<u32> out) {
+        let (intr_s, intr_r) = chan<u32, u32:1>("intr");
+        spawn Passthrough(data_r, intr_s);
+        (intr_r, data_s)
+    }
+
+    init { () }
+    next(tok: token, state: ()) {
+        let (tok, data) = recv(tok, intr_r);
+        let tok = send(tok, data_s, data);
+    }
+}
+
+proc PassthroughWrapped {
+    config(data_r: chan<u32> in, data_s: chan<u32> out) {
+        let (intr_s, intr_r) = chan<u32, u32:1>("intr");
+        spawn Passthrough(data_r, intr_s);
+        spawn Passthrough(intr_r, data_s);
+    }
+
+    init { () }
+    next(state: ()) { }
+}
+
 #[test_proc]
 proc PassthroughTest {
     terminator: chan<bool> out;

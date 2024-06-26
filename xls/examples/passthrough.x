@@ -41,8 +41,8 @@ proc PassthroughNested {
     }
 
     init { () }
-    next(tok: token, state: ()) {
-        let (tok, data) = recv(tok, intr_r);
+    next(state: ()) {
+        let (tok, data) = recv(join(), intr_r);
         let tok = send(tok, data_s, data);
     }
 }

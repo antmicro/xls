@@ -145,12 +145,33 @@ xls_dslx_test(
     tags = ["manual"],
 )
 
+cc_binary(
+    name = "decodecorpus",
+    srcs = [
+        "decodecorpus.c",
+    ],
+    deps = [
+        "@zstd//:zstd",
+        "@zstd//:util",
+        "@zstd//:timefn",
+        "@zstd//:decodecorpus_includes",
+    ],
+    includes = [
+        "lib/common/",
+        "programs/",
+    ],
+    local_defines = [
+        "XXH_NAMESPACE=ZSTD_",
+    ],
+    visibility = ["//visibility:public"],
+)
+
 cc_library(
     name = "data_generator",
     srcs = ["data_generator.cc"],
     hdrs = ["data_generator.h"],
     data = [
-        "@zstd//:decodecorpus",
+        ":decodecorpus",
     ],
     deps = [
         "//xls/common:subprocess",

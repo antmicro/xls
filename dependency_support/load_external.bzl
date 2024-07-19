@@ -322,13 +322,16 @@ def load_external_repositories():
         sha256 = "cad05f864a32799f6f9022891de91ac78f30e0fa07dc68abac92a628121b5b11",
     )
 
-    # Version 1.4.7 released on 17.12.2020
-    # https://github.com/facebook/zstd/releases/tag/v1.4.7
-    # Updated 27.06.2024
+    # Used in C++ tests of the ZSTD Module
+    # Transitive dependency of fuzztest (required by riegeli in fuzztest workspace)
+    # Version 1.5.6 released on 30.03.2024
+    # https://github.com/facebook/zstd/releases/tag/v1.5.6
+    # Updated 19.07.2024
     http_archive(
         name = "zstd",
-        sha256 = "192cbb1274a9672cbcceaf47b5c4e9e59691ca60a357f1d4a8b2dfa2c365d757",
-        strip_prefix = "zstd-1.4.7",
-        urls = ["https://github.com/facebook/zstd/releases/download/v1.4.7/zstd-1.4.7.tar.gz"],
+        sha256 = "8c29e06cf42aacc1eafc4077ae2ec6c6fcb96a626157e0593d5e82a34fd403c1",
+        strip_prefix = "zstd-1.5.6",
+        urls = ["https://github.com/facebook/zstd/releases/download/v1.5.6/zstd-1.5.6.tar.gz"],
         build_file = "//dependency_support/com_github_facebook_zstd:bundled.BUILD.bazel",
     )
+

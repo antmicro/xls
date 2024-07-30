@@ -119,7 +119,7 @@ pub proc FseInputBuffer<DATA_WIDTH: u32, LENGTH_WIDTH: u32> {
 
     init {  }
 
-    next (state: ()) {
+    next(state: ()) {
         let tok0 = join();
 
         let (tok1, recv_data, recv_valid) = recv_non_blocking(tok0, in_data_r, zero!<SequenceData>());
@@ -235,6 +235,7 @@ pub proc FseProbaFreqDecoder<
 
         let do_recv_req = (state.fsm == Fsm::IDLE);
 
+        let tok0 = join();
         let (tok1_0, _) = recv_if(tok0, req_r, do_recv_req, zero!<Req>());
 
         let do_buff_data_recv = match (state.fsm) {
@@ -633,8 +634,6 @@ proc FseProbaFreqDecoderTest {
     init { }
 
     next(state: ()) {
-        let tok = join();
-
         // * accuracy_log = 8
         // * probability frequencies:
         // | value | probability | bits (real) | symbol number |
@@ -662,6 +661,8 @@ proc FseProbaFreqDecoderTest {
             RamDataSigned:-1 as RamData,
             RamData:5
         ];
+
+        let tok = join();
 
         let tok = send(tok, seq_data_s, common::SequenceData {
             bytes: u64:0b111_000_00_001_011_01_11_001_110111_01110101_01100001_0011,

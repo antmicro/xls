@@ -40,6 +40,7 @@ pub proc RamWrRespHandler<CNT_WIDTH: u32> {
 
     next(wr_cnt: WriteCnt) {
         let tok0 = join();
+
         let (tok1, reset) = recv(tok0, input_r);
         recv(tok1, wr_resp_r);
 

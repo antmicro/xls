@@ -245,7 +245,7 @@ const TEST_DATA: LiteralsData[11] = [
 const TEST_BUF_CTRL: LiteralsBufferCtrl[5] = [
     LiteralsBufferCtrl {length: u32:11, last: false},
     LiteralsBufferCtrl {length: u32:2, last: false},
-    LiteralsBufferCtrl {length: u32:16, last: false},
+    LiteralsBufferCtrl {length: u32:16, last: true},
     LiteralsBufferCtrl {length: u32:11, last: false},
     LiteralsBufferCtrl {length: u32:32, last: true},
 ];

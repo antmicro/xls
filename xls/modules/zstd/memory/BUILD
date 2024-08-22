@@ -189,3 +189,84 @@ place_and_route(
     synthesized_rtl = ":axi_stream_downscaler_synth_asap7",
     target_die_utilization_percentage = "10",
 )
+
+xls_dslx_library(
+    name = "csr_config_dslx",
+    srcs = [
+        "csr_config.x",
+    ],
+    deps = [
+        ":axi_dslx",
+    ],
+)
+
+xls_dslx_test(
+    name = "csr_config_dslx_test",
+    library = ":csr_config_dslx",
+    tags = ["manual"],
+)
+
+xls_dslx_verilog(
+    name = "csr_config_verilog",
+    codegen_args = {
+        "module_name": "CsrConfig",
+        "delay_model": "asap7",
+        "pipeline_stages": "8",
+        "reset": "rst",
+        "use_system_verilog": "false",
+    },
+    dslx_top = "CsrConfigInst",
+    library = ":csr_config_dslx",
+    opt_ir_args = {
+        "inline_procs": "true",
+        "top": "__csr_config__CsrConfigInst__CsrConfig_0__2_32_4_32_4_next",
+    },
+    tags = ["manual"],
+    verilog_file = "csr_config.v",
+)
+
+xls_benchmark_ir(
+    name = "csr_config_opt_ir_benchmark",
+    src = ":csr_config_verilog.opt.ir",
+    benchmark_ir_args = {
+        "pipeline_stages": "4",
+        "delay_model": "asap7",
+    },
+    tags = ["manual"],
+)
+
+verilog_library(
+    name = "csr_config_verilog_lib",
+    srcs = [
+        ":csr_config.v",
+    ],
+    tags = ["manual"],
+)
+
+synthesize_rtl(
+    name = "csr_config_synth_asap7",
+    standard_cells = "@org_theopenroadproject_asap7sc7p5t_28//:asap7-sc7p5t_rev28_rvt",
+    tags = ["manual"],
+    top_module = "CsrConfig",
+    deps = [
+        ":csr_config_verilog_lib",
+    ],
+)
+
+benchmark_synth(
+    name = "csr_config_benchmark_synth",
+    synth_target = ":csr_config_synth_asap7",
+    tags = ["manual"],
+)
+
+place_and_route(
+    name = "csr_config_place_and_route",
+    clock_period = "750",
+    core_padding_microns = 2,
+    min_pin_distance = "0.5",
+    placement_density = "0.30",
+    stop_after_step = "global_routing",
+    synthesized_rtl = ":csr_config_synth_asap7",
+    tags = ["manual"],
+    target_die_utilization_percentage = "10",
+)

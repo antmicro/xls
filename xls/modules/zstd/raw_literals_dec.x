@@ -21,7 +21,7 @@ type LiteralsDataWithSync = common::LiteralsDataWithSync;
 type LitData = common::LitData;
 type LitLength = common::LitLength;
 
-proc RawLiteralsDecoder {
+pub proc RawLiteralsDecoder {
     dispatcher_r: chan<LiteralsDataWithSync> in;
     buffer_s: chan<LiteralsDataWithSync> out;
 

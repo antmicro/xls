@@ -30,7 +30,7 @@ type ShiftBufferOutput = common::SeqDecShiftBufferOutput;
 
 type BlockSyncData = common::BlockSyncData;
 type SequenceExecutorMessageType = common::SequenceExecutorMessageType;
-type SequenceExecutorPacket = common::SequenceExecutorPacket;
+type SequenceExecutorPacket = common::SequenceExecutorPacket<common::SYMBOLS_IN_PACKET>;
 type CommandConstructorData = common::CommandConstructorData;
 
 type CopyOrMatchLength = common::CopyOrMatchLength;
@@ -412,7 +412,7 @@ proc FseDecoder {
                         ..state
                     }
                 } else { state }
-                
+
             },
             FseDecoderFSM::READ_LL_BITS => {
                 if ((state.read_bits_needed == state.read_bits_length) && !state.sent_buf_ctrl) {
@@ -943,7 +943,7 @@ proc FseDecoderTest {
     shift_buffer_ctrl_r: chan<ShiftBufferCtrl> in;
     shift_buffer_out_data_s: chan<ShiftBufferOutput> out;
     shift_buffer_out_ctrl_s: chan<ShiftBufferOutput> out;
-    
+
     command_r: chan<CommandConstructorData> in;
 
     ll_def_fse_wr_req_s: chan<FseRamWriteReq> out;
@@ -1157,7 +1157,7 @@ proc FseDecoderTest {
 
                 // recv finish
                 let (tok, _) = recv(tok, finish_r);
-                
+
                 send(tok, terminator, true);
             },
         };

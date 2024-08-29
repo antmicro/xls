@@ -404,7 +404,7 @@ proc LiteralsBufferWriter<
     type State = LiteralsBufferWriterState<RAM_ADDR_WIDTH>;
     type WriteReq = ram::WriteReq<RAM_ADDR_WIDTH, RAM_DATA_WIDTH, RAM_NUM_PARTITIONS>;
     type WriteResp = ram::WriteResp;
-    
+
     literals_r: chan<LiteralsData> in;
 
     ram_comp_input_s: chan<RamWrRespHandlerData<RAM_ADDR_WIDTH>> out;
@@ -802,7 +802,7 @@ proc LiteralsBufferReader<
     }
 }
 
-proc LiteralsBuffer<
+pub proc LiteralsBuffer<
     HISTORY_BUFFER_SIZE_KB: u32,
     RAM_SIZE: u32 = {parallel_rams::ram_size(HISTORY_BUFFER_SIZE_KB)},
     RAM_ADDR_WIDTH: u32 = {parallel_rams::ram_addr_width(HISTORY_BUFFER_SIZE_KB)},

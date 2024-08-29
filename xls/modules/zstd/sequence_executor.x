@@ -165,7 +165,7 @@ pub fn handle_repeated_offset_for_sequences<RAM_DATA_WIDTH: u32 = {u32:8}>
     (seq, final_repeat_offsets)
 }
 
-proc SequenceExecutor<HISTORY_BUFFER_SIZE_KB: u32,
+pub proc SequenceExecutor<HISTORY_BUFFER_SIZE_KB: u32,
      RAM_SIZE: u32 = {parallel_rams::ram_size(HISTORY_BUFFER_SIZE_KB)},
      RAM_ADDR_WIDTH: u32 = {parallel_rams::ram_addr_width(HISTORY_BUFFER_SIZE_KB)},
      INIT_HB_PTR_ADDR: u32 = {u32:0}, INIT_HB_PTR_RAM: u32 = {u32:0},

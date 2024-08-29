@@ -37,7 +37,7 @@ pub type RamNumber = bits[RAM_NUM_WIDTH];
 pub type RamReadStart = bits[RAM_NUM_WIDTH];
 pub type RamReadLen = bits[std::clog2(RAM_NUM + u32:1)];
 
-pub fn ram_size<RAM_DATA_WIDTH: u32 = {common::SYMBOL_WIDTH}>(hb_size_kb: u32) -> u32 { 
+pub fn ram_size<RAM_DATA_WIDTH: u32 = {common::SYMBOL_WIDTH}>(hb_size_kb: u32) -> u32 {
     (hb_size_kb * u32:1024 * u32:8) / RAM_DATA_WIDTH / RAM_NUM
 }
 
@@ -65,7 +65,7 @@ type TestReadResp = ram::ReadResp<TEST_RAM_DATA_WIDTH>;
 
 pub struct HistoryBufferPtr<RAM_ADDR_WIDTH: u32> { number: RamNumber, addr: bits[RAM_ADDR_WIDTH] }
 
-fn hb_ptr_from_offset_back<
+pub fn hb_ptr_from_offset_back<
     HISTORY_BUFFER_SIZE_KB: u32,
     RAM_SIZE: u32 = {ram_size(HISTORY_BUFFER_SIZE_KB)},
     RAM_ADDR_WIDTH: u32 = {ram_addr_width(HISTORY_BUFFER_SIZE_KB)}
@@ -135,7 +135,7 @@ fn test_hb_ptr_from_offset_back() {
         HistoryBufferPtr { number: RamNumber:7, addr: (TEST_RAM_SIZE - u32:1) as TestRamAddr });
 }
 
-fn hb_ptr_from_offset_forw<
+pub fn hb_ptr_from_offset_forw<
     HISTORY_BUFFER_SIZE_KB: u32,
     RAM_SIZE: u32 = {ram_size(HISTORY_BUFFER_SIZE_KB)},
     RAM_ADDR_WIDTH: u32 = {ram_addr_width(HISTORY_BUFFER_SIZE_KB)}
@@ -264,7 +264,7 @@ fn test_literal_packet_to_single_write_req() {
         zero!<TestWriteReq>());
 }
 
-fn literal_packet_to_write_reqs<
+pub fn literal_packet_to_write_reqs<
     HISTORY_BUFFER_SIZE_KB: u32,
     RAM_ADDR_WIDTH: u32 = {ram_addr_width(HISTORY_BUFFER_SIZE_KB)},
     RAM_DATA_WIDTH: u32 = {common::SYMBOL_WIDTH},
@@ -556,7 +556,7 @@ pub struct RamWrRespHandlerResp<RAM_ADDR_WIDTH: u32> {
     ptr: HistoryBufferPtr<RAM_ADDR_WIDTH>,
 }
 
-fn create_ram_wr_data<RAM_ADDR_WIDTH: u32, RAM_DATA_WIDTH: u32, RAM_NUM_PARTITIONS: u32>
+pub fn create_ram_wr_data<RAM_ADDR_WIDTH: u32, RAM_DATA_WIDTH: u32, RAM_NUM_PARTITIONS: u32>
     (reqs: ram::WriteReq<RAM_ADDR_WIDTH, RAM_DATA_WIDTH, RAM_NUM_PARTITIONS>[RAM_NUM], ptr: HistoryBufferPtr) -> (bool, RamWrRespHandlerData) {
     const RAM_REQ_MASK_NONE = bits[RAM_NUM_PARTITIONS]:0;
 
@@ -624,7 +624,7 @@ pub struct RamRdRespHandlerData {
     last: bool
 }
 
-fn create_ram_rd_data<RAM_ADDR_WIDTH: u32, RAM_DATA_WIDTH: u32, RAM_NUM_PARTITIONS: u32>
+pub fn create_ram_rd_data<RAM_ADDR_WIDTH: u32, RAM_DATA_WIDTH: u32, RAM_NUM_PARTITIONS: u32>
     (reqs: ram::ReadReq<RAM_ADDR_WIDTH, RAM_NUM_PARTITIONS>[RAM_NUM], read_start: RamReadStart, read_len: RamReadLen, last: bool, next_packet_valid: bool) -> (bool, RamRdRespHandlerData) {
     const RAM_REQ_MASK_NONE = bits[RAM_NUM_PARTITIONS]:0;
 

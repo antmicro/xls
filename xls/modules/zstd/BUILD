@@ -2080,7 +2080,7 @@ xls_dslx_verilog(
     library = ":literals_buffer_dslx",
     opt_ir_args = {
         "inline_procs": "true",
-        "top": "__literals_buffer__LiteralsBufferInst__LiteralsBuffer__LiteralsBufferReader_0__64_0_0_0_13_8192_65536_next",
+        "top": "__literals_buffer__LiteralsBufferInst__LiteralsBuffer_0__LiteralsBufferReader_0__64_0_0_0_13_8192_65536_next"
     },
     verilog_file = "literals_buffer.v",
 )
@@ -2178,7 +2178,7 @@ xls_dslx_verilog(
     library = ":literals_decoder_dslx",
     opt_ir_args = {
         "inline_procs": "true",
-        "top": "__xls_modules_zstd_literals_buffer__LiteralsDecoderInst__LiteralsDecoder__LiteralsBuffer__LiteralsBufferReader_0__64_0_0_0_13_8192_65536_next",
+        "top": "__xls_modules_zstd_literals_buffer__LiteralsDecoderInst__LiteralsDecoder_0__LiteralsBuffer_0__LiteralsBufferReader_0__64_0_0_0_13_8192_65536_next",
     },
     verilog_file = "literals_decoder.v",
 )

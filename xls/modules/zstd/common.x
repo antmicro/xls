@@ -26,6 +26,7 @@ pub const BUFFER_WIDTH = u32:128;
 pub const MAX_BLOCK_SIZE_KB = u32:64;
 
 pub const BLOCK_PACKET_WIDTH = u32:32;
+pub const SYMBOLS_IN_PACKET = DATA_WIDTH/SYMBOL_WIDTH;
 
 pub type BlockData = bits[DATA_WIDTH];
 pub type BlockPacketLength = bits[BLOCK_PACKET_WIDTH];
@@ -59,10 +60,10 @@ pub struct ExtendedBlockDataPacket {
     packet: BlockDataPacket,
 }
 
-pub struct SequenceExecutorPacket<DATA_WIDTH: u32> {
+pub struct SequenceExecutorPacket<DATA_W: u32> {
     msg_type: SequenceExecutorMessageType,
     length: CopyOrMatchLength, // Literal length or match length
-    content: uN[DATA_WIDTH * u32:8], // Literal data or match offset
+    content: uN[DATA_W * u32:8], // Literal data or match offset
     last: bool, // Last packet in frame
 }
 
@@ -73,7 +74,7 @@ pub struct BlockSyncData {
 
 pub struct CommandConstructorData {
     sync: BlockSyncData,
-    data: SequenceExecutorPacket,
+    data: SequenceExecutorPacket<SYMBOLS_IN_PACKET>,
 }
 
 // Defines output format of the ZSTD Decoder

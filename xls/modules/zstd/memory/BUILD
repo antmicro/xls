@@ -116,3 +116,76 @@ place_and_route(
     synthesized_rtl = ":axi_reader_synth_asap7",
     target_die_utilization_percentage = "10",
 )
+
+xls_dslx_library(
+    name = "axi_stream_downscaler_dslx",
+    srcs = ["axi_stream_downscaler.x"],
+    deps = [
+        ":axi_st_dslx",
+    ],
+)
+
+xls_dslx_test(
+    name = "axi_stream_downscaler_dslx_test",
+    library = ":axi_stream_downscaler_dslx",
+)
+
+xls_dslx_verilog(
+    name = "axi_stream_downscaler_verilog",
+    codegen_args = {
+        "module_name": "AxiStreamDownscaler",
+        "delay_model": "asap7",
+        "pipeline_stages": "10",
+        "reset": "rst",
+        "use_system_verilog": "false",
+        "worst_case_throughput": "1",
+        "streaming_channel_data_suffix": "_data",
+    },
+    dslx_top = "AxiStreamDownscalerInst",
+    library = ":axi_stream_downscaler_dslx",
+    opt_ir_args = {
+        "top": "__axi_stream_downscaler__AxiStreamDownscalerInst__AxiStreamDownscaler_0__8_8_128_16_32_4_4_3_next",
+    },
+    verilog_file = "axi_stream_downscaler.v",
+)
+
+xls_benchmark_ir(
+    name = "axi_stream_downscaler_opt_ir_benchmark",
+    src = ":axi_stream_downscaler_verilog.opt.ir",
+    benchmark_ir_args = {
+        "pipeline_stages": "10",
+        "delay_model": "asap7",
+    },
+)
+
+verilog_library(
+    name = "axi_stream_downscaler_verilog_lib",
+    srcs = [
+        ":axi_stream_downscaler.v",
+    ],
+)
+
+synthesize_rtl(
+    name = "axi_stream_downscaler_synth_asap7",
+    standard_cells = "@org_theopenroadproject_asap7sc7p5t_28//:asap7-sc7p5t_rev28_rvt",
+    top_module = "AxiStreamDownscaler",
+    deps = [
+        ":axi_stream_downscaler_verilog_lib",
+    ],
+)
+
+benchmark_synth(
+    name = "axi_stream_downscaler_benchmark_synth",
+    synth_target = ":axi_stream_downscaler_synth_asap7",
+)
+
+place_and_route(
+    name = "axi_stream_downscaler_place_and_route",
+    clock_period = "750",
+    core_padding_microns = 2,
+    min_pin_distance = "0.5",
+    placement_density = "0.30",
+    stop_after_step = "global_routing",
+    synthesized_rtl = ":axi_stream_downscaler_synth_asap7",
+    target_die_utilization_percentage = "10",
+)

@@ -22,11 +22,20 @@
 import std;
 import xls.modules.zstd.common;
 
-type SequenceExecutorPacket = common::SequenceExecutorPacket;
 type SequenceExecutorMessageType = common::SequenceExecutorMessageType;
 type CopyOrMatchContent = common::CopyOrMatchContent;
 type CopyOrMatchLength = common::CopyOrMatchLength;
-type LiteralsBufferCtrl = common::LiteralsBufferCtrl;
+
+struct SequenceExecutorPacket {
+    msg_type: SequenceExecutorMessageType,
+    length: CopyOrMatchLength, // Literal length or match length
+    content: CopyOrMatchContent, // Literal data or match offset
+    last: bool, // Last packet in frame
+}
+
+pub struct LiteralsBufferCtrl {
+    length: u64
+}
 
 enum Status : u1 {
     RECV_COMMAND = 0,

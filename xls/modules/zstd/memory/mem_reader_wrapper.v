@@ -59,7 +59,7 @@ module mem_reader_wrapper #(
     output wire                  axi_r_rready,
     input  wire [  AXI_ID_W-1:0] axi_r_rid,
     input  wire [AXI_DATA_W-1:0] axi_r_rdata,
-    input  wire [           1:0] axi_r_rresp,
+    input  wire [           2:0] axi_r_rresp,
     input  wire                  axi_r_rlast
 );
 
@@ -86,7 +86,7 @@ module mem_reader_wrapper #(
   wire               axi_r_vld;
   wire               axi_r_rdy;
 
-  assign axi_r_data = {axi_r_rid, axi_r_rdata, 1'b0, axi_r_rresp, axi_r_rlast};
+  assign axi_r_data = {axi_r_rid, axi_r_rdata, axi_r_rresp, axi_r_rlast};
   assign axi_r_vld = axi_r_rvalid;
 
   assign axi_r_rready = axi_r_rdy;

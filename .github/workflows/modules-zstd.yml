@@ -2,8 +2,6 @@ name: Modules (ZSTD)
 on:
   # Avoid triggering on pushes to /all/ open PR branches.
   push:
-    branches:
-      - main
     paths:
       - 'xls/modules/zstd/**'
   pull_request:
@@ -71,3 +69,8 @@ jobs:
         if: ${{ !cancelled() }}
         run: |
           bazel build -c opt -- $(bazel query 'filter(".*_place_and_route", kind(rule, //xls/modules/zstd/...))')
+
+      - name: Build and run Verilog simulation tests (opt)
+        if: ${{ !cancelled() }}
+        run: |
+          bazel run -c opt -- $(bazel query 'filter(".*_cocotb_test", kind(rule, //xls/modules/zstd/...))')

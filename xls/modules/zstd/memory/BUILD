@@ -12,14 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-load("@xls_pip_deps//:requirements.bzl", "requirement")
 load("@rules_hdl//place_and_route:build_defs.bzl", "place_and_route")
 load("@rules_hdl//synthesis:build_defs.bzl", "benchmark_synth", "synthesize_rtl")
 load("@rules_hdl//verilog:providers.bzl", "verilog_library")
+load("@xls_pip_deps//:requirements.bzl", "requirement")
 load(
     "//xls/build_rules:xls_build_defs.bzl",
     "xls_benchmark_ir",
-    "xls_benchmark_verilog",
     "xls_dslx_library",
     "xls_dslx_test",
     "xls_dslx_verilog",
@@ -396,9 +395,6 @@ xls_dslx_verilog(
     codegen_args = mem_reader_codegen_args,
     dslx_top = "MemReaderInst",
     library = ":mem_reader_dslx",
-    opt_ir_args = {
-        "top": "__mem_reader__MemReaderInst__MemReaderAdv_0__16_128_16_8_8_2_2_16_64_8_next",
-    },
     tags = ["manual"],
     verilog_file = "mem_reader.v",
 )
@@ -435,6 +431,60 @@ place_and_route(
     placement_density = "0.30",
     stop_after_step = "global_routing",
     synthesized_rtl = ":mem_reader_synth_asap7",
+    tags = ["manual"],
+    target_die_utilization_percentage = "10",
+)
+
+mem_reader_adv_codegen_args = common_codegen_args | {
+    "module_name": "mem_reader_adv",
+    "pipeline_stages": "4",
+    "streaming_channel_data_suffix": "_data",
+    "flop_inputs_kind": "skid",
+    "flop_outputs_kind": "skid",
+    "clock_period_ps": "2600",
+}
+
+xls_dslx_verilog(
+    name = "mem_reader_adv_verilog",
+    codegen_args = mem_reader_adv_codegen_args,
+    dslx_top = "MemReaderAdvInst",
+    library = ":mem_reader_dslx",
+    tags = ["manual"],
+    verilog_file = "mem_reader_adv.v",
+)
+
+verilog_library(
+    name = "mem_reader_adv_verilog_lib",
+    srcs = [
+        ":mem_reader_adv.v",
+    ],
+    tags = ["manual"],
+)
+
+synthesize_rtl(
+    name = "mem_reader_adv_synth_asap7",
+    standard_cells = "@org_theopenroadproject_asap7sc7p5t_28//:asap7-sc7p5t_rev28_rvt",
+    tags = ["manual"],
+    top_module = "mem_reader_adv",
+    deps = [
+        ":mem_reader_adv_verilog_lib",
+    ],
+)
+
+benchmark_synth(
+    name = "mem_reader_adv_benchmark_synth",
+    synth_target = ":mem_reader_adv_synth_asap7",
+    tags = ["manual"],
+)
+
+place_and_route(
+    name = "mem_reader_adv_place_and_route",
+    clock_period = CLOCK_PERIOD_PS,
+    core_padding_microns = 2,
+    min_pin_distance = "0.5",
+    placement_density = "0.30",
+    stop_after_step = "global_routing",
+    synthesized_rtl = ":mem_reader_adv_synth_asap7",
     tags = ["manual"],
     target_die_utilization_percentage = "10",
 )

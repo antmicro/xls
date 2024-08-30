@@ -18,7 +18,7 @@ from cocotbext.axi.axi_ram import AxiRam, AxiRamRead, AxiRamWrite
 from cocotbext.axi.sparse_memory import SparseMemory
 
 
-def init_axi_mem(path: os.PathLike, **kwargs):
+def init_axi_mem(path: os.PathLike, kwargs):
   with open(path, "rb") as f:
     sparse_mem = SparseMemory(size=kwargs["size"])
     sparse_mem.write(0x0, f.read())
@@ -27,17 +27,17 @@ def init_axi_mem(path: os.PathLike, **kwargs):
 
 class AxiRamReadFromFile(AxiRamRead):
   def __init__(self, *args, path: os.PathLike, **kwargs):
-    init_axi_mem(path, **kwargs)
+    init_axi_mem(path, kwargs)
     super().__init__(*args, **kwargs)
 
 
 class AxiRamFromFile(AxiRam):
   def __init__(self, *args, path: os.PathLike, **kwargs):
-    init_axi_mem(path, **kwargs)
+    init_axi_mem(path, kwargs)
     super().__init__(*args, **kwargs)
 
 
 class AxiRamWriteFromFile(AxiRamWrite):
   def __init__(self, *args, path: os.PathLike, **kwargs):
-    init_axi_mem(path, **kwargs)
+    init_axi_mem(path, kwargs)
     super().__init__(*args, **kwargs)

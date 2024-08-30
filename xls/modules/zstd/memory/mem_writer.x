@@ -38,7 +38,7 @@ import xls.modules.zstd.memory.axi_writer;
 import xls.modules.zstd.memory.axi_stream_add_empty;
 
 pub struct MemWriterReq<ADDR_W: u32> {
-    offset: uN[ADDR_W],
+    addr: uN[ADDR_W],
     length: uN[ADDR_W],
 }
 
@@ -48,14 +48,10 @@ pub struct MemWriterDataPacket<DATA_W: u32, ADDR_W: u32> {
     last: bool,
 }
 
-pub struct MemWriterCtrl<ADDR_W: u32> {
-    base: uN[ADDR_W],
-}
-
-enum MemWriterFsm : u4 {
-    IDLE = 0,
-    RECV_REQ = 1,
-    SEND_WRITE_REQ = 2,
+enum MemWriterFsm : u2 {
+    RECV_REQ = 0,
+    SEND_WRITE_REQ = 1,
+    RECV_DATA = 2,
     SEND_DATA = 3,
 }
 
@@ -67,7 +63,6 @@ struct MemWriterState<
     DATA_W_DIV8: u32
 > {
     fsm: MemWriterFsm,
-    base: uN[ADDR_W],
     req_len: sN[ADDR_W],
     axi_writer_req: axi_writer::AxiWriterRequest<ADDR_W>,
 }
@@ -77,7 +72,6 @@ proc MemWriter<
     DATA_W_DIV8: u32 = {DATA_W / u32:8},
     DATA_W_LOG2: u32 = {std::clog2(DATA_W / u32:8)}
 > {
-    type Ctrl = MemWriterCtrl<ADDR_W>;
     type Req = MemWriterReq<ADDR_W>;
     type Data = MemWriterDataPacket<DATA_W, ADDR_W>;
     type AxiWriterReq = axi_writer::AxiWriterRequest<ADDR_W>;
@@ -96,7 +90,6 @@ proc MemWriter<
     type Id = uN[ID_W];
     type Dest = uN[DEST_W];
 
-    ctrl_r: chan<Ctrl> in;
     req_in_r: chan<Req> in;
     data_in_r: chan<Data> in;
     axi_writer_req_s: chan<AxiWriterReq> out;
@@ -105,7 +98,6 @@ proc MemWriter<
     resp_s: chan<AxiWriterResp> out;
 
     config(
-        ctrl_r: chan<Ctrl> in,
         req_in_r: chan<Req> in,
         data_in_r: chan<Data> in,
         axi_aw_s: chan<AxiAW> out,
@@ -125,41 +117,27 @@ proc MemWriter<
             ADDR_W, DATA_W, DEST_W, ID_W
         >(axi_writer_req_r, resp_s, axi_aw_s, axi_w_s, axi_b_r, axi_st_padded_r);
 
-        (ctrl_r, req_in_r, data_in_r, axi_writer_req_s, padding_req_s, axi_st_raw_s, resp_s)
+        (req_in_r, data_in_r, axi_writer_req_s, padding_req_s, axi_st_raw_s, resp_s)
     }
 
-    init {
-        (State {
-            fsm: Fsm::IDLE,
-            ..zero!<State>()
-        })
-    }
+    init { zero!<State>() }
 
     next(state: State) {
         let tok_0 = join();
-        let (tok_1, ctrl) = recv_if(tok_0, ctrl_r, state.fsm == Fsm::IDLE, zero!<Ctrl>());
         let (tok_2, req_in) = recv_if(tok_0, req_in_r, state.fsm == Fsm::RECV_REQ, zero!<Req>());
         let tok_3 = send_if(tok_0, axi_writer_req_s, state.fsm == Fsm::SEND_WRITE_REQ, state.axi_writer_req);
         let tok_4 = send_if(tok_3, padding_req_s, state.fsm == Fsm::SEND_WRITE_REQ, state.axi_writer_req);
         let (tok_5, data_in) = recv_if(tok_0, data_in_r, state.fsm == Fsm::SEND_DATA, zero!<Data>());
 
         let next_state = match(state.fsm) {
-            Fsm::IDLE => {
-                State {
-                    fsm: Fsm::RECV_REQ,
-                    base: ctrl.base,
-                    ..state
-                }
-            },
             Fsm::RECV_REQ => {
                 State {
                     fsm: Fsm::SEND_WRITE_REQ,
                     req_len: req_in.length as sLength,
                     axi_writer_req: AxiWriterReq {
-                        address: state.base + req_in.offset,
+                        address: req_in.addr,
                         length: req_in.length
                     },
-                    ..state
                 }
             },
             Fsm::SEND_WRITE_REQ => {
@@ -215,7 +193,6 @@ const INST_DATA_W_LOG2 = u32:6;
 const INST_WRITER_ID = u32:2;
 
 proc MemWriterInst {
-    type InstCtrl = MemWriterCtrl<INST_ADDR_W>;
     type InstReq = MemWriterReq<INST_ADDR_W>;
     type InstData = MemWriterDataPacket<INST_DATA_W, INST_ADDR_W>;
     type InstAxiStream = axi_st::AxiStream<INST_DATA_W, INST_DEST_W, INST_ID_W, INST_DATA_W_DIV8>;
@@ -225,7 +202,6 @@ proc MemWriterInst {
     type InstAxiWriterResp = axi_writer::AxiWriterResp;
 
     config(
-        ctrl_r: chan<InstCtrl> in,
         req_in_r: chan<InstReq> in,
         data_in_r: chan<InstData> in,
         axi_aw_s: chan<InstAxiAW> out,
@@ -235,7 +211,7 @@ proc MemWriterInst {
     ) {
         spawn MemWriter<
             INST_ADDR_W, INST_DATA_W, INST_DEST_W, INST_ID_W, INST_WRITER_ID
-        >(ctrl_r, req_in_r, data_in_r, axi_aw_s, axi_w_s, axi_b_r, resp_s);
+        >(req_in_r, data_in_r, axi_aw_s, axi_w_s, axi_b_r, resp_s);
         ()
     }
 
@@ -252,7 +228,6 @@ const TEST_ID_W = TEST_DATA_W / u32:8;
 const TEST_DATA_W_LOG2 = u32:6;
 const TEST_WRITER_ID = u32:2;
 
-type TestCtrl = MemWriterCtrl<INST_ADDR_W>;
 type TestReq = MemWriterReq<INST_ADDR_W>;
 type TestData = MemWriterDataPacket<INST_DATA_W, INST_ADDR_W>;
 type TestAxiWriterResp = axi_writer::AxiWriterResp;
@@ -275,7 +250,6 @@ type TestDest = uN[TEST_DEST_W];
 #[test_proc]
 proc MemWriterTest {
     terminator: chan<bool> out;
-    ctrl_s: chan<TestCtrl> out;
     req_in_s: chan<TestReq> out;
     data_in_s: chan<TestData> out;
     axi_aw_r: chan<TestAxiAW> in;
@@ -286,7 +260,6 @@ proc MemWriterTest {
     config(
         terminator: chan<bool> out,
     ) {
-        let (ctrl_s, ctrl_r) = chan<TestCtrl>("ctrl");
         let (req_in_s, req_in_r) = chan<TestReq>("req_in");
         let (data_in_s, data_in_r) = chan<TestData>("data_in");
         let (axi_aw_s, axi_aw_r) = chan<TestAxiAW>("axi_aw");
@@ -295,18 +268,18 @@ proc MemWriterTest {
         let (resp_s, resp_r) = chan<TestAxiWriterResp>("resp");
         spawn MemWriter<
             TEST_ADDR_W, TEST_DATA_W, TEST_DEST_W, TEST_ID_W, TEST_WRITER_ID
-        >(ctrl_r, req_in_r, data_in_r, axi_aw_s, axi_w_s, axi_b_r, resp_s);
-        (terminator, ctrl_s, req_in_s, data_in_s, axi_aw_r, axi_w_r, axi_b_s, resp_r)
+        >(req_in_r, data_in_r, axi_aw_s, axi_w_s, axi_b_r, resp_s);
+        (terminator, req_in_s, data_in_s, axi_aw_r, axi_w_r, axi_b_s, resp_r)
     }
 
     init { () }
 
     next(state: ()) {
-        let tok = send(join(), ctrl_s, TestCtrl{base: TestAddr:0});
+        let tok = join();
 
         // Aligned single transfer
         let tok = send(tok, req_in_s, TestReq {
-            offset: TestAddr:0x0,
+            addr: TestAddr:0x0,
             length: TestLength:4
         });
         let tok = send(tok, data_in_s, TestData {
@@ -337,7 +310,7 @@ proc MemWriterTest {
 
         // Unaligned single transfer
         let tok = send(tok, req_in_s, TestReq {
-            offset: TestAddr:0x10,
+            addr: TestAddr:0x10,
             length: TestLength:1
         });
         let tok = send(tok, data_in_s, TestData {
@@ -368,7 +341,7 @@ proc MemWriterTest {
 
         // Unaligned single transfer
         let tok = send(tok, req_in_s, TestReq {
-            offset: TestAddr:0x24,
+            addr: TestAddr:0x24,
             length: TestLength:2
         });
         let tok = send(tok, data_in_s, TestData {
@@ -399,7 +372,7 @@ proc MemWriterTest {
 
         // Unaligned single transfer
         let tok = send(tok, req_in_s, TestReq {
-            offset: TestAddr:0x38,
+            addr: TestAddr:0x38,
             length: TestLength:3
         });
         let tok = send(tok, data_in_s, TestData {
@@ -430,7 +403,7 @@ proc MemWriterTest {
 
         // Unaligned single transfer
         let tok = send(tok, req_in_s, TestReq {
-            offset: TestAddr:0x71,
+            addr: TestAddr:0x71,
             length: TestLength:1
         });
         let tok = send(tok, data_in_s, TestData {
@@ -461,7 +434,7 @@ proc MemWriterTest {
 
         // Unaligned 2 transfers
         let tok = send(tok, req_in_s, TestReq {
-            offset: TestAddr:0xf3,
+            addr: TestAddr:0xf3,
             length: TestLength:3
         });
         let tok = send(tok, data_in_s, TestData {
@@ -498,7 +471,7 @@ proc MemWriterTest {
 
         // Unligned 3 transfers
         let tok = send(tok, req_in_s, TestReq {
-            offset: TestAddr:0x1f3,
+            addr: TestAddr:0x1f3,
             length: TestLength:7
         });
         let tok = send(tok, data_in_s, TestData {
@@ -546,7 +519,7 @@ proc MemWriterTest {
 
         // Crossing AXI 4kB boundary, aligned 2 burst transfers
         let tok = send(tok, req_in_s, TestReq {
-            offset: TestAddr:0x0FFC,
+            addr: TestAddr:0x0FFC,
             length: TestLength:8
         });
         let tok = send(tok, data_in_s, TestData {
@@ -600,7 +573,7 @@ proc MemWriterTest {
 
         // Crossing AXI 4kB boundary, unaligned 2 burst transfers
         let tok = send(tok, req_in_s, TestReq {
-            offset: TestAddr:0x1FFF,
+            addr: TestAddr:0x1FFF,
             length: TestLength:7
         });
         let tok = send(tok, data_in_s, TestData {

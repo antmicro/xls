@@ -380,6 +380,88 @@ place_and_route(
 )
 
 xls_dslx_library(
+    name = "raw_block_dec_new_mem_dslx",
+    srcs = [
+        "raw_block_dec_new_mem.x",
+    ],
+    deps = [
+        ":common_dslx",
+        "//xls/modules/zstd/memory:mem_reader_dslx",
+    ],
+)
+
+xls_dslx_test(
+    name = "raw_block_dec_new_mem_dslx_test",
+    library = ":raw_block_dec_new_mem_dslx",
+    tags = ["manual"],
+)
+
+xls_dslx_verilog(
+    name = "raw_block_dec_new_mem_verilog",
+    codegen_args = {
+        "module_name": "RawBlockDecoder",
+        "delay_model": "asap7",
+        "pipeline_stages": "2",
+        "reset": "rst",
+        "use_system_verilog": "false",
+    },
+    dslx_top = "RawBlockDecoderInst",
+    library = ":raw_block_dec_new_mem_dslx",
+    opt_ir_args = {
+        "inline_procs": "true",
+        "top": "__raw_block_dec_new_mem__RawBlockDecoderInst__RawBlockDecoder_0__32_32_next",
+    },
+    tags = ["manual"],
+    verilog_file = "raw_block_dec_new_mem.v",
+)
+
+xls_benchmark_ir(
+    name = "raw_block_dec_new_mem_opt_ir_benchmark",
+    src = ":raw_block_dec_new_mem_verilog.opt.ir",
+    benchmark_ir_args = {
+        "pipeline_stages": "2",
+        "delay_model": "asap7",
+    },
+    tags = ["manual"],
+)
+
+verilog_library(
+    name = "raw_block_dec_new_mem_verilog_lib",
+    srcs = [
+        ":raw_block_dec_new_mem.v",
+    ],
+    tags = ["manual"],
+)
+
+synthesize_rtl(
+    name = "raw_block_dec_new_mem_synth_asap7",
+    standard_cells = "@org_theopenroadproject_asap7sc7p5t_28//:asap7-sc7p5t_rev28_rvt",
+    tags = ["manual"],
+    top_module = "RawBlockDecoder",
+    deps = [
+        ":raw_block_dec_new_mem_verilog_lib",
+    ],
+)
+
+benchmark_synth(
+    name = "raw_block_dec_new_mem_benchmark_synth",
+    synth_target = ":raw_block_dec_new_mem_synth_asap7",
+    tags = ["manual"],
+)
+
+place_and_route(
+    name = "raw_block_dec_new_mem_place_and_route",
+    clock_period = "750",
+    core_padding_microns = 2,
+    min_pin_distance = "0.5",
+    placement_density = "0.30",
+    stop_after_step = "global_routing",
+    synthesized_rtl = ":raw_block_dec_new_mem_synth_asap7",
+    tags = ["manual"],
+    target_die_utilization_percentage = "10",
+)
+
+xls_dslx_library(
     name = "rle_block_dec_dslx",
     srcs = [
         "rle_block_dec.x",
@@ -462,6 +544,93 @@ place_and_route(
     placement_density = "0.30",
     stop_after_step = "global_routing",
     synthesized_rtl = ":rle_block_dec_synth_asap7",
+    tags = ["manual"],
+    target_die_utilization_percentage = "10",
+)
+
+xls_dslx_library(
+    name = "rle_block_dec_new_mem_dslx",
+    srcs = [
+        "rle_block_dec_new_mem.x",
+    ],
+    deps = [
+        ":buffer_dslx",
+        ":common_dslx",
+        "//xls/modules/rle:rle_common_dslx",
+        "//xls/modules/rle:rle_dec_adv_dslx",
+        "//xls/modules/zstd/memory:mem_reader_dslx",
+    ],
+)
+
+xls_dslx_test(
+    name = "rle_block_dec_new_mem_dslx_test",
+    library = ":rle_block_dec_new_mem_dslx",
+    tags = ["manual"],
+)
+
+xls_dslx_verilog(
+    name = "rle_block_dec_new_mem_verilog",
+    codegen_args = {
+        "module_name": "RleBlockDecoder",
+        "delay_model": "asap7",
+        "pipeline_stages": "8",
+        "reset": "rst",
+        "use_system_verilog": "false",
+    },
+    dslx_top = "RleBlockDecoderInst",
+    library = ":rle_block_dec_new_mem_dslx",
+    # TODO: 2024-01-15: Workaround for https://github.com/google/xls/issues/869
+    # Force proc inlining and set last internal proc as top proc for IR optimization
+    opt_ir_args = {
+        "inline_procs": "true",
+        "top": "__rle_block_dec_new_mem__RleBlockDecoderInst__RleBlockDecoder_0__BatchPacker_0_next",
+    },
+    tags = ["manual"],
+    verilog_file = "rle_block_dec_new_mem.v",
+)
+
+xls_benchmark_ir(
+    name = "rle_block_dec_new_mem_opt_ir_benchmark",
+    src = ":rle_block_dec_new_mem_verilog.opt.ir",
+    benchmark_ir_args = {
+        "pipeline_stages": "4",
+        "delay_model": "asap7",
+    },
+    tags = ["manual"],
+)
+
+verilog_library(
+    name = "rle_block_dec_new_mem_verilog_lib",
+    srcs = [
+        ":rle_block_dec_new_mem.v",
+    ],
+    tags = ["manual"],
+)
+
+synthesize_rtl(
+    name = "rle_block_dec_new_mem_synth_asap7",
+    standard_cells = "@org_theopenroadproject_asap7sc7p5t_28//:asap7-sc7p5t_rev28_rvt",
+    tags = ["manual"],
+    top_module = "RleBlockDecoder",
+    deps = [
+        ":rle_block_dec_new_mem_verilog_lib",
+    ],
+)
+
+benchmark_synth(
+    name = "rle_block_dec_new_mem_benchmark_synth",
+    synth_target = ":rle_block_dec_new_mem_synth_asap7",
+    tags = ["manual"],
+)
+
+place_and_route(
+    name = "rle_block_dec_new_mem_place_and_route",
+    clock_period = "750",
+    core_padding_microns = 2,
+    min_pin_distance = "0.5",
+    placement_density = "0.30",
+    stop_after_step = "global_routing",
+    synthesized_rtl = ":rle_block_dec_new_mem_synth_asap7",
     tags = ["manual"],
     target_die_utilization_percentage = "10",
 )
@@ -1078,6 +1247,370 @@ place_and_route(
     placement_density = "0.30",
     stop_after_step = "global_routing",
     synthesized_rtl = ":zstd_dec_synth_asap7",
+    tags = ["manual"],
+    target_die_utilization_percentage = "10",
+)
+
+xls_dslx_library(
+    name = "block_header_dec_dslx",
+    srcs = [
+        "block_header_dec.x",
+    ],
+    deps = [
+        ":block_header_dslx",
+        ":common_dslx",
+        "//xls/modules/zstd/memory:mem_reader_dslx"
+    ],
+)
+
+xls_dslx_test(
+    name = "block_header_dec_dslx_test",
+    library = ":block_header_dec_dslx",
+    tags = ["manual"],
+)
+
+xls_dslx_verilog(
+    name = "block_header_dec_verilog",
+    codegen_args = {
+        "module_name": "BlockHeaderDec",
+        "delay_model": "asap7",
+        "pipeline_stages": "4",
+        "reset": "rst",
+        "use_system_verilog": "false",
+    },
+    dslx_top = "BlockHeaderDecoderInst",
+    library = ":block_header_dec_dslx",
+    opt_ir_args = {
+        "inline_procs": "true",
+        "top": "__block_header_dec__BlockHeaderDecoderInst__BlockHeaderDecoder_0__32_32_next",
+    },
+    tags = ["manual"],
+    verilog_file = "block_header_dec.v",
+)
+
+xls_benchmark_ir(
+    name = "block_header_dec_opt_ir_benchmark",
+    src = ":block_header_dec_verilog.opt.ir",
+    benchmark_ir_args = {
+        "pipeline_stages": "3",
+        "delay_model": "asap7",
+    },
+    tags = ["manual"],
+)
+
+verilog_library(
+    name = "block_header_dec_verilog_lib",
+    srcs = [
+        ":block_header_dec.v",
+    ],
+    tags = ["manual"],
+)
+
+synthesize_rtl(
+    name = "block_header_dec_synth_asap7",
+    standard_cells = "@org_theopenroadproject_asap7sc7p5t_28//:asap7-sc7p5t_rev28_rvt",
+    tags = ["manual"],
+    top_module = "BlockHeaderDec",
+    deps = [
+        ":block_header_dec_verilog_lib",
+    ],
+)
+
+benchmark_synth(
+    name = "block_header_dec_benchmark_synth",
+    synth_target = ":block_header_dec_synth_asap7",
+    tags = ["manual"],
+)
+
+place_and_route(
+    name = "block_header_dec_place_and_route",
+    clock_period = "750",
+    core_padding_microns = 2,
+    min_pin_distance = "0.5",
+    placement_density = "0.30",
+    stop_after_step = "global_routing",
+    synthesized_rtl = ":block_header_dec_synth_asap7",
+    tags = ["manual"],
+    target_die_utilization_percentage = "10",
+)
+
+xls_dslx_library(
+    name = "csr_config_dslx",
+    srcs = [
+        "csr_config.x",
+    ],
+    deps = [
+        "//xls/modules/zstd/memory:axi_dslx",
+    ],
+)
+
+xls_dslx_test(
+    name = "csr_config_dslx_test",
+    library = ":csr_config_dslx",
+    tags = ["manual"],
+)
+
+xls_dslx_verilog(
+    name = "csr_config_verilog",
+    codegen_args = {
+        "module_name": "CsrConfig",
+        "delay_model": "asap7",
+        "pipeline_stages": "8",
+        "reset": "rst",
+        "use_system_verilog": "false",
+    },
+    dslx_top = "CsrConfigInst",
+    library = ":csr_config_dslx",
+    opt_ir_args = {
+        "inline_procs": "true",
+        "top": "__csr_config__CsrConfigInst__CsrConfig_0__2_32_4_32_4_next",
+    },
+    tags = ["manual"],
+    verilog_file = "csr_config.v",
+)
+
+xls_benchmark_ir(
+    name = "csr_config_opt_ir_benchmark",
+    src = ":csr_config_verilog.opt.ir",
+    benchmark_ir_args = {
+        "pipeline_stages": "4",
+        "delay_model": "asap7",
+    },
+    tags = ["manual"],
+)
+
+verilog_library(
+    name = "csr_config_verilog_lib",
+    srcs = [
+        ":csr_config.v",
+    ],
+    tags = ["manual"],
+)
+
+synthesize_rtl(
+    name = "csr_config_synth_asap7",
+    standard_cells = "@org_theopenroadproject_asap7sc7p5t_28//:asap7-sc7p5t_rev28_rvt",
+    tags = ["manual"],
+    top_module = "CsrConfig",
+    deps = [
+        ":csr_config_verilog_lib",
+    ],
+)
+
+benchmark_synth(
+    name = "csr_config_benchmark_synth",
+    synth_target = ":csr_config_synth_asap7",
+    tags = ["manual"],
+)
+
+place_and_route(
+    name = "csr_config_place_and_route",
+    clock_period = "750",
+    core_padding_microns = 2,
+    min_pin_distance = "0.5",
+    placement_density = "0.30",
+    stop_after_step = "global_routing",
+    synthesized_rtl = ":csr_config_synth_asap7",
+    tags = ["manual"],
+    target_die_utilization_percentage = "10",
+)
+
+xls_dslx_library(
+    name = "frame_header_dec_dslx",
+    srcs = [
+        "frame_header_dec.x",
+    ],
+    deps = [
+        "//xls/modules/zstd/memory:axi_dslx",
+        "//xls/modules/zstd/memory:mem_reader_dslx",
+    ],
+)
+
+xls_dslx_test(
+    name = "frame_header_dec_dslx_test",
+    library = ":frame_header_dec_dslx",
+    tags = ["manual"],
+)
+
+xls_dslx_verilog(
+    name = "frame_header_dec_verilog",
+    codegen_args = {
+        "module_name": "FrameHeaderDecoder",
+        "delay_model": "asap7",
+        "pipeline_stages": "8",
+        "reset": "rst",
+        "use_system_verilog": "false",
+    },
+    dslx_top = "FrameHeaderDecCsrConfigInst",
+    library = ":frame_header_dec_dslx",
+    opt_ir_args = {
+        "inline_procs": "true",
+        "top": "__frame_header_dec__CsrConfigInst__CsrConfig_0__2_32_4_32_4_next",
+    },
+    tags = ["manual"],
+    verilog_file = "frame_header_dec.v",
+)
+
+xls_benchmark_ir(
+    name = "frame_header_dec_opt_ir_benchmark",
+    src = ":frame_header_dec_verilog.opt.ir",
+    benchmark_ir_args = {
+        "pipeline_stages": "4",
+        "delay_model": "asap7",
+    },
+    tags = ["manual"],
+)
+
+verilog_library(
+    name = "frame_header_dec_verilog_lib",
+    srcs = [
+        ":csr_config.v",
+    ],
+    tags = ["manual"],
+)
+
+synthesize_rtl(
+    name = "frame_header_dec_synth_asap7",
+    standard_cells = "@org_theopenroadproject_asap7sc7p5t_28//:asap7-sc7p5t_rev28_rvt",
+    tags = ["manual"],
+    top_module = "CsrConfig",
+    deps = [
+        ":frame_header_dec_verilog_lib",
+    ],
+)
+
+benchmark_synth(
+    name = "frame_header_dec_benchmark_synth",
+    synth_target = ":frame_header_dec_synth_asap7",
+    tags = ["manual"],
+)
+
+place_and_route(
+    name = "frame_header_dec_place_and_route",
+    clock_period = "750",
+    core_padding_microns = 2,
+    min_pin_distance = "0.5",
+    placement_density = "0.30",
+    stop_after_step = "global_routing",
+    synthesized_rtl = ":frame_header_dec_synth_asap7",
+    tags = ["manual"],
+    target_die_utilization_percentage = "10",
+)
+
+xls_dslx_library(
+    name = "dec_dslx",
+    srcs = [
+        "dec.x",
+    ],
+    deps = [
+        ":common_dslx",
+        ":csr_config_dslx",
+        ":frame_header_dec_dslx",
+        ":block_header_dslx",
+        ":block_header_dec_dslx",
+        ":raw_block_dec_new_mem_dslx",
+        ":rle_block_dec_new_mem_dslx",
+        ":dec_mux_dslx",
+        ":sequence_executor_dslx",
+        ":repacketizer_dslx",
+        "//xls/examples:ram_dslx",
+        "//xls/modules/zstd/memory:mem_reader_dslx",
+    ]
+)
+
+xls_dslx_test(
+    name = "dec_dslx_test",
+    library = ":dec_dslx",
+    tags = ["manual"],
+)
+
+xls_dslx_verilog(
+    name = "dec_verilog",
+    codegen_args = {
+        "module_name": "ZstdDecoder",
+        "delay_model": "asap7",
+        "reset": "rst",
+        "worst_case_throughput": "1",
+        "use_system_verilog": "false",
+        # "clock_period_ps": "750",
+        # "clock_margin_percent": "20",
+        "multi_proc": "true",
+        "pipeline_stages": "8",
+        "flop_outputs": "true",
+        "flop_inputs": "true",
+    },
+    dslx_top = "ZstdDecoderInst",
+    library = ":dec_dslx",
+    tags = ["manual"],
+    verilog_file = "dec.v",
+)
+
+
+xls_dslx_verilog(
+    name = "dec_internal_verilog",
+    codegen_args = {
+        "module_name": "ZstdDecoderInsternal",
+        "delay_model": "asap7",
+        "reset": "rst",
+        "worst_case_throughput": "1",
+        "use_system_verilog": "false",
+        # "clock_period_ps": "750",
+        # "clock_margin_percent": "20",
+        "multi_proc": "true",
+        "pipeline_stages": "8",
+    },
+    dslx_top = "ZstdDecoderInternalInst",
+    library = ":dec_dslx",
+    opt_ir_args = {
+        "top": "__dec__ZstdDecoderInternalInst__ZstdDecoderInternal_0__32_64_8_2_4_next",
+    },
+    tags = ["manual"],
+    verilog_file = "dec_internal.v",
+)
+
+xls_benchmark_ir(
+    name = "dec_internal_opt_ir_benchmark",
+    src = ":dec_internal_verilog.opt.ir",
+    benchmark_ir_args = {
+        # "top": " __dec__ZstdDecoderInternalInst__ZstdDecoderInternal_0__32_64_8_2_4_next",
+        "pipeline_stages": "4",
+        "delay_model": "asap7",
+    },
+    tags = ["manual"],
+)
+
+verilog_library(
+    name = "dec_internal_verilog_lib",
+    srcs = [
+        ":csr_config.v",
+    ],
+    tags = ["manual"],
+)
+
+synthesize_rtl(
+    name = "dec_internal_synth_asap7",
+    standard_cells = "@org_theopenroadproject_asap7sc7p5t_28//:asap7-sc7p5t_rev28_rvt",
+    tags = ["manual"],
+    top_module = "CsrConfig",
+    deps = [
+        ":dec_internal_verilog_lib",
+    ],
+)
+
+benchmark_synth(
+    name = "dec_internal_benchmark_synth",
+    synth_target = ":dec_internal_synth_asap7",
+    tags = ["manual"],
+)
+
+place_and_route(
+    name = "dec_internal_place_and_route",
+    clock_period = "750",
+    core_padding_microns = 2,
+    min_pin_distance = "0.5",
+    placement_density = "0.30",
+    stop_after_step = "global_routing",
+    synthesized_rtl = ":dec_internal_synth_asap7",
     tags = ["manual"],
     target_die_utilization_percentage = "10",
 )

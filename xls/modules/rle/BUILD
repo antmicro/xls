@@ -17,6 +17,7 @@
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("@rules_hdl//gds_write:build_defs.bzl", "gds_write")
 load("@rules_hdl//place_and_route:build_defs.bzl", "place_and_route")
+load("@rules_hdl//synthesis:build_defs.bzl", "benchmark_synth")
 load("@rules_hdl//synthesis:build_defs.bzl", "synthesize_rtl")
 load("@rules_hdl//verilog:providers.bzl", "verilog_library")
 load(
@@ -26,6 +27,7 @@ load(
     "xls_dslx_ir",
     "xls_dslx_library",
     "xls_dslx_test",
+    "xls_dslx_verilog",
     "xls_ir_opt_ir",
     "xls_ir_verilog",
 )
@@ -357,4 +359,87 @@ filegroup(
     name = "x_files",
     srcs = glob(["*.x"]),
     visibility = ["//xls:xls_internal"],
+)
+
+xls_dslx_library(
+    name = "rle_dec_adv_dslx",
+    srcs = [
+        "rle_dec_adv.x",
+    ],
+    deps = [
+        ":rle_common_dslx",
+    ],
+)
+
+xls_dslx_test(
+    name = "rle_dec_adv_dslx_test",
+    library = ":rle_dec_adv_dslx",
+    tags = ["manual"],
+)
+
+xls_dslx_verilog(
+    name = "rle_dec_adv_verilog",
+    codegen_args = {
+        "module_name": "RleDecAdv",
+        "delay_model": "asap7",
+        "pipeline_stages": "8",
+        "reset": "rst",
+        "use_system_verilog": "false",
+    },
+    dslx_top = "RunLengthDecoderAdvInst",
+    library = ":rle_dec_adv_dslx",
+    # TODO: 2024-01-15: Workaround for https://github.com/google/xls/issues/869
+    # Force proc inlining and set last internal proc as top proc for IR optimization
+    opt_ir_args = {
+        "inline_procs": "true",
+        "top": "__rle_dec_adv__RunLengthDecoderAdvInst__RunLengthDecoderAdv_0__21_64_8_next",
+    },
+    tags = ["manual"],
+    verilog_file = "rle_dec_adv.v",
+)
+
+xls_benchmark_ir(
+    name = "rle_dec_adv_opt_ir_benchmark",
+    src = ":rle_dec_adv_verilog.opt.ir",
+    benchmark_ir_args = {
+        "pipeline_stages": "3",
+        "delay_model": "asap7",
+    },
+    tags = ["manual"],
+)
+
+verilog_library(
+    name = "rle_dec_adv_verilog_lib",
+    srcs = [
+        ":rle_dec_adv.v",
+    ],
+    tags = ["manual"],
+)
+
+synthesize_rtl(
+    name = "rle_dec_adv_synth_asap7",
+    standard_cells = "@org_theopenroadproject_asap7sc7p5t_28//:asap7-sc7p5t_rev28_rvt",
+    tags = ["manual"],
+    top_module = "RleDecAdv",
+    deps = [
+        ":rle_dec_adv_verilog_lib",
+    ],
+)
+
+benchmark_synth(
+    name = "rle_dec_adv_benchmark_synth",
+    synth_target = ":rle_dec_adv_synth_asap7",
+    tags = ["manual"],
+)
+
+place_and_route(
+    name = "rle_dec_adv_place_and_route",
+    clock_period = "750",
+    core_padding_microns = 2,
+    min_pin_distance = "0.5",
+    placement_density = "0.30",
+    stop_after_step = "global_routing",
+    synthesized_rtl = ":rle_dec_adv_synth_asap7",
+    tags = ["manual"],
+    target_die_utilization_percentage = "10",
 )

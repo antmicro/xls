@@ -148,3 +148,80 @@ place_and_route(
     tags = ["manual"],
     target_die_utilization_percentage = "10",
 )
+
+xls_dslx_library(
+    name = "axi_stream_remove_empty_dslx",
+    srcs = ["axi_stream_remove_empty.x"],
+    deps = [
+        ":axi_st_dslx",
+    ],
+)
+
+xls_dslx_test(
+    name = "axi_stream_remove_empty_dslx_test",
+    library = ":axi_stream_remove_empty_dslx",
+    tags = ["manual"],
+)
+
+axi_stream_remove_empty_codegen_args = common_codegen_args | {
+    "module_name": "axi_stream_remove_empty",
+    "clock_period_ps": "1300",
+    "pipeline_stages": "2",
+}
+
+xls_dslx_verilog(
+    name = "axi_stream_remove_empty_verilog",
+    codegen_args = axi_stream_remove_empty_codegen_args,
+    dslx_top = "AxiStreamRemoveEmptyInst",
+    library = ":axi_stream_remove_empty_dslx",
+    opt_ir_args = {
+        "top": "__axi_stream_remove_empty__AxiStreamRemoveEmptyInst__AxiStreamRemoveEmpty_0__32_4_6_32_32_next",
+    },
+    tags = ["manual"],
+    verilog_file = "axi_stream_remove_empty.v",
+)
+
+xls_benchmark_ir(
+    name = "axi_stream_remove_empty_opt_ir_benchmark",
+    src = ":axi_stream_remove_empty_verilog.opt.ir",
+    benchmark_ir_args = axi_stream_remove_empty_codegen_args | {
+        "pipeline_stages": "10",
+    },
+    tags = ["manual"],
+)
+
+verilog_library(
+    name = "axi_stream_remove_empty_verilog_lib",
+    srcs = [
+        ":axi_stream_remove_empty.v",
+    ],
+    tags = ["manual"],
+)
+
+synthesize_rtl(
+    name = "axi_stream_remove_empty_synth_asap7",
+    standard_cells = "@org_theopenroadproject_asap7sc7p5t_28//:asap7-sc7p5t_rev28_rvt",
+    tags = ["manual"],
+    top_module = "axi_stream_remove_empty",
+    deps = [
+        ":axi_stream_remove_empty_verilog_lib",
+    ],
+)
+
+benchmark_synth(
+    name = "axi_stream_remove_empty_benchmark_synth",
+    synth_target = ":axi_stream_remove_empty_synth_asap7",
+    tags = ["manual"],
+)
+
+place_and_route(
+    name = "axi_stream_remove_empty_place_and_route",
+    clock_period = CLOCK_PERIOD_PS,
+    core_padding_microns = 2,
+    min_pin_distance = "0.5",
+    placement_density = "0.30",
+    stop_after_step = "global_routing",
+    synthesized_rtl = ":axi_stream_remove_empty_synth_asap7",
+    tags = ["manual"],
+    target_die_utilization_percentage = "10",
+)

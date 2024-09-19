@@ -485,6 +485,32 @@ place_and_route(
     target_die_utilization_percentage = "10",
 )
 
+py_test(
+    name = "mem_reader_cocotb_test",
+    srcs = ["mem_reader_cocotb_test.py"],
+    data = [
+        ":mem_reader_adv.v",
+        ":mem_reader_wrapper.v",
+        "@com_icarus_iverilog//:iverilog",
+        "@com_icarus_iverilog//:vvp",
+    ],
+    tags = ["manual"],
+    visibility = ["//xls:xls_users"],
+    deps = [
+        requirement("cocotb"),
+        requirement("cocotbext-axi"),
+        requirement("pytest"),
+        "//xls/common:runfiles",
+        "//xls/modules/zstd/cocotb:channel",
+        "//xls/modules/zstd/cocotb:memory",
+        "//xls/modules/zstd/cocotb:utils",
+        "//xls/modules/zstd/cocotb:xlsstruct",
+        "@com_google_absl_py//absl:app",
+        "@com_google_absl_py//absl/flags",
+        "@com_google_protobuf//:protobuf_python",
+    ],
+)
+
 xls_dslx_library(
     name = "axi_writer_dslx",
     srcs = ["axi_writer.x"],

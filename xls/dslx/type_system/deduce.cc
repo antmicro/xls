@@ -88,29 +88,6 @@ absl::StatusOr<InterpValue> EvaluateConstexprValue(DeduceCtx* ctx,
       ctx->GetCurrentParametricEnv(), node, type);
 }
 
-// Evaluates the given `dim` to the extent possible with the given `env`.
-// Examples:
-//   - If `dim` is already a constant, the result is `dim`.
-//   - If `dim` is `X + 1`, and `env` says `X` == `5`, then the result is `6`.
-//   - If `dim` is `X + 1`, and `env` says `X` == `Y` and does not have `Y`,
-//     then the result is `Y + 1`.
-//   - If `dim` is `X + 1`, and `env` says `X` == `Y` and `Y` == `5`, then the
-//     result is `6`.
-TypeDim EvaluateTypeDim(TypeDim dim, const ParametricExpression::Env& env) {
-  absl::flat_hash_set<std::string> prev_free_variables;
-  while (std::holds_alternative<TypeDim::OwnedParametric>(dim.value())) {
-    auto& parametric = std::get<TypeDim::OwnedParametric>(dim.value());
-    absl::flat_hash_set<std::string> next_free_variables =
-        parametric->GetFreeVariables();
-    if (prev_free_variables == next_free_variables) {
-      break;
-    }
-    prev_free_variables = std::move(next_free_variables);
-    dim = TypeDim(parametric->Evaluate(env));
-  }
-  return dim;
-}
-
 // Attempts to convert an expression from the full DSL AST into the
 // ParametricExpression sub-AST (a limited form that we can embed into a
 // TypeDim for later instantiation).
@@ -1841,10 +1818,6 @@ static absl::StatusOr<std::unique_ptr<Type>> ConcretizeStructAnnotation(
                           struct_def->identifier()),
           ctx->file_table());
     }
-    XLS_ASSIGN_OR_RETURN(std::unique_ptr<ParametricExpression> parametric_expr,
-                         ExprToParametric(defined_parametric->expr(), ctx));
-    parametric_env.emplace(defined_parametric->identifier(),
-                           TypeDim(std::move(parametric_expr)));
   }
 
   ParametricExpression::Env env;
@@ -1860,7 +1833,11 @@ static absl::StatusOr<std::unique_ptr<Type>> ConcretizeStructAnnotation(
   XLS_ASSIGN_OR_RETURN(
       std::unique_ptr<Type> mapped_type,
       base_type.MapSize([&](const TypeDim& dim) -> absl::StatusOr<TypeDim> {
-        return EvaluateTypeDim(dim, env);
+        if (std::holds_alternative<TypeDim::OwnedParametric>(dim.value())) {
+          auto& parametric = std::get<TypeDim::OwnedParametric>(dim.value());
+          return TypeDim(parametric->Evaluate(env));
+        }
+        return dim;
       }));
 
   VLOG(5) << "ConcreteStructAnnotation mapped type: "
@@ -1868,7 +1845,7 @@ static absl::StatusOr<std::unique_ptr<Type>> ConcretizeStructAnnotation(
 
   // Attach the nominal parametrics to the type, so that we will remember the
   // fact that we have instantiated e.g. Foo<M:u32, N:u32> as Foo<5, 6>.
-  return mapped_type->AddNominalTypeDims(parametric_env);
+  return mapped_type->AddNominalTypeDims(std::move(parametric_env));
 }
 
 absl::StatusOr<std::unique_ptr<Type>> DeduceTypeRefTypeAnnotation(

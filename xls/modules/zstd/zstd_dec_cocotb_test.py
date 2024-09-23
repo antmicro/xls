@@ -1,0 +1,234 @@
+#!/usr/bin/env python
+# Copyright 2024 The XLS Authors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+
+from enum import Enum
+from pathlib import Path
+import tempfile
+
+import cocotb
+from cocotb.clock import Clock
+from cocotb.triggers import ClockCycles, Event
+from cocotb.binary import BinaryValue
+from cocotb_bus.scoreboard import Scoreboard
+
+from cocotbext.axi.axi_master import AxiMaster
+from cocotbext.axi.axi_channels import AxiAWBus, AxiWBus, AxiBBus, AxiWriteBus, AxiARBus, AxiRBus, AxiReadBus, AxiBus
+from cocotbext.axi.axi_ram import AxiRam
+from cocotbext.axi.sparse_memory import SparseMemory
+
+import zstandard
+
+from xls.common import runfiles
+from xls.modules.zstd.cocotb.data_generator import GenerateFrame, BlockType
+from xls.modules.zstd.cocotb.memory import init_axi_mem, AxiRamFromFile
+from xls.modules.zstd.cocotb.utils import reset, run_test
+
+MAX_ENCODED_FRAME_SIZE_B = 16384
+
+class CSR(Enum):
+  """
+  Maps the offsets to the ZSTD Decoder registers
+  """
+  Status = 0x0
+  Start = 0x4
+  Reset = 0x8
+  InputBuffer = 0xC
+  OutputBuffer = 0x10
+  Error = 0x38
+  WhoAmI = 0x3C
+
+class Status(Enum):
+  """
+  Codes for the Status register
+  """
+  IDLE = 0x0
+  RUNNING = 0x1
+
+def connect_axi_read_bus(dut, name=""):
+  AXI_AR = "axi_ar"
+  AXI_R = "axi_r"
+
+  if name != "":
+      name += "_"
+
+  bus_axi_ar = AxiARBus.from_prefix(dut, name + AXI_AR)
+  bus_axi_r = AxiRBus.from_prefix(dut, name + AXI_R)
+
+  return AxiReadBus(bus_axi_ar, bus_axi_r)
+
+def connect_axi_write_bus(dut, name=""):
+  AXI_AW = "axi_aw"
+  AXI_W = "axi_w"
+  AXI_B = "axi_b"
+
+  if name != "":
+      name += "_"
+
+  bus_axi_aw = AxiAWBus.from_prefix(dut, name + AXI_AW)
+  bus_axi_w = AxiWBus.from_prefix(dut, name + AXI_W)
+  bus_axi_b = AxiBBus.from_prefix(dut, name + AXI_B)
+
+  return AxiWriteBus(bus_axi_aw, bus_axi_w, bus_axi_b)
+
+def connect_axi_bus(dut, name=""):
+  bus_axi_read = connect_axi_read_bus(dut, name)
+  bus_axi_write = connect_axi_write_bus(dut, name)
+
+  return AxiBus(bus_axi_write, bus_axi_read)
+
+def get_decoded_frame_buffer(ifh, address, memory=SparseMemory(size=MAX_ENCODED_FRAME_SIZE_B)):
+  dctx = zstandard.ZstdDecompressor()
+  memory.write(address, dctx.decompress(ifh.read()))
+  return memory
+
+async def csr_write(cpu, csr, data):
+  if type(data) is int:
+    data = data.to_bytes(4, byteorder='little')
+  assert len(data) <= 4
+  await cpu.write(csr.value, data)
+
+async def csr_read(cpu, csr):
+  return await cpu.read(csr.value, 4)
+
+async def test_csr(dut):
+
+  clock = Clock(dut.clk, 10, units="us")
+  cocotb.start_soon(clock.start())
+
+  dut.rst.setimmediatevalue(0)
+  await ClockCycles(dut.clk, 20)
+  dut.rst.setimmediatevalue(1)
+  await ClockCycles(dut.clk, 20)
+  dut.rst.setimmediatevalue(0)
+
+  csr_bus = connect_axi_bus(dut, "csr")
+
+  # Mock CSRs from ZSTD Decoder
+  #FIXME: delete once CSRs in ZSTD Decoder are available
+  #csr = AxiRam(bus=csr_bus, clock=dut.clk, reset=dut.rst, size=0x40)
+
+  cpu = AxiMaster(csr_bus, dut.clk, dut.rst)
+
+  await ClockCycles(dut.clk, 10)
+  i = 0
+  for reg in CSR:
+    expected = bytearray.fromhex("EFBEADDE")
+    expected[0] += i
+    await csr_write(cpu, reg, expected)
+    #read = await csr_read(cpu, reg)
+    #assert read.data == expected
+    i += 1
+  await ClockCycles(dut.clk, 10)
+
+async def configure_decoder(cpu, ibuf_addr, obuf_addr):
+  status = await csr_read(cpu, CSR.Status)
+  if status.data != Status.IDLE:
+    await csr_write(cpu, CSR.Reset, 0x1)
+  await csr_write(cpu, CSR.InputBuffer, ibuf_addr)
+  await csr_write(cpu, CSR.OutputBuffer, obuf_addr)
+
+async def start_decoder(cpu):
+  await csr_write(cpu, CSR.Start, 0x1)
+
+async def mock_decoder(dut, memory, bus, encoded_frame_fh, obuf_addr):
+  decoder = AxiMaster(bus, dut.clk, dut.rst)
+  start = memory.read(CSR.Start.value, 4)
+  status = memory.read(CSR.Status.value, 4)
+  while ((start != 0x1) | (status != Status.IDLE.value)):
+    start = memory.read(CSR.Start.value, 4)
+    status = memory.read(CSR.Status.value, 4)
+  memory.write(CSR.Start.value, 0x0)
+  memory.write(CSR.Status.value, Status.RUNNING.value)
+  #get_decoded_frame_buffer(encoded_frame_fh, obuf_addr, memory)
+  #memory.hexdump(obuf_addr, mem_size-obuf_addr)
+  ##TODO:
+  ## * signal finished decoding on the IRQ line
+  #await csr_write(memory, CSR.Status, Status.IDLE)
+
+async def test_decoder(dut, test_cases, block_type):
+  clock = Clock(dut.clk, 10, units="us")
+  cocotb.start_soon(clock.start())
+
+  dut.rst.setimmediatevalue(0)
+  await ClockCycles(dut.clk, 20)
+  dut.rst.setimmediatevalue(1)
+  await ClockCycles(dut.clk, 20)
+  dut.rst.setimmediatevalue(0)
+
+  memory_bus = connect_axi_bus(dut, "memory")
+  csr_bus = connect_axi_bus(dut, "csr")
+
+  cpu = AxiMaster(csr_bus, dut.clk, dut.rst)
+
+  for i in range(test_cases):
+    #FIXME: use delete_on_close=False after moving to python 3.12
+    with tempfile.NamedTemporaryFile(delete=False) as encoded:
+      mem_size = MAX_ENCODED_FRAME_SIZE_B
+      GenerateFrame(i+1, block_type, encoded.name)
+      decoded_frame_memory = get_decoded_frame_buffer(encoded, 0x0)
+      decoded_frame_memory.hexdump(0, mem_size)
+      encoded.close()
+      memory = AxiRamFromFile(bus=memory_bus, clock=dut.clk, reset=dut.rst, path=encoded.name, size=mem_size)
+      # Connect CSR memory interface to the same underlying memory
+      csr = AxiRam(bus=csr_bus, clock=dut.clk, reset=dut.rst, mem=memory.mem)
+      assert (memory.read(0, mem_size) == csr.read(0, mem_size))
+      #ibuf_addr = 0x100
+      #obuf_addr = mem_size // 2
+      #await configure_decoder(cpu, ibuf_addr, obuf_addr)
+      #await start_decoder(cpu)
+      #await mock_decoder(dut, memory, memory_bus, encoded, obuf_addr)
+
+@cocotb.test(timeout_time=50, timeout_unit="ms")
+async def zstd_csr_test(dut):
+  await test_csr(dut)
+
+#@cocotb.test(timeout_time=20000, timeout_unit="ms")
+#async def zstd_raw_frames_test(dut):
+#  test_cases = 1
+#  block_type = BlockType.RAW
+#  await test_decoder(dut, test_cases, block_type)
+#
+#@cocotb.test(timeout_time=20000, timeout_unit="ms")
+#async def zstd_rle_frames_test(dut):
+#  test_cases = 1
+#  block_type = BlockType.RLE
+#  await test_decoder(dut, test_cases, block_type)
+#
+#@cocotb.test(timeout_time=20000, timeout_unit="ms")
+#async def zstd_compressed_frames_test(dut):
+#  test_cases = 1
+#  block_type = BlockType.COMPRESSED
+#  await test_decoder(dut, test_cases, block_type)
+#
+#@cocotb.test(timeout_time=20000, timeout_unit="ms")
+#async def zstd_random_frames_test(dut):
+#  test_cases = 1
+#  block_type = BlockType.RANDOM
+#  await test_decoder(dut, test_cases, block_type)
+
+if __name__ == "__main__":
+  toplevel = "zstd_dec_wrapper"
+  verilog_sources = [
+    "xls/modules/zstd/dec.v",
+    "xls/modules/zstd/xls_fifo_wrapper.v",
+    "xls/modules/zstd/zstd_dec_wrapper.v",
+    "xls/modules/zstd/axi_interconnect_wrapper.v",
+    "xls/modules/zstd/axi_interconnect.v",
+    "xls/modules/zstd/arbiter.v",
+    "xls/modules/zstd/priority_encoder.v",
+  ]
+  test_module=[Path(__file__).stem]
+  run_test(toplevel, test_module, verilog_sources)

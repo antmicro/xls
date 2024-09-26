@@ -1363,7 +1363,7 @@ xls_dslx_verilog(
     library = ":csr_config_dslx",
     opt_ir_args = {
         "inline_procs": "true",
-        "top": "__csr_config__CsrConfigInst__CsrConfig_0__2_32_4_32_4_next",
+        "top": "__csr_config__CsrConfigInst__CsrConfig_0__2_32_4_32_2_4_next",
     },
     tags = ["manual"],
     verilog_file = "csr_config.v",

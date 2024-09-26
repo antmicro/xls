@@ -1191,11 +1191,11 @@ proc ZstdDecoder<
 //}
 
 
-const INST_AXI_DATA_W = u32:64;
-const INST_AXI_ADDR_W = u32:32;
-const INST_AXI_ID_W = u32:8;
-const INST_AXI_DEST_W = u32:8;
-const INST_REGS_N = u32:4;
+const INST_AXI_DATA_W = u32:32;
+const INST_AXI_ADDR_W = u32:16;
+const INST_AXI_ID_W = u32:4;
+const INST_AXI_DEST_W = u32:4;
+const INST_REGS_N = u32:16;
 const INST_WINDOW_LOG_MAX = u32:30;
 const INST_HB_ADDR_W = sequence_executor::ZSTD_RAM_ADDR_WIDTH;
 const INST_HB_DATA_W = sequence_executor::RAM_DATA_WIDTH;

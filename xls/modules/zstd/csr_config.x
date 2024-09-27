@@ -1,4 +1,4 @@
-// Copyrijht 2023-2024 The XLS Authors
+// Copyright 2023-2024 The XLS Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -42,10 +42,6 @@ pub struct CsrChange<LOG2_REGS_N: u32> {
 
 struct CsrConfigState<ID_W: u32, ADDR_W:u32, DATA_W:u32, REGS_N: u32> {
     register_file: uN[DATA_W][REGS_N],
-    w_id: uN[ID_W],
-    w_addr: uN[ADDR_W],
-    r_id: uN[ID_W],
-    r_addr: uN[ADDR_W],
 }
 
 pub proc CsrConfig<
@@ -54,11 +50,6 @@ pub proc CsrConfig<
     DATA_W_DIV8: u32 = { DATA_W / u32:8 },
     LOG2_REGS_N: u32 = { std::clog2(REGS_N) },
 > {
-    type AxiAw = axi::AxiAw<ADDR_W, ID_W>;
-    type AxiW = axi::AxiW<DATA_W, DATA_W_DIV8>;
-    type AxiB = axi::AxiB<ID_W>;
-    type AxiAr = axi::AxiAr<ADDR_W, ID_W>;
-    type AxiR = axi::AxiR<DATA_W, ID_W>;
 
     type RdReq = CsrRdReq<LOG2_REGS_N>;
     type RdResp = CsrRdResp<LOG2_REGS_N, DATA_W>;
@@ -70,24 +61,23 @@ pub proc CsrConfig<
     type Data = uN[DATA_W];
     type RegN = uN[LOG2_REGS_N];
 
-    axi_aw_r: chan<AxiAw> in;
-    axi_w_r: chan<AxiW> in;
-    axi_b_s: chan<AxiB> out;
-    axi_ar_r: chan<AxiAr> in;
-    axi_r_s: chan<AxiR> out;
+    ext_csr_rd_req_r: chan<RdReq> in;
+    ext_csr_rd_resp_s: chan<RdResp> out;
+    ext_csr_wr_req_r: chan<WrReq> in;
+    ext_csr_wr_resp_s: chan<WrResp> out;
 
     csr_rd_req_r: chan<RdReq> in;
     csr_rd_resp_s: chan<RdResp> out;
     csr_wr_req_r: chan<WrReq> in;
     csr_wr_resp_s: chan<WrResp> out;
+
     csr_change_s: chan<Change> out;
 
     config (
-        axi_aw_r: chan<AxiAw> in,
-        axi_w_r: chan<AxiW> in,
-        axi_b_s: chan<AxiB> out,
-        axi_ar_r: chan<AxiAr> in,
-        axi_r_s: chan<AxiR> out,
+        ext_csr_rd_req_r: chan<RdReq> in,
+        ext_csr_rd_resp_s: chan<RdResp> out,
+        ext_csr_wr_req_r: chan<WrReq> in,
+        ext_csr_wr_resp_s: chan<WrResp> out,
 
         csr_rd_req_r: chan<RdReq> in,
         csr_rd_resp_s: chan<RdResp> out,
@@ -96,8 +86,8 @@ pub proc CsrConfig<
         csr_change_s: chan<Change> out,
     ) {
         (
-            axi_aw_r, axi_w_r, axi_b_s,
-            axi_ar_r, axi_r_s,
+            ext_csr_rd_req_r, ext_csr_rd_resp_s,
+            ext_csr_wr_req_r, ext_csr_wr_resp_s,
             csr_rd_req_r, csr_rd_resp_s,
             csr_wr_req_r, csr_wr_resp_s,
             csr_change_s,
@@ -111,93 +101,55 @@ pub proc CsrConfig<
     next (state: State) {
         let register_file = state.register_file;
 
-        // write to CSR via AXI
-        let (tok, axi_aw, axi_aw_valid) = recv_non_blocking(join(), axi_aw_r, zero!<AxiAw>());
-
-        // validate axi aw
-        assert!(!(axi_aw_valid && axi_aw.addr as u32 >= REGS_N), "invalid_aw_addr");
-        assert!(!(axi_aw_valid && axi_aw.len != u8:0), "invalid_aw_len");
-
-        let (w_id, w_addr) = if axi_aw_valid {
-            (axi_aw.id, axi_aw.addr)
-        } else {
-            (state.w_id, state.w_addr)
-        };
-
-        let (tok, axi_w, axi_w_valid) = recv_non_blocking(tok, axi_w_r, zero!<AxiW>());
-
-        // update register value
-        let register_file = if axi_w_valid {
-            let (w_data, _, _) = for (i, (w_data, strb, mask)): (u32, (uN[DATA_W], uN[DATA_W_DIV8], uN[DATA_W])) in range(u32:0, DATA_W_DIV8) {
-                let w_data = if axi_w.strb as u1 {
-                    w_data | (axi_w.data & mask)
-                } else {
-                    w_data
-                };
-                (
-                    w_data,
-                    strb >> u32:1,
-                    mask << u32:8,
-                )
-            }((uN[DATA_W]:0, axi_w.strb, uN[DATA_W]:0xFF));
-            update(register_file, w_addr, w_data)
-        } else {
-            state.register_file
-        };
-
-        send_if(tok, axi_b_s, axi_w_valid, AxiB {
-            resp: axi::AxiWriteResp::OKAY,
-            id: w_id,
-        });
+        let tok_0 = join();
 
         // write to CSR
-        let (tok, csr_wr_req, csr_wr_req_valid) = recv_if_non_blocking(tok, csr_wr_req_r, !axi_aw_valid, zero!<WrReq>());
+        let (tok_1_1_1, ext_csr_wr_req, ext_csr_wr_req_valid) = recv_non_blocking(tok_0, ext_csr_wr_req_r, zero!<WrReq>());
+        let (tok_1_1_2, csr_wr_req, csr_wr_req_valid) = recv_non_blocking(tok_0, csr_wr_req_r, zero!<WrReq>());
 
-        let register_file = if csr_wr_req_valid {
-            update(register_file, csr_wr_req.csr as u32, csr_wr_req.value)
+        // Mux the Write Requests from External and Internal sources
+        // Write requests from external source take precedence before internal writes
+        let wr_req = if (ext_csr_wr_req_valid) {
+            ext_csr_wr_req
+        } else if {csr_wr_req_valid} {
+            csr_wr_req
+        } else {
+            zero!<WrReq>()
+        };
+
+        let wr_req_valid = ext_csr_wr_req_valid | csr_wr_req_valid;
+
+        let register_file = if wr_req_valid {
+            update(register_file, wr_req.csr as u32, wr_req.value)
         } else {
             register_file
         };
 
-        let tok = send_if(tok, csr_wr_resp_s, csr_wr_req_valid, WrResp {});
+        // Send Write Response
+        let tok_1_1 = join(tok_1_1_1, tok_1_1_2);
+        let tok_1_2_1 = send_if(tok_1_1, ext_csr_wr_resp_s, ext_csr_wr_req_valid, WrResp {});
+        let tok_1_2_2 = send_if(tok_1_1, csr_wr_resp_s, csr_wr_req_valid, WrResp {});
 
-        // send change notification
-        let csr_updated = if axi_w_valid {
-            w_addr as RegN
-        } else {
-            csr_wr_req.csr
-        };
-        let tok = send_if(tok, csr_change_s, csr_wr_req_valid | axi_w_valid, Change { csr: csr_updated });
+        // Send change notification
+        let tok_1_2 = join(tok_1_2_1, tok_1_2_2);
+        let tok_1_3 = send_if(tok_1_2, csr_change_s, wr_req_valid, Change { csr: wr_req.csr });
 
-        // read from CSR via AXI
-        let (tok, axi_ar, axi_ar_valid) = recv_non_blocking(join(), axi_ar_r, zero!<AxiAr>());
 
-        // validate ar bundle
-        assert!(!(axi_ar_valid && axi_ar.addr as u32 >= REGS_N), "invalid_ar_addr");
-        assert!(!(axi_ar_valid && axi_ar.len != u8:0), "invalid_ar_len");
+        // Read from CSRs
+        let (tok_2_1, ext_csr_rd_req, ext_csr_req_valid) = recv_non_blocking(tok_0, ext_csr_rd_req_r, zero!<RdReq>());
 
-        let (r_id, r_addr) = if axi_ar_valid { (axi_ar.id, axi_ar.addr) } else { (state.r_id, state.r_addr) };
-
-        send_if(tok, axi_r_s, axi_ar_valid, AxiR {
-            id: r_id,
-            data: register_file[r_addr],
-            resp: axi::AxiReadResp::OKAY,
-            last: true,
+        send_if(tok_2_1, ext_csr_rd_resp_s, ext_csr_req_valid, RdResp {
+            csr: ext_csr_rd_req.csr,
+            value: register_file[ext_csr_rd_req.csr as u32],
         });
 
-        // read from CSR
-        let (tok, csr_rd_req, csr_req_valid) = recv_non_blocking(join(), csr_rd_req_r, zero!<RdReq>());
-
-        send_if(tok, csr_rd_resp_s, csr_req_valid, RdResp {
+        let (tok_3_1, csr_rd_req, csr_req_valid) = recv_non_blocking(tok_0, csr_rd_req_r, zero!<RdReq>());
+        send_if(tok_3_1, csr_rd_resp_s, csr_req_valid, RdResp {
             csr: csr_rd_req.csr,
             value: register_file[csr_rd_req.csr as u32],
         });
 
         State {
-            w_id: w_id,
-            w_addr: w_addr,
-            r_id: r_id,
-            r_addr: r_addr,
             register_file: register_file,
         }
     }
@@ -211,12 +163,6 @@ const INST_DATA_W_DIV8 = INST_DATA_W / u32:8;
 const INST_LOG2_REGS_N = std::clog2(INST_REGS_N);
 
 proc CsrConfigInst {
-    type InstAxiAw = axi::AxiAw<INST_ADDR_W, INST_ID_W>;
-    type InstAxiW = axi::AxiW<INST_DATA_W, INST_DATA_W_DIV8>;
-    type InstAxiB = axi::AxiB<INST_ID_W>;
-    type InstAxiAr = axi::AxiAr<INST_ADDR_W, INST_ID_W>;
-    type InstAxiR = axi::AxiR<INST_DATA_W, INST_ID_W>;
-
     type InstCsrRdReq = CsrRdReq<INST_LOG2_REGS_N>;
     type InstCsrRdResp = CsrRdResp<INST_LOG2_REGS_N, INST_DATA_W>;
     type InstCsrWrReq = CsrWrReq<INST_LOG2_REGS_N, INST_DATA_W>;
@@ -224,12 +170,10 @@ proc CsrConfigInst {
     type InstCsrChange = CsrChange<INST_LOG2_REGS_N>;
 
     config(
-        axi_aw_r: chan<InstAxiAw> in,
-        axi_w_r: chan<InstAxiW> in,
-        axi_b_s: chan<InstAxiB> out,
-        axi_ar_r: chan<InstAxiAr> in,
-        axi_r_s: chan<InstAxiR> out,
-
+        ext_csr_rd_req_r: chan<InstCsrRdReq> in,
+        ext_csr_rd_resp_s: chan<InstCsrRdResp> out,
+        ext_csr_wr_req_r: chan<InstCsrWrReq> in,
+        ext_csr_wr_resp_s: chan<InstCsrWrResp> out,
 
         csr_rd_req_r: chan<InstCsrRdReq> in,
         csr_rd_resp_s: chan<InstCsrRdResp> out,
@@ -238,8 +182,8 @@ proc CsrConfigInst {
         csr_change_s: chan<InstCsrChange> out,
     ) {
         spawn CsrConfig<INST_ID_W, INST_ADDR_W, INST_DATA_W, INST_REGS_N> (
-            axi_aw_r, axi_w_r, axi_b_s,
-            axi_ar_r, axi_r_s,
+            ext_csr_rd_req_r, ext_csr_rd_resp_s,
+            ext_csr_wr_req_r, ext_csr_wr_resp_s,
             csr_rd_req_r, csr_rd_resp_s,
             csr_wr_req_r, csr_wr_resp_s,
             csr_change_s,
@@ -291,13 +235,6 @@ const TEST_DATA = TestData[20]:[
 
 #[test_proc]
 proc CsrConfig_test {
-    type TestAxiAw = axi::AxiAw<TEST_ADDR_W, TEST_ID_W>;
-    type TestAxiW = axi::AxiW<TEST_DATA_W, TEST_DATA_W_DIV8>;
-    type TestAxiB = axi::AxiB<TEST_ID_W>;
-    type TestAxiAr = axi::AxiAr<TEST_ADDR_W, TEST_ID_W>;
-    type TestAxiR = axi::AxiR<TEST_DATA_W, TEST_ID_W>;
-
-
     type TestCsrRdReq = CsrRdReq<TEST_LOG2_REGS_N>;
     type TestCsrRdResp = CsrRdResp<TEST_LOG2_REGS_N, TEST_DATA_W>;
     type TestCsrWrReq = CsrWrReq<TEST_LOG2_REGS_N, TEST_DATA_W>;
@@ -306,24 +243,24 @@ proc CsrConfig_test {
 
     terminator: chan<bool> out;
 
-    axi_aw_s: chan<TestAxiAw> out;
-    axi_w_s: chan<TestAxiW> out;
-    axi_b_r: chan<TestAxiB> in;
-    axi_ar_s: chan<TestAxiAr> out;
-    axi_r_r: chan<TestAxiR> in;
+    ext_csr_rd_req_s: chan<TestCsrRdReq> out;
+    ext_csr_rd_resp_r: chan<TestCsrRdResp> in;
+    ext_csr_wr_req_s: chan<TestCsrWrReq> out;
+    ext_csr_wr_resp_r: chan<TestCsrWrResp> in;
 
     csr_rd_req_s: chan<TestCsrRdReq> out;
     csr_rd_resp_r: chan<TestCsrRdResp> in;
     csr_wr_req_s: chan<TestCsrWrReq> out;
     csr_wr_resp_r: chan<TestCsrWrResp> in;
+
     csr_change_r: chan<TestCsrChange> in;
 
     config (terminator: chan<bool> out) {
-        let (axi_aw_s, axi_aw_r) = chan<TestAxiAw>("axi_aw");
-        let (axi_w_s, axi_w_r) = chan<TestAxiW>("axi_w");
-        let (axi_b_s, axi_b_r) = chan<TestAxiB>("axi_b");
-        let (axi_ar_s, axi_ar_r) = chan<TestAxiAr>("axi_ar");
-        let (axi_r_s, axi_r_r) = chan<TestAxiR>("axi_r");
+        let (ext_csr_rd_req_s, ext_csr_rd_req_r) = chan<TestCsrRdReq>("ext_csr_rd_req");
+        let (ext_csr_rd_resp_s, ext_csr_rd_resp_r) = chan<TestCsrRdResp>("ext_csr_rd_resp");
+
+        let (ext_csr_wr_req_s, ext_csr_wr_req_r) = chan<TestCsrWrReq>("ext_csr_wr_req");
+        let (ext_csr_wr_resp_s, ext_csr_wr_resp_r) = chan<TestCsrWrResp>("ext_csr_wr_resp");
 
         let (csr_rd_req_s, csr_rd_req_r) = chan<TestCsrRdReq>("csr_rd_req");
         let (csr_rd_resp_s, csr_rd_resp_r) = chan<TestCsrRdResp>("csr_rd_resp");
@@ -334,8 +271,8 @@ proc CsrConfig_test {
         let (csr_change_s, csr_change_r) = chan<TestCsrChange>("csr_change");
 
         spawn CsrConfig<TEST_ID_W, TEST_ADDR_W, TEST_DATA_W, TEST_REGS_N> (
-            axi_aw_r, axi_w_r, axi_b_s,
-            axi_ar_r, axi_r_s,
+            ext_csr_rd_req_r, ext_csr_rd_resp_s,
+            ext_csr_wr_req_r, ext_csr_wr_resp_s,
             csr_rd_req_r, csr_rd_resp_s,
             csr_wr_req_r, csr_wr_resp_s,
             csr_change_s,
@@ -343,8 +280,8 @@ proc CsrConfig_test {
 
         (
             terminator,
-            axi_aw_s, axi_w_s, axi_b_r,
-            axi_ar_s, axi_r_r,
+            ext_csr_rd_req_s, ext_csr_rd_resp_r,
+            ext_csr_wr_req_s, ext_csr_wr_resp_r,
             csr_rd_req_s, csr_rd_resp_r,
             csr_wr_req_s, csr_wr_resp_r,
             csr_change_r,
@@ -356,31 +293,18 @@ proc CsrConfig_test {
     next (state: ()) {
         let expected_values = zero!<uN[TEST_DATA_W][TEST_REGS_N]>();
 
-        // test writing via AXI
+        // Test Writes through external interface
         let (tok, expected_values) = for ((i, test_data), (tok, expected_values)): ((u32, TestData), (token, uN[TEST_DATA_W][TEST_REGS_N])) in enumerate(TEST_DATA) {
-            // write CSR via AXI
-            let axi_aw = TestAxiAw {
-                id: i as uN[TEST_ID_W],
-                addr: test_data.csr as uN[TEST_ADDR_W],
-                size: axi::AxiAxSize::MAX_4B_TRANSFER,
-                len: u8:0,
-                burst: axi::AxiAxBurst::FIXED,
+            // write CSR via external interface
+            let wr_req = TestCsrWrReq {
+                csr: test_data.csr,
+                value: test_data.value,
             };
-            let tok = send(tok, axi_aw_s, axi_aw);
-            trace_fmt!("Sent #{} aw bundle {:#x}", i + u32:1, axi_aw);
+            let tok = send(tok, ext_csr_wr_req_s, wr_req);
+            trace_fmt!("Sent #{} WrReq through external interface: {:#x}", i + u32:1, wr_req);
 
-            let axi_w = TestAxiW {
-                data: test_data.value,
-                strb: !uN[TEST_DATA_W_DIV8]:0,
-                last: true,
-            };
-            let tok = send(tok, axi_w_s, axi_w);
-            trace_fmt!("Sent #{} w bundle {:#x}", i + u32:1, axi_w);
-
-            let (tok, axi_b) = recv(tok, axi_b_r);
-
-            assert_eq(axi::AxiWriteResp::OKAY, axi_b.resp);
-            assert_eq(i as uN[TEST_ID_W], axi_b.id);
+            let (tok, wr_resp) = recv(tok, ext_csr_wr_resp_r);
+            trace_fmt!("Received #{} WrResp through external interface: {:#x}", i + u32:1, wr_resp);
 
             // read CSR change
             let (tok, csr_change) = recv(tok, csr_change_r);
@@ -392,42 +316,34 @@ proc CsrConfig_test {
             let expected_values = update(expected_values, test_data.csr as u32, test_data.value);
 
             let tok = for (test_csr, tok): (u32, token) in u32:0..u32:4 {
-                // read CSRs via AXI
-                let axi_ar = TestAxiAr {
-                    id: i as uN[TEST_ID_W],
-                    addr: test_csr as uN[TEST_ADDR_W],
-                    len: u8:0,
-                    ..zero!<TestAxiAr>()
+                let rd_req = TestCsrRdReq {
+                    csr: test_csr as TestCsr,
                 };
-                let tok = send(tok, axi_ar_s, axi_ar);
-                trace_fmt!("Sent #{} {:#x}", i + u32:1, axi_ar);
+                let expected_rd_resp = TestCsrRdResp{
+                    csr: test_csr as TestCsr,
+                    value: expected_values[test_csr as u32]
+                };
 
-                let (tok, axi_r) = recv(tok, axi_r_r);
-                trace_fmt!("Received #{} {:#x}", i + u32:1, axi_r);
+                // Read CSR via external interface
+                let tok = send(tok, ext_csr_rd_req_s, rd_req);
+                trace_fmt!("Sent #{} RdReq through external interface: {:#x}", i + u32:1, rd_req);
+                let (tok, rd_resp) = recv(tok, ext_csr_rd_resp_r);
+                trace_fmt!("Received #{} RdResp through external interface: {:#x}", i + u32:1, rd_resp);
+                assert_eq(expected_rd_resp, rd_resp);
 
-                assert_eq(i as uN[TEST_ID_W], axi_r.id);
-                assert_eq(expected_values[test_csr as u32], axi_r.data);
-                assert_eq(axi::AxiReadResp::OKAY, axi_r.resp);
-                assert_eq(true, axi_r.last);
-
-                // send read request
-                let csr_rd_req = CsrRdReq { csr: test_csr as TestCsr };
-                let tok = send(tok, csr_rd_req_s, csr_rd_req);
-                trace_fmt!("Sent #{} CSR read request {:#x}", i + u32:1, csr_rd_req);
-
+                // Read CSR via internal interface
+                let tok = send(tok, csr_rd_req_s, rd_req);
+                trace_fmt!("Sent #{} RdReq through internal interface: {:#x}", i + u32:1, rd_req);
                 let (tok, csr_rd_resp) = recv(tok, csr_rd_resp_r);
-                trace_fmt!("Received #{} CSR read response {:#x}", i + u32:1, csr_rd_resp);
-
-                assert_eq(test_csr as TestCsr, csr_rd_resp.csr);
-                assert_eq(expected_values[test_csr as u32], csr_rd_resp.value);
-
+                trace_fmt!("Received #{} RdResp through internal interface: {:#x}", i + u32:1, csr_rd_resp);
+                assert_eq(expected_rd_resp, csr_rd_resp);
                 tok
             }(tok);
 
             (tok, expected_values)
         }((join(), expected_values));
 
-        // test writing via request channel
+        // Test writes via internal interface
         let (tok, _) = for ((i, test_data), (tok, expected_values)): ((u32, TestData), (token, uN[TEST_DATA_W][TEST_REGS_N])) in enumerate(TEST_DATA) {
             // write CSR via request channel
             let csr_wr_req = TestCsrWrReq {
@@ -435,50 +351,41 @@ proc CsrConfig_test {
                 value: test_data.value,
             };
             let tok = send(tok, csr_wr_req_s, csr_wr_req);
-            trace_fmt!("Sent #{} CSR write request {:#x}", i + u32:1, csr_wr_req);
+            trace_fmt!("Sent #{} WrReq through internal interface: {:#x}", i + u32:1, csr_wr_req);
 
             let (tok, csr_wr_resp) = recv(tok, csr_wr_resp_r);
-            trace_fmt!("Received #{} CSR write response {:#x}", i + u32:1, csr_wr_resp);
+            trace_fmt!("Received #{} WrResp through internal interface {:#x}", i + u32:1, csr_wr_resp);
 
             // read CSR change
             let (tok, csr_change) = recv(tok, csr_change_r);
             trace_fmt!("Received #{} CSR change {:#x}", i + u32:1, csr_change);
-
             assert_eq(test_data.csr, csr_change.csr);
 
             // update expected values
             let expected_values = update(expected_values, test_data.csr as u32, test_data.value);
 
             let tok = for (test_csr, tok): (u32, token) in u32:0..u32:4 {
-                // read CSRs via AXI
-                let axi_ar = TestAxiAr {
-                    id: i as uN[TEST_ID_W],
-                    addr: test_csr as uN[TEST_ADDR_W],
-                    len: u8:0,
-                    ..zero!<TestAxiAr>()
+                let rd_req = TestCsrRdReq {
+                    csr: test_csr as TestCsr,
                 };
-                let tok = send(tok, axi_ar_s, axi_ar);
-                trace_fmt!("Sent #{} {:#x}", i + u32:1, axi_ar);
+                let expected_rd_resp = TestCsrRdResp{
+                    csr: test_csr as TestCsr,
+                    value: expected_values[test_csr as u32]
+                };
 
-                let (tok, axi_r) = recv(tok, axi_r_r);
-                trace_fmt!("Received #{} {:#x}", i + u32:1, axi_r);
+                // Read CSR via external interface
+                let tok = send(tok, ext_csr_rd_req_s, rd_req);
+                trace_fmt!("Sent #{} RdReq through external interface: {:#x}", i + u32:1, rd_req);
+                let (tok, rd_resp) = recv(tok, ext_csr_rd_resp_r);
+                trace_fmt!("Received #{} RdResp through external interface: {:#x}", i + u32:1, rd_resp);
+                assert_eq(expected_rd_resp, rd_resp);
 
-                assert_eq(i as uN[TEST_ID_W], axi_r.id);
-                assert_eq(expected_values[test_csr as u32], axi_r.data);
-                assert_eq(axi::AxiReadResp::OKAY, axi_r.resp);
-                assert_eq(true, axi_r.last);
-
-                // send read request
-                let csr_rd_req = CsrRdReq { csr: test_csr as TestCsr};
-                let tok = send(tok, csr_rd_req_s, csr_rd_req);
-                trace_fmt!("Sent #{} CSR read request {:#x}", i + u32:1, csr_rd_req);
-
+                // Read CSR via internal interface
+                let tok = send(tok, csr_rd_req_s, rd_req);
+                trace_fmt!("Sent #{} RdReq through internal interface: {:#x}", i + u32:1, rd_req);
                 let (tok, csr_rd_resp) = recv(tok, csr_rd_resp_r);
-                trace_fmt!("Received #{} CSR read response {:#x}", i + u32:1, csr_rd_resp);
-
-                assert_eq(test_csr as TestCsr, csr_rd_resp.csr);
-                assert_eq(expected_values[test_csr as u32], csr_rd_resp.value);
-
+                trace_fmt!("Received #{} RdResp through internal interface: {:#x}", i + u32:1, csr_rd_resp);
+                assert_eq(expected_rd_resp, csr_rd_resp);
                 tok
             }(tok);
 

@@ -1336,6 +1336,88 @@ place_and_route(
 )
 
 xls_dslx_library(
+    name = "axi_csr_accessor_dslx",
+    srcs = [
+        "axi_csr_accessor.x",
+    ],
+    deps = [
+        ":csr_config_dslx",
+        "//xls/modules/zstd/memory:axi_dslx",
+    ],
+)
+
+xls_dslx_test(
+    name = "axi_csr_accessor_dslx_test",
+    library = ":axi_csr_accessor_dslx",
+    tags = ["manual"],
+)
+
+xls_dslx_verilog(
+    name = "axi_csr_accessor_verilog",
+    codegen_args = {
+        "module_name": "AxiCsrAccessor",
+        "delay_model": "asap7",
+        "pipeline_stages": "8",
+        "reset": "rst",
+        "use_system_verilog": "false",
+    },
+    dslx_top = "AxiCsrAccessorInst",
+    library = ":axi_csr_accessor_dslx",
+    opt_ir_args = {
+        "inline_procs": "true",
+        "top": "__axi_csr_accessor__AxiCsrAccessorInst__AxiCsrAccessor_0__16_32_4_4_4_16_next",
+    },
+    tags = ["manual"],
+    verilog_file = "axi_csr_accessor.v",
+)
+
+xls_benchmark_ir(
+    name = "axi_csr_accessor_opt_ir_benchmark",
+    src = ":axi_csr_accessor_verilog.opt.ir",
+    benchmark_ir_args = {
+        "pipeline_stages": "4",
+        "delay_model": "asap7",
+    },
+    tags = ["manual"],
+)
+
+verilog_library(
+    name = "axi_csr_accessor_verilog_lib",
+    srcs = [
+        ":axi_csr_accessor.v",
+    ],
+    tags = ["manual"],
+)
+
+synthesize_rtl(
+    name = "axi_csr_accessor_synth_asap7",
+    standard_cells = "@org_theopenroadproject_asap7sc7p5t_28//:asap7-sc7p5t_rev28_rvt",
+    tags = ["manual"],
+    top_module = "AxiCsrAccessor",
+    deps = [
+        ":axi_csr_accessor_verilog_lib",
+    ],
+)
+
+benchmark_synth(
+    name = "axi_csr_accessor_benchmark_synth",
+    synth_target = ":axi_csr_accessor_synth_asap7",
+    tags = ["manual"],
+)
+
+place_and_route(
+    name = "axi_csr_accessor_place_and_route",
+    clock_period = "750",
+    core_padding_microns = 2,
+    min_pin_distance = "0.5",
+    placement_density = "0.30",
+    stop_after_step = "global_routing",
+    synthesized_rtl = ":axi_csr_accessor_synth_asap7",
+    tags = ["manual"],
+    target_die_utilization_percentage = "10",
+)
+
+xls_dslx_library(
     name = "csr_config_dslx",
     srcs = [
         "csr_config.x",

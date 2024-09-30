@@ -18,6 +18,7 @@
 
 import std;
 import xls.examples.ram;
+import xls.modules.zstd.axi_csr_accessor;
 import xls.modules.zstd.common;
 import xls.modules.zstd.memory.axi;
 import xls.modules.zstd.csr_config;
@@ -875,15 +876,28 @@ proc ZstdDecoder<
 
         // CSRs
 
+        let (ext_csr_rd_req_s, ext_csr_rd_req_r) = chan<CsrRdReq, CHANNEL_DEPTH>("csr_rd_req");
+        let (ext_csr_rd_resp_s, ext_csr_rd_resp_r) = chan<CsrRdResp, CHANNEL_DEPTH>("csr_rd_resp");
+        let (ext_csr_wr_req_s, ext_csr_wr_req_r) = chan<CsrWrReq, CHANNEL_DEPTH>("csr_wr_req");
+        let (ext_csr_wr_resp_s, ext_csr_wr_resp_r) = chan<CsrWrResp, CHANNEL_DEPTH>("csr_wr_resp");
+
         let (csr_rd_req_s, csr_rd_req_r) = chan<CsrRdReq, CHANNEL_DEPTH>("csr_rd_req");
         let (csr_rd_resp_s, csr_rd_resp_r) = chan<CsrRdResp, CHANNEL_DEPTH>("csr_rd_resp");
         let (csr_wr_req_s, csr_wr_req_r) = chan<CsrWrReq, CHANNEL_DEPTH>("csr_wr_req");
         let (csr_wr_resp_s, csr_wr_resp_r) = chan<CsrWrResp, CHANNEL_DEPTH>("csr_wr_resp");
+
         let (csr_change_s, csr_change_r) = chan<CsrChange, CHANNEL_DEPTH>("csr_change");
 
-        spawn csr_config::CsrConfig<AXI_ID_W, AXI_ADDR_W, AXI_DATA_W, REGS_N>(
+        spawn axi_csr_accessor::AxiCsrAccessor<AXI_ID_W, AXI_ADDR_W, AXI_DATA_W, REGS_N>(
             csr_axi_aw_r, csr_axi_w_r, csr_axi_b_s, // csr write from AXI
             csr_axi_ar_r, csr_axi_r_s,              // csr read from AXI
+            ext_csr_rd_req_s, ext_csr_rd_resp_r,    // csr read to CsrConfig
+            ext_csr_wr_req_s, ext_csr_wr_resp_r,    // csr write to CsrConfig
+        );
+
+        spawn csr_config::CsrConfig<AXI_ID_W, AXI_ADDR_W, AXI_DATA_W, REGS_N>(
+            ext_csr_rd_req_r, ext_csr_rd_resp_s,    // csr read from AxiCsrAccessor
+            ext_csr_wr_req_r, ext_csr_wr_resp_s,    // csr write from AxiCsrAccessor
             csr_rd_req_r, csr_rd_resp_s,            // csr read from design
             csr_wr_req_r, csr_wr_resp_s,            // csr write from design
             csr_change_s,                           // notification about csr change

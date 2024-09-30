@@ -1586,6 +1586,7 @@ xls_dslx_library(
         "dec.x",
     ],
     deps = [
+        ":axi_csr_accessor_dslx",
         ":common_dslx",
         ":csr_config_dslx",
         ":frame_header_dec_dslx",

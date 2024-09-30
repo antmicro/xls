@@ -25,7 +25,7 @@ from cocotb.binary import BinaryValue
 from cocotb_bus.scoreboard import Scoreboard
 
 from cocotbext.axi.axi_master import AxiMaster
-from cocotbext.axi.axi_channels import AxiAWBus, AxiWBus, AxiBBus, AxiWriteBus, AxiARBus, AxiRBus, AxiReadBus, AxiBus
+from cocotbext.axi.axi_channels import AxiAWBus, AxiWBus, AxiBBus, AxiWriteBus, AxiARBus, AxiRBus, AxiReadBus, AxiBus, AxiBTransaction, AxiBSource, AxiBSink, AxiBMonitor, AxiRTransaction, AxiRSource, AxiRSink, AxiRMonitor
 from cocotbext.axi.axi_ram import AxiRam
 from cocotbext.axi.sparse_memory import SparseMemory
 
@@ -37,6 +37,20 @@ from xls.modules.zstd.cocotb.memory import init_axi_mem, AxiRamFromFile
 from xls.modules.zstd.cocotb.utils import reset, run_test
 
 MAX_ENCODED_FRAME_SIZE_B = 16384
+
+# Override default widths of AXI response signals
+signal_widths = {"bresp": 3}
+AxiBBus._signal_widths = signal_widths
+AxiBTransaction._signal_widths = signal_widths
+AxiBSource._signal_widths = signal_widths
+AxiBSink._signal_widths = signal_widths
+AxiBMonitor._signal_widths = signal_widths
+signal_widths = {"rresp": 3, "rlast": 1}
+AxiRBus._signal_widths = signal_widths
+AxiRTransaction._signal_widths = signal_widths
+AxiRSource._signal_widths = signal_widths
+AxiRSink._signal_widths = signal_widths
+AxiRMonitor._signal_widths = signal_widths
 
 class CSR(Enum):
   """
@@ -128,8 +142,8 @@ async def test_csr(dut):
     expected = bytearray.fromhex("EFBEADDE")
     expected[0] += i
     await csr_write(cpu, reg, expected)
-    #read = await csr_read(cpu, reg)
-    #assert read.data == expected
+    read = await csr_read(cpu, reg)
+    assert read.data == expected
     i += 1
   await ClockCycles(dut.clk, 10)
 

@@ -32,9 +32,15 @@ from cocotbext.axi.sparse_memory import SparseMemory
 import zstandard
 
 from xls.common import runfiles
+from xls.modules.zstd.cocotb.channel import (
+  XLSChannel,
+  XLSChannelDriver,
+  XLSChannelMonitor,
+)
 from xls.modules.zstd.cocotb.data_generator import GenerateFrame, BlockType
 from xls.modules.zstd.cocotb.memory import init_axi_mem, AxiRamFromFile
 from xls.modules.zstd.cocotb.utils import reset, run_test
+from xls.modules.zstd.cocotb.xlsstruct import XLSStruct, xls_dataclass
 
 MAX_ENCODED_FRAME_SIZE_B = 16384
 
@@ -51,6 +57,10 @@ AxiRTransaction._signal_widths = signal_widths
 AxiRSource._signal_widths = signal_widths
 AxiRSink._signal_widths = signal_widths
 AxiRMonitor._signal_widths = signal_widths
+
+@xls_dataclass
+class NotifyStruct(XLSStruct):
+  pass
 
 class CSR(Enum):
   """
@@ -70,6 +80,12 @@ class Status(Enum):
   """
   IDLE = 0x0
   RUNNING = 0x1
+
+def set_termination_event(monitor, event, transactions):
+  def terminate_cb(_):
+    if monitor.stats.received_transactions == transactions:
+      event.set()
+  monitor.add_callback(terminate_cb)
 
 def connect_axi_read_bus(dut, name=""):
   AXI_AR = "axi_ar"
@@ -130,10 +146,6 @@ async def test_csr(dut):
 
   csr_bus = connect_axi_bus(dut, "csr")
 
-  # Mock CSRs from ZSTD Decoder
-  #FIXME: delete once CSRs in ZSTD Decoder are available
-  #csr = AxiRam(bus=csr_bus, clock=dut.clk, reset=dut.rst, size=0x40)
-
   cpu = AxiMaster(csr_bus, dut.clk, dut.rst)
 
   await ClockCycles(dut.clk, 10)
@@ -157,22 +169,31 @@ async def configure_decoder(cpu, ibuf_addr, obuf_addr):
 async def start_decoder(cpu):
   await csr_write(cpu, CSR.Start, 0x1)
 
-async def mock_decoder(dut, memory, bus, encoded_frame_fh, obuf_addr):
-  decoder = AxiMaster(bus, dut.clk, dut.rst)
-  start = memory.read(CSR.Start.value, 4)
-  status = memory.read(CSR.Status.value, 4)
+async def wait_for_idle(cpu):
+  status = await csr_read(cpu, CSR.Status)
+  while (int.from_bytes(status.data, byteorder='little') != Status.IDLE.value):
+    status = await csr_read(cpu, CSR.Status)
+
+async def mock_decoder(dut, memory, mem_bus, csr, csr_bus, encoded_frame_path, obuf_addr):
+  MOCK_NOTIFY_CHANNEL = "notify"
+  driver_notify = XLSChannelDriver(dut, MOCK_NOTIFY_CHANNEL, dut.clk)
+  start = int.from_bytes(csr.read(CSR.Start.value, 4), byteorder='little')
+  status = int.from_bytes(csr.read(CSR.Status.value, 4), byteorder='little')
   while ((start != 0x1) | (status != Status.IDLE.value)):
-    start = memory.read(CSR.Start.value, 4)
-    status = memory.read(CSR.Status.value, 4)
-  memory.write(CSR.Start.value, 0x0)
-  memory.write(CSR.Status.value, Status.RUNNING.value)
-  #get_decoded_frame_buffer(encoded_frame_fh, obuf_addr, memory)
-  #memory.hexdump(obuf_addr, mem_size-obuf_addr)
-  ##TODO:
-  ## * signal finished decoding on the IRQ line
-  #await csr_write(memory, CSR.Status, Status.IDLE)
+    start = int.from_bytes(csr.read(CSR.Start.value, 4), byteorder='little')
+    status = int.from_bytes(csr.read(CSR.Status.value, 4), byteorder='little')
+  csr.write_dword(CSR.Start.value, 0x0)
+  csr.write_dword(CSR.Status.value, Status.RUNNING.value)
+  with open(encoded_frame_path, "rb") as encoded_frame_fh:
+    get_decoded_frame_buffer(encoded_frame_fh, obuf_addr, memory)
+  memory.hexdump(obuf_addr, memory.size-obuf_addr)
+  csr.write_dword(CSR.Status.value, Status.IDLE.value)
+  #TODO: signal finished decoding on the IRQ line
+  await driver_notify.send(NotifyStruct())
 
 async def test_decoder(dut, test_cases, block_type):
+  NOTIFY_CHANNEL = "notify"
+
   clock = Clock(dut.clk, 10, units="us")
   cocotb.start_soon(clock.start())
 
@@ -184,6 +205,11 @@ async def test_decoder(dut, test_cases, block_type):
 
   memory_bus = connect_axi_bus(dut, "memory")
   csr_bus = connect_axi_bus(dut, "csr")
+  notify_channel = XLSChannel(dut, NOTIFY_CHANNEL, dut.clk, start_now=True)
+  monitor_notify = XLSChannelMonitor(dut, NOTIFY_CHANNEL, dut.clk, NotifyStruct)
+
+  terminate = Event()
+  set_termination_event(monitor_notify, terminate, 1)
 
   cpu = AxiMaster(csr_bus, dut.clk, dut.rst)
 
@@ -196,42 +222,48 @@ async def test_decoder(dut, test_cases, block_type):
       decoded_frame_memory.hexdump(0, mem_size)
       encoded.close()
       memory = AxiRamFromFile(bus=memory_bus, clock=dut.clk, reset=dut.rst, path=encoded.name, size=mem_size)
-      # Connect CSR memory interface to the same underlying memory
-      csr = AxiRam(bus=csr_bus, clock=dut.clk, reset=dut.rst, mem=memory.mem)
-      assert (memory.read(0, mem_size) == csr.read(0, mem_size))
-      #ibuf_addr = 0x100
-      #obuf_addr = mem_size // 2
-      #await configure_decoder(cpu, ibuf_addr, obuf_addr)
-      #await start_decoder(cpu)
-      #await mock_decoder(dut, memory, memory_bus, encoded, obuf_addr)
+      # Mocked ZSTD decoder CSRs
+      csr = AxiRam(bus=csr_bus, clock=dut.clk, reset=dut.rst, size=0x40)
+      ibuf_addr = 0x0
+      obuf_addr = mem_size // 2
+      await configure_decoder(cpu, ibuf_addr, obuf_addr)
+      await start_decoder(cpu)
+      await mock_decoder(dut, memory, memory_bus, csr, csr_bus, encoded.name, obuf_addr)
+      await terminate.wait()
+      await wait_for_idle(cpu)
+      decoded_frame = memory.read(obuf_addr, memory.size-obuf_addr)
+      expected_decoded_frame = decoded_frame_memory.read(0, memory.size-obuf_addr)
+      assert decoded_frame == expected_decoded_frame
+
+  clock = Clock(dut.clk, 10, units="us")
 
 @cocotb.test(timeout_time=50, timeout_unit="ms")
 async def zstd_csr_test(dut):
   await test_csr(dut)
 
-#@cocotb.test(timeout_time=20000, timeout_unit="ms")
-#async def zstd_raw_frames_test(dut):
-#  test_cases = 1
-#  block_type = BlockType.RAW
-#  await test_decoder(dut, test_cases, block_type)
-#
-#@cocotb.test(timeout_time=20000, timeout_unit="ms")
-#async def zstd_rle_frames_test(dut):
-#  test_cases = 1
-#  block_type = BlockType.RLE
-#  await test_decoder(dut, test_cases, block_type)
-#
-#@cocotb.test(timeout_time=20000, timeout_unit="ms")
-#async def zstd_compressed_frames_test(dut):
-#  test_cases = 1
-#  block_type = BlockType.COMPRESSED
-#  await test_decoder(dut, test_cases, block_type)
-#
-#@cocotb.test(timeout_time=20000, timeout_unit="ms")
-#async def zstd_random_frames_test(dut):
-#  test_cases = 1
-#  block_type = BlockType.RANDOM
-#  await test_decoder(dut, test_cases, block_type)
+@cocotb.test(timeout_time=20000, timeout_unit="ms")
+async def zstd_raw_frames_test(dut):
+  test_cases = 1
+  block_type = BlockType.RAW
+  await test_decoder(dut, test_cases, block_type)
+
+@cocotb.test(timeout_time=20000, timeout_unit="ms")
+async def zstd_rle_frames_test(dut):
+  test_cases = 1
+  block_type = BlockType.RLE
+  await test_decoder(dut, test_cases, block_type)
+
+@cocotb.test(timeout_time=20000, timeout_unit="ms")
+async def zstd_compressed_frames_test(dut):
+  test_cases = 1
+  block_type = BlockType.COMPRESSED
+  await test_decoder(dut, test_cases, block_type)
+
+@cocotb.test(timeout_time=20000, timeout_unit="ms")
+async def zstd_random_frames_test(dut):
+  test_cases = 1
+  block_type = BlockType.RANDOM
+  await test_decoder(dut, test_cases, block_type)
 
 if __name__ == "__main__":
   toplevel = "zstd_dec_wrapper"

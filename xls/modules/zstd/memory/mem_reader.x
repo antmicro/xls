@@ -37,7 +37,7 @@ pub enum MemReaderStatus : u1 {
 
 // Request that can be submited to MemReader to read data from an AXI bus
 pub struct MemReaderReq<DSLX_ADDR_W: u32> {
-    offset: uN[DSLX_ADDR_W],   //
+    addr: uN[DSLX_ADDR_W],   //
     length: uN[DSLX_ADDR_W]  //
 }
 

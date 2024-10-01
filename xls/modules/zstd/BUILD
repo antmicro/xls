@@ -1365,7 +1365,7 @@ xls_dslx_verilog(
     library = ":axi_csr_accessor_dslx",
     opt_ir_args = {
         "inline_procs": "true",
-        "top": "__axi_csr_accessor__AxiCsrAccessorInst__AxiCsrAccessor_0__16_32_4_4_4_16_next",
+        "top": "__axi_csr_accessor__AxiCsrAccessorInst__AxiCsrAccessor_0__16_32_4_4_2_4_16_next",
     },
     tags = ["manual"],
     verilog_file = "axi_csr_accessor.v",

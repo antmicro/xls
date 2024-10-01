@@ -33,6 +33,7 @@ pub proc AxiCsrAccessor<
     ID_W: u32, ADDR_W: u32, DATA_W: u32, REGS_N: u32,
     DATA_W_DIV8: u32 = { DATA_W / u32:8 },
     LOG2_REGS_N: u32 = { std::clog2(REGS_N) },
+    LOG2_DATA_W_DIV8: u32 = { std::clog2(DATA_W / u32:8) },
 > {
     type AxiAw = axi::AxiAw<ADDR_W, ID_W>;
     type AxiW = axi::AxiW<DATA_W, DATA_W_DIV8>;
@@ -115,7 +116,7 @@ pub proc AxiCsrAccessor<
         };
 
         let wr_req = WrReq {
-            csr: axi_aw.addr as uN[LOG2_REGS_N],
+            csr: (axi_aw.addr >> LOG2_DATA_W_DIV8) as uN[LOG2_REGS_N],
             value: data_w
         };
 
@@ -135,7 +136,7 @@ pub proc AxiCsrAccessor<
         assert!(!(axi_ar_valid && axi_ar.addr as u32 >= REGS_N), "invalid_ar_addr");
         assert!(!(axi_ar_valid && axi_ar.len != u8:0), "invalid_ar_len");
         let rd_req = RdReq {
-            csr: axi_ar.addr as uN[LOG2_REGS_N],
+            csr: (axi_ar.addr >> LOG2_DATA_W_DIV8) as uN[LOG2_REGS_N],
         };
         let tok_3_2 = send_if(tok_3_1, csr_rd_req_s, axi_ar_valid, rd_req);
 
@@ -210,6 +211,7 @@ const TEST_ADDR_W = u32:16;
 const TEST_REGS_N = u32:16;
 const TEST_DATA_W_DIV8 = TEST_DATA_W / u32:8;
 const TEST_LOG2_REGS_N = std::clog2(TEST_REGS_N);
+const TEST_LOG2_DATA_W_DIV8 = std::clog2(TEST_DATA_W_DIV8);
 
 type TestCsr = uN[TEST_LOG2_REGS_N];
 type TestValue = uN[TEST_DATA_W];
@@ -307,7 +309,7 @@ proc AxiCsrAccessorTest {
             // write CSR via AXI
             let axi_aw = TestAxiAw {
                 id: i as uN[TEST_ID_W],
-                addr: test_data.csr as uN[TEST_ADDR_W],
+                addr: (test_data.csr << TEST_LOG2_DATA_W_DIV8) as uN[TEST_ADDR_W],
                 size: axi::AxiAxSize::MAX_4B_TRANSFER,
                 len: u8:0,
                 burst: axi::AxiAxBurst::FIXED,
@@ -344,7 +346,7 @@ proc AxiCsrAccessorTest {
             // read CSRs via AXI
             let axi_ar = TestAxiAr {
                 id: i as uN[TEST_ID_W],
-                addr: test_data.csr as uN[TEST_ADDR_W],
+                addr: (test_data.csr << TEST_LOG2_DATA_W_DIV8) as uN[TEST_ADDR_W],
                 len: u8:0,
                 ..zero!<TestAxiAr>()
             };

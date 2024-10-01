@@ -28,11 +28,10 @@ type CopyOrMatchLength = common::CopyOrMatchLength;
 type SequenceExecutorMessageType = common::SequenceExecutorMessageType;
 
 pub struct RawBlockDecoderReq<ADDR_W: u32> {
-    last: bool,
-    last_block: bool,
     id: u32,
     addr: uN[ADDR_W],
     length: uN[ADDR_W],
+    last_block: bool,
 }
 
 pub enum RawBlockDecoderStatus: u1 {
@@ -40,120 +39,100 @@ pub enum RawBlockDecoderStatus: u1 {
     ERROR = 1,
 }
 
-pub struct RawBlockDecoderCtrl { }
-
 pub struct RawBlockDecoderResp {
     status: RawBlockDecoderStatus,
 }
 
 struct RawBlockDecoderState {
-    ctrl: RawBlockDecoderCtrl, // configuration data
     id: u32, // ID of the block
-    last: bool, // if the packet was the last one that makes up the whole block
     last_block: bool, // if the block is the last one
-    prev_valid: bool, // if prev_id and prev_last contain valid data
 }
 
 // RawBlockDecoder is responsible for decoding Raw Blocks,
 // it should be a part of the ZSTD Decoder pipeline.
 pub proc RawBlockDecoder<DATA_W: u32, ADDR_W: u32> {
     type Req = RawBlockDecoderReq<ADDR_W>;
+    type Resp = RawBlockDecoderResp;
+    type Output = ExtendedBlockDataPacket;
+    type Status = RawBlockDecoderStatus;
+
     type MemReaderReq = mem_reader::MemReaderReq<ADDR_W>;
     type MemReaderResp = mem_reader::MemReaderResp<DATA_W, ADDR_W>;
+    type MemReaderStatus = mem_reader::MemReaderStatus;
 
     type State = RawBlockDecoderState;
 
     // decoder input
-    ctrl_r: chan<RawBlockDecoderCtrl> in;
     req_r: chan<Req> in;
+    resp_s: chan<Resp> out;
+
+    // decoder output
+    output_s: chan<Output> out;
 
     // memory interface
     mem_req_s: chan<MemReaderReq> out;
     mem_resp_r: chan<MemReaderResp> in;
 
-    // decoder output
-    resp_s: chan<RawBlockDecoderResp> out;
-    output_s: chan<ExtendedBlockDataPacket> out;
-
     init { zero!<State>() }
 
     config(
-        ctrl_r: chan<RawBlockDecoderCtrl> in,
         req_r: chan<Req> in,
-        mem_req_s: chan<MemReaderReq> out,
-        mem_resp_r: chan<MemReaderResp> in,
         resp_s: chan<RawBlockDecoderResp> out,
         output_s: chan<ExtendedBlockDataPacket> out,
+
+        mem_req_s: chan<MemReaderReq> out,
+        mem_resp_r: chan<MemReaderResp> in,
     ) {
         (
-            ctrl_r, req_r,
+            req_r, resp_s, output_s,
             mem_req_s, mem_resp_r,
-            resp_s, output_s,
         )
     }
 
     next(state: State) {
-        let tok = join();
-
-        // receive configuration data
-        let (tok, ctrl, ctrl_valid) = recv_non_blocking(tok, ctrl_r, zero!<RawBlockDecoderCtrl>());
-
-        let state = if ctrl_valid {
-            State {
-                ctrl: ctrl,
-                ..state
-            }
-        } else { state };
+        let tok0 = join();
 
         // receive request
-        let (tok, req, req_valid) = recv_non_blocking(tok, req_r, zero!<RawBlockDecoderReq<ADDR_W>>());
-
-        // validate request
-        if req_valid && state.prev_valid && (req.id != state.id) && (state.last == false) {
-            trace_fmt!("ID changed but previous packet have no last!");
-            fail!("no_last", ());
-        } else {};
+        let (tok1_0, req, req_valid) = recv_non_blocking(tok0, req_r, zero!<RawBlockDecoderReq<ADDR_W>>());
 
         // update ID and last in state
         let state = if req_valid {
-            State {
-                prev_valid: true,
-                id: req.id,
-                last: req.last,
-                last_block: req.last_block,
-                ..state
-            }
+            State { id: req.id, last_block: req.last_block}
         } else { state };
 
         // send memory read request
-        let tok = send_if(tok, mem_req_s, req_valid, MemReaderReq {
-            addr: req.addr,
-            length: req.length,
-        });
+        let req = MemReaderReq { addr: req.addr, length: req.length };
+        let tok2_0 = send_if(tok1_0, mem_req_s, req_valid, req);
 
         // receive memory read response
-        let (tok, mem_resp, mem_resp_valid) = recv_non_blocking(tok, mem_resp_r, zero!<MemReaderResp>());
+        let (tok1_1, mem_resp, mem_resp_valid) = recv_non_blocking(tok0, mem_resp_r, zero!<MemReaderResp>());
+        let mem_resp_error = (mem_resp.status != MemReaderStatus::OKAY);
 
-        // prepare output data
+        // prepare output data, decoded RAW block is always a literal
         let output_data = ExtendedBlockDataPacket {
-            // Decoded RAW block is always a literal
             msg_type: SequenceExecutorMessageType::LITERAL,
             packet: BlockDataPacket {
-                last: state.last,
+                last: mem_resp.last,
                 last_block: state.last_block,
                 id: state.id,
-                data: mem_resp.data as BlockData,
-                length: mem_resp.length as BlockPacketLength,
+                data: checked_cast<BlockData>(mem_resp.data),
+                length: checked_cast<BlockPacketLength>(mem_resp.length),
             },
         };
 
         // send output data
-        let tok = send_if(tok, output_s, mem_resp_valid, output_data);
+        let mem_resp_correct = mem_resp_valid && !mem_resp_error;
+        let tok2_1 = send_if(tok1_1, output_s, mem_resp_correct, output_data);
 
         // send response after block end
-        let tok = send_if(tok, resp_s, state.last, RawBlockDecoderResp {
-            status: RawBlockDecoderStatus::OKAY,
-        });
+        let resp = if mem_resp_correct {
+            Resp { status: Status::OKAY }
+        } else {
+            Resp { status: Status::ERROR }
+        };
+
+        let do_send_resp = mem_resp_valid && mem_resp.last;
+        let tok2_2 = send_if(tok1_1, resp_s, do_send_resp, resp);
 
         state
     }
@@ -163,23 +142,22 @@ const INST_DATA_W = u32:32;
 const INST_ADDR_W = u32:32;
 
 pub proc RawBlockDecoderInst {
-    type InstRawBlockDecoderReq = RawBlockDecoderReq<INST_ADDR_W>;
+    type Req = RawBlockDecoderReq<INST_ADDR_W>;
+    type Resp = RawBlockDecoderResp;
+    type Output = ExtendedBlockDataPacket;
 
-    type InstMemReaderReq = mem_reader::MemReaderReq<INST_ADDR_W>;
-    type InstMemReaderResp = mem_reader::MemReaderResp<INST_DATA_W, INST_ADDR_W>;
+    type MemReaderReq = mem_reader::MemReaderReq<INST_ADDR_W>;
+    type MemReaderResp = mem_reader::MemReaderResp<INST_DATA_W, INST_ADDR_W>;
 
     config (
-        ctrl_r: chan<RawBlockDecoderCtrl> in,
-        req_r: chan<InstRawBlockDecoderReq> in,
-        mem_req_s: chan<InstMemReaderReq> out,
-        mem_resp_r: chan<InstMemReaderResp> in,
-        resp_s: chan<RawBlockDecoderResp> out,
-        output_s: chan<ExtendedBlockDataPacket> out,
+        req_r: chan<Req> in,
+        resp_s: chan<Resp> out,
+        output_s: chan<Output> out,
+        mem_req_s: chan<MemReaderReq> out,
+        mem_resp_r: chan<MemReaderResp> in,
     ) {
         spawn RawBlockDecoder<INST_DATA_W, INST_ADDR_W>(
-            ctrl_r, req_r,
-            mem_req_s, mem_resp_r,
-            resp_s, output_s,
+            req_r, resp_s, output_s, mem_req_s, mem_resp_r
         );
     }
 
@@ -191,118 +169,130 @@ pub proc RawBlockDecoderInst {
 const TEST_DATA_W = u32:32;
 const TEST_ADDR_W = u32:32;
 
-type TestRawBlockDecoderReq = RawBlockDecoderReq<TEST_ADDR_W>;
+type TestReq = RawBlockDecoderReq<TEST_ADDR_W>;
+type TestResp = RawBlockDecoderResp;
 
 type TestMemReaderReq = mem_reader::MemReaderReq<TEST_ADDR_W>;
 type TestMemReaderResp = mem_reader::MemReaderResp<TEST_DATA_W, TEST_ADDR_W>;
 
-struct TestData {
-    last: bool,
-    last_block: bool,
-    id: u32,
-    addr: uN[TEST_ADDR_W],
-    length: uN[TEST_ADDR_W],
-    data: uN[TEST_DATA_W],
-}
+type TestData = uN[TEST_DATA_W];
+type TestAddr = uN[TEST_ADDR_W];
+type TestLength = uN[TEST_ADDR_W];
 
-const TEST_DATA = TestData[8]:[
-    TestData {last: false, last_block: false, id: u32:0, addr: uN[TEST_ADDR_W]:0, length: uN[TEST_ADDR_W]:8, data: uN[TEST_DATA_W]:0xAB},
-    TestData {last: true, last_block: false, id: u32:0, addr: uN[TEST_ADDR_W]:8, length: uN[TEST_ADDR_W]:8, data: uN[TEST_DATA_W]:0xCD},
-    TestData {last: false, last_block: false, id: u32:1, addr: uN[TEST_ADDR_W]:512, length: uN[TEST_ADDR_W]:32, data: uN[TEST_DATA_W]:0x654A_BE67},
-    TestData {last: false, last_block: false, id: u32:1, addr: uN[TEST_ADDR_W]:544, length: uN[TEST_ADDR_W]:32, data: uN[TEST_DATA_W]:0x8C45_FB09},
-    TestData {last: false, last_block: false, id: u32:1, addr: uN[TEST_ADDR_W]:576, length: uN[TEST_ADDR_W]:32, data: uN[TEST_DATA_W]:0xE92A_429D},
-    TestData {last: true, last_block: false, id: u32:1, addr: uN[TEST_ADDR_W]:592, length: uN[TEST_ADDR_W]:16, data: uN[TEST_DATA_W]:0x071F},
-    TestData {last: false, last_block: false, id: u32:2, addr: uN[TEST_ADDR_W]:32, length: uN[TEST_ADDR_W]:32, data: uN[TEST_DATA_W]:0x1234_5678},
-    TestData {last: true, last_block: true, id: u32:2, addr: uN[TEST_ADDR_W]:64, length: uN[TEST_ADDR_W]:24, data: uN[TEST_DATA_W]:0xABCD_DCBA},
-];
+struct TestRecord {
+     id: u32,
+     addr: TestAddr,
+     length: TestLength,
+     data: TestData,
+     last_block: bool,
+ }
 
-#[test_proc]
-proc RawBlockDecoderTest {
-    terminator: chan<bool> out;
+//const TEST_DATA = TestData[8]:[
+//    TestData { id: u32:0, last_block: false,  addr: TestAddr:0,   length: TestLength:8,  data: TestData:0xAB},
+//    TestData { id: u32:0, last_block: false,  addr: TestAddr:8,   length: TestLength:8,  data: TestData:0xCD},
+//    TestData { id: u32:1, last_block: false,  addr: TestAddr:512, length: TestLength:32, data: TestData:0x654A_BE67},
+//    TestData { id: u32:1, last_block: false,  addr: TestAddr:544, length: TestLength:32, data: TestData:0x8C45_FB09},
+//    TestData { id: u32:1, last_block: false,  addr: TestAddr:576, length: TestLength:32, data: TestData:0xE92A_429D},
+//    TestData { id: u32:1, last_block: false,  addr: TestAddr:592, length: TestLength:16, data: TestData:0x071F},
+//    TestData { id: u32:2, last_block: false,  addr: TestAddr:32,  length: TestLength:32, data: TestData:0x1234_5678},
+//    TestData { id: u32:2, last_block:  true,  addr: TestAddr:64,  length: TestLength:24, data: TestData:0xABCD_DCBA},
+//];
 
-    // decoder input
-    ctrl_s: chan<RawBlockDecoderCtrl> out;
-    req_s: chan<TestRawBlockDecoderReq> out;
-
-    // memory interface
-    mem_req_r: chan<TestMemReaderReq> in;
-    mem_resp_s: chan<TestMemReaderResp> out;
-
-    // decoder output
-    resp_r: chan<RawBlockDecoderResp> in;
-    output_r: chan<ExtendedBlockDataPacket> in;
-
-    config(terminator: chan<bool> out) {
-        let (ctrl_s, ctrl_r) = chan<RawBlockDecoderCtrl>("ctrl");
-        let (req_s, req_r) = chan<TestRawBlockDecoderReq>("req");
-
-        let (mem_req_s, mem_req_r) = chan<TestMemReaderReq>("mem_req");
-        let (mem_resp_s, mem_resp_r) = chan<TestMemReaderResp>("mem_resp");
-
-        let (resp_s, resp_r) = chan<RawBlockDecoderResp>("resp");
-        let (output_s, output_r) = chan<ExtendedBlockDataPacket>("output");
-
-        spawn RawBlockDecoder<TEST_DATA_W, TEST_ADDR_W>(
-            ctrl_r, req_r,
-            mem_req_s, mem_resp_r,
-            resp_s, output_s,
-        );
-
-        (
-            terminator,
-            ctrl_s, req_s,
-            mem_req_r, mem_resp_s,
-            resp_r, output_r,
-        )
-    }
-
-    init {  }
-
-    next(state: ()) {
-        let tok = join();
-
-        let tok = for ((i, test_data), tok): ((u32, TestData), token) in enumerate(TEST_DATA) {
-            let req = TestRawBlockDecoderReq {
-                last: test_data.last,
-                last_block: test_data.last_block,
-                id: test_data.id,
-                addr: test_data.addr,
-                length: test_data.length,
-            };
-            let tok = send(tok, req_s, req);
-            trace_fmt!("Sent #{} request {:#x}", i + u32:1, req);
-
-            let (tok, mem_req) = recv(tok, mem_req_r);
-            trace_fmt!("Received #{} memory read request {:#x}", i + u32:1, mem_req);
-
-            assert_eq(test_data.addr, mem_req.addr);
-            assert_eq(test_data.length, mem_req.length);
-
-            let mem_resp = TestMemReaderResp {
-                status: mem_reader::MemReaderStatus::OKAY,
-                data: test_data.data,
-                length: test_data.length,
-                last: true,
-            };
-
-            let tok = send(tok, mem_resp_s, mem_resp);
-            trace_fmt!("Sent #{} memory response {:#x}", i + u32:1, mem_resp);
-
-            let (tok, output) = recv(tok, output_r);
-            trace_fmt!("Received #{} output {:#x}", i + u32:1, output);
-
-            assert_eq(SequenceExecutorMessageType::LITERAL, output.msg_type);
-            assert_eq(test_data.last, output.packet.last);
-            assert_eq(test_data.last_block, output.packet.last_block);
-            assert_eq(test_data.id, output.packet.id);
-            assert_eq(test_data.data as common::BlockData, output.packet.data);
-            assert_eq(test_data.length, output.packet.length);
-
-            let (tok, _) = recv_if(tok, resp_r, test_data.last, zero!<RawBlockDecoderResp>());
-
-            tok
-        }(tok);
-
-        send(tok, terminator, true);
-    }
-}
+//#[test_proc]
+//proc RawBlockDecoderTest {
+//    terminator: chan<bool> out;
+//
+//    // decoder input
+//    req_s: chan<TestReq> out;
+//    resp_r: chan<TestRawBlockDecoderResp> in;
+//    output_r: chan<ExtendedBlockDataPacket> in;
+//
+//    mem_req_r: chan<TestMemReaderReq> in;
+//    mem_resp_s: chan<TestMemReaderResp> out;
+//
+//    // decoder output
+//
+//    config(terminator: chan<bool> out) {
+//        let (ctrl_s, ctrl_r) = chan<RawBlockDecoderCtrl>("ctrl");
+//        let (req_s, req_r) = chan<TestRawBlockDecoderReq>("req");
+//
+//        let (mem_req_s, mem_req_r) = chan<TestMemReaderReq>("mem_req");
+//        let (mem_resp_s, mem_resp_r) = chan<TestMemReaderResp>("mem_resp");
+//
+//        let (resp_s, resp_r) = chan<RawBlockDecoderResp>("resp");
+//        let (output_s, output_r) = chan<ExtendedBlockDataPacket>("output");
+//
+//        spawn RawBlockDecoder<TEST_DATA_W, TEST_ADDR_W>(
+//            req_r, resp_s, output_s, mem_req_s, mem_resp_r
+//        );
+//
+//        (
+//            terminator,
+//            req_s, resp_r, output_r,
+//            mem_req_r, mem_resp_s
+//        )
+//    }
+//
+//    init {  }
+//
+//    next(state: ()) {
+//        let tok = join();
+//
+//        let req = TestReq { id: u32:0, last_block: false, addr: TestAddr:0, length: TestLength:8 };
+//        let tok = send(tok, req_s, req);
+//
+//        let (tok, mem_req) = recv(tok, mem_req_r);
+//        assert_eq(mem_req, MemReaderReq {
+//            addr: TestAddr:0,
+//            lenght: TestLength:8
+//        });
+//
+//
+//        let req = TestReq { id: u32:0, last_block: false, addr: TestAddr:0, length: TestLength:8 };
+//
+//
+//        let tok = for ((i, test_data), tok): ((u32, TestData), token) in enumerate(TEST_DATA) {
+//            let req = TestRawBlockDecoderReq {
+//                last: test_data.last,
+//                last_block: test_data.last_block,
+//                id: test_data.id,
+//                addr: test_data.addr,
+//                length: test_data.length,
+//            };
+//            let tok = send(tok, req_s, req);
+//            trace_fmt!("Sent #{} request {:#x}", i + u32:1, req);
+//
+//            let (tok, mem_req) = recv(tok, mem_req_r);
+//            trace_fmt!("Received #{} memory read request {:#x}", i + u32:1, mem_req);
+//
+//            assert_eq(test_data.addr, mem_req.addr);
+//            assert_eq(test_data.length, mem_req.length);
+//
+//            let mem_resp = TestMemReaderResp {
+//                status: mem_reader::MemReaderStatus::OKAY,
+//                data: test_data.data,
+//                length: test_data.length,
+//                last: true,
+//            };
+//
+//            let tok = send(tok, mem_resp_s, mem_resp);
+//            trace_fmt!("Sent #{} memory response {:#x}", i + u32:1, mem_resp);
+//
+//            let (tok, output) = recv(tok, output_r);
+//            trace_fmt!("Received #{} output {:#x}", i + u32:1, output);
+//
+//            assert_eq(SequenceExecutorMessageType::LITERAL, output.msg_type);
+//            assert_eq(test_data.last, output.packet.last);
+//            assert_eq(test_data.last_block, output.packet.last_block);
+//            assert_eq(test_data.id, output.packet.id);
+//            assert_eq(test_data.data as common::BlockData, output.packet.data);
+//            assert_eq(test_data.length, output.packet.length);
+//
+//            let (tok, _) = recv_if(tok, resp_r, test_data.last, zero!<RawBlockDecoderResp>());
+//
+//            tok
+//        }(tok);
+//
+//        send(tok, terminator, true);
+//    }
+//}

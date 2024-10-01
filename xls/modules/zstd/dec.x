@@ -125,7 +125,6 @@ proc ZstdDecoderInternal<
     type BlockHeaderDecoderResp = block_header_dec::BlockHeaderDecoderResp;
 
     type RawBlockDecoderReq = raw_block_dec_new_mem::RawBlockDecoderReq<AXI_ADDR_W>;
-    type RawBlockDecoderCtrl = raw_block_dec_new_mem::RawBlockDecoderCtrl;
     type RawBlockDecoderResp = raw_block_dec_new_mem::RawBlockDecoderResp;
 
     type RleBlockDecoderReq = rle_block_dec_new_mem::RleBlockDecoderReq<AXI_ADDR_W>;
@@ -153,7 +152,6 @@ proc ZstdDecoderInternal<
     bh_resp_r: chan<BlockHeaderDecoderResp> in;
 
     // MemReader + RawBlockDecoder
-    raw_ctrl_s: chan<RawBlockDecoderCtrl> out;
     raw_req_s: chan<RawBlockDecoderReq> out;
     raw_resp_r: chan<RawBlockDecoderResp> in;
 
@@ -184,7 +182,6 @@ proc ZstdDecoderInternal<
         bh_resp_r: chan<BlockHeaderDecoderResp> in,
 
         // MemReader + RawBlockDecoder
-        raw_ctrl_s: chan<RawBlockDecoderCtrl> out,
         raw_req_s: chan<RawBlockDecoderReq> out,
         raw_resp_r: chan<RawBlockDecoderResp> in,
 
@@ -199,7 +196,7 @@ proc ZstdDecoderInternal<
             csr_rd_req_s, csr_rd_resp_r, csr_wr_req_s, csr_wr_resp_r, csr_change_r,
             fh_req_s, fh_resp_r,
             bh_req_s, bh_resp_r,
-            raw_ctrl_s, raw_req_s, raw_resp_r,
+            raw_req_s, raw_resp_r,
             rle_ctrl_s, rle_req_s, rle_resp_r,
             notify_s,
         )
@@ -208,7 +205,6 @@ proc ZstdDecoderInternal<
     next (state: State) {
         let tok0 = join();
 
-        send_if(tok0, raw_ctrl_s, false, zero!<RawBlockDecoderCtrl>());
         send_if(tok0, rle_ctrl_s, false, zero!<RleBlockDecoderCtrl>());
 
         const CSR_REQS = CsrRdReq<LOG2_REGS_N>[2]:[
@@ -274,7 +270,6 @@ proc ZstdDecoderInternal<
 
         let do_send_raw_req = (state.fsm == Fsm::DECODE_RAW_BLOCK) && !state.req_sent;
         let raw_req = RawBlockDecoderReq {
-            last: false,
             id: state.block_id,
             last_block: state.block_last,
             addr: state.block_addr,
@@ -487,6 +482,7 @@ const TEST_AXI_ID_W = u32:8;
 const TEST_AXI_DEST_W = u32:8;
 const TEST_REGS_N = u32:5;
 const TEST_WINDOW_LOG_MAX = u32:30;
+
 const TEST_HB_ADDR_W = sequence_executor::ZSTD_RAM_ADDR_WIDTH;
 const TEST_HB_DATA_W = sequence_executor::RAM_DATA_WIDTH;
 const TEST_HB_NUM_PARTITIONS = sequence_executor::RAM_NUM_PARTITIONS;
@@ -495,6 +491,12 @@ const TEST_HB_SIZE_KB = sequence_executor::ZSTD_HISTORY_BUFFER_SIZE_KB;
 const TEST_LOG2_REGS_N = std::clog2(TEST_REGS_N);
 const TEST_AXI_DATA_W_DIV8 = TEST_AXI_DATA_W / u32:8;
 const TEST_HB_RAM_N = u32:8;
+
+const TEST_HB_SIZE = sequence_executor::ram_size(TEST_HB_SIZE_KB);
+const TEST_HB_RAM_WORD_PARTITION_SIZE = sequence_executor::RAM_WORD_PARTITION_SIZE;
+const TEST_HB_RAM_SIMULTANEOUS_READ_WRITE_BEHAVIOR = sequence_executor::TEST_RAM_SIMULTANEOUS_READ_WRITE_BEHAVIOR;
+const TEST_HB_RAM_INITIALIZED = sequence_executor::TEST_RAM_INITIALIZED;
+const TEST_HB_RAM_ASSERT_VALID_READ:bool = {false};
 
 
 #[test_proc]
@@ -525,7 +527,6 @@ proc ZstdDecoderInternalTest {
     type BlockHeaderDecoderReq = block_header_dec::BlockHeaderDecoderReq<TEST_AXI_ADDR_W>;
     type BlockHeaderDecoderResp = block_header_dec::BlockHeaderDecoderResp;
 
-    type RawBlockDecoderCtrl = raw_block_dec_new_mem::RawBlockDecoderCtrl;
     type RawBlockDecoderReq = raw_block_dec_new_mem::RawBlockDecoderReq<TEST_AXI_ADDR_W>;
     type RawBlockDecoderResp = raw_block_dec_new_mem::RawBlockDecoderResp;
     type RawBlockDecoderStatus = raw_block_dec_new_mem::RawBlockDecoderStatus;
@@ -549,7 +550,6 @@ proc ZstdDecoderInternalTest {
     bh_req_r:  chan<BlockHeaderDecoderReq> in;
     bh_resp_s: chan<BlockHeaderDecoderResp> out;
 
-    raw_ctrl_r: chan<RawBlockDecoderCtrl> in;
     raw_req_r: chan<RawBlockDecoderReq> in;
     raw_resp_s: chan<RawBlockDecoderResp> out;
 
@@ -574,7 +574,6 @@ proc ZstdDecoderInternalTest {
         let (bh_req_s, bh_req_r) = chan<BlockHeaderDecoderReq>("bh_req");
         let (bh_resp_s, bh_resp_r) = chan<BlockHeaderDecoderResp>("bh_resp");
 
-        let (raw_ctrl_s, raw_ctrl_r) = chan<RawBlockDecoderCtrl>("raw_ctrl");
         let (raw_req_s,  raw_req_r) = chan<RawBlockDecoderReq>("raw_req");
         let (raw_resp_s, raw_resp_r) = chan<RawBlockDecoderResp>("raw_resp");
 
@@ -588,7 +587,7 @@ proc ZstdDecoderInternalTest {
             csr_rd_req_s, csr_rd_resp_r, csr_wr_req_s, csr_wr_resp_r, csr_change_r,
             fh_req_s, fh_resp_r,
             bh_req_s, bh_resp_r,
-            raw_ctrl_s, raw_req_s, raw_resp_r,
+            raw_req_s, raw_resp_r,
             rle_ctrl_s, rle_req_s, rle_resp_r,
             notify_s,
         );
@@ -598,7 +597,7 @@ proc ZstdDecoderInternalTest {
             csr_rd_req_r, csr_rd_resp_s, csr_wr_req_r, csr_wr_resp_s, csr_change_s,
             fh_req_r, fh_resp_s,
             bh_req_r, bh_resp_s,
-            raw_ctrl_r, raw_req_r, raw_resp_s,
+            raw_req_r, raw_resp_s,
             rle_ctrl_r, rle_req_r, rle_resp_s,
             notify_r,
         )
@@ -688,7 +687,6 @@ proc ZstdDecoderInternalTest {
 
         let (tok, raw_req) = recv(tok, raw_req_r);
         assert_eq(raw_req, RawBlockDecoderReq {
-            last: false,
             last_block: false,
             id: u32:0,
             addr: Addr:0x1006,
@@ -740,7 +738,6 @@ proc ZstdDecoderInternalTest {
 
         let (tok, raw_req) = recv(tok, raw_req_r);
         assert_eq(raw_req, RawBlockDecoderReq {
-            last: false,
             last_block: true,
             id: u32:2,
             addr: Addr:0x300C,
@@ -769,7 +766,6 @@ proc ZstdDecoder<
     LOG2_REGS_N: u32 = {std::clog2(REGS_N)},
     HB_RAM_N: u32 = {u32:8},
 > {
-
     type CsrAxiAr = axi::AxiAr<AXI_ADDR_W, AXI_ID_W>;
     type CsrAxiR = axi::AxiR<AXI_DATA_W, AXI_ID_W>;
     type CsrAxiAw = axi::AxiAw<AXI_ADDR_W, AXI_ID_W>;
@@ -945,15 +941,13 @@ proc ZstdDecoder<
            raw_axi_ar_s, raw_axi_r_r,
         );
 
-        let (raw_ctrl_s, raw_ctrl_r) = chan<RawBlockDecoderCtrl, CHANNEL_DEPTH>("raw_ctrl");
         let (raw_req_s,  raw_req_r) = chan<RawBlockDecoderReq, CHANNEL_DEPTH>("raw_req");
         let (raw_resp_s, raw_resp_r) = chan<RawBlockDecoderResp, CHANNEL_DEPTH>("raw_resp");
         let (raw_output_s, raw_output_r) = chan<ExtendedBlockDataPacket, CHANNEL_DEPTH>("raw_output");
 
         spawn raw_block_dec_new_mem::RawBlockDecoder<AXI_DATA_W, AXI_ADDR_W>(
-            raw_ctrl_r, raw_req_r,
+            raw_req_r, raw_resp_s, raw_output_s,
             raw_mem_rd_req_s, raw_mem_rd_resp_r,
-            raw_resp_s, raw_output_s,
         );
 
         // RLE Block Decoder
@@ -1015,7 +1009,7 @@ proc ZstdDecoder<
             csr_rd_req_s, csr_rd_resp_r, csr_wr_req_s, csr_wr_resp_r, csr_change_r,
             fh_req_s, fh_resp_r,
             bh_req_s, bh_resp_r,
-            raw_ctrl_s, raw_req_s, raw_resp_r,
+            raw_req_s, raw_resp_r,
             rle_ctrl_s, rle_req_s, rle_resp_r,
             notify_s,
         );
@@ -1028,20 +1022,190 @@ proc ZstdDecoder<
     }
 }
 
-#[test_proc]
-proc ZstdDecoderTest {
-    terminator: chan<bool> out;
-
-    init {}
-
-    config(terminator: chan<bool> out) {
-        (terminator,)
-    }
-
-    next (state: ()) {
-        send(join(), terminator, true);
-    }
-}
+//#[test_proc]
+//proc ZstdDecoderTest {
+//    type CsrAxiAr = axi::AxiAr<TEST_AXI_ADDR_W, TEST_AXI_ID_W>;
+//    type CsrAxiR = axi::AxiR<TEST_AXI_DATA_W, TEST_AXI_ID_W>;
+//    type CsrAxiAw = axi::AxiAw<TEST_AXI_ADDR_W, TEST_AXI_ID_W>;
+//    type CsrAxiW = axi::AxiW<TEST_AXI_DATA_W, TEST_AXI_DATA_W_DIV8>;
+//    type CsrAxiB = axi::AxiB<TEST_AXI_ID_W>;
+//
+//    type CsrRdReq = csr_config::CsrRdReq<TEST_LOG2_REGS_N>;
+//    type CsrRdResp = csr_config::CsrRdResp<TEST_LOG2_REGS_N, TEST_AXI_DATA_W>;
+//    type CsrWrReq = csr_config::CsrWrReq<TEST_LOG2_REGS_N, TEST_AXI_DATA_W>;
+//    type CsrWrResp = csr_config::CsrWrResp;
+//    type CsrChange = csr_config::CsrChange<TEST_LOG2_REGS_N>;
+//
+//    type MemAxiAr = axi::AxiAr<TEST_AXI_ADDR_W, TEST_AXI_ID_W>;
+//    type MemAxiR = axi::AxiR<TEST_AXI_DATA_W, TEST_AXI_ID_W>;
+//    type MemAxiAw = axi::AxiAw<TEST_AXI_ADDR_W, TEST_AXI_ID_W>;
+//    type MemAxiW = axi::AxiW<TEST_AXI_DATA_W, TEST_AXI_DATA_W_DIV8>;
+//    type MemAxiB = axi::AxiB<TEST_AXI_ID_W>;
+//
+//    type RamRdReq = ram::ReadReq<TEST_HB_ADDR_W, TEST_HB_NUM_PARTITIONS>;
+//    type RamRdResp = ram::ReadResp<TEST_HB_DATA_W>;
+//    type RamWrReq = ram::WriteReq<TEST_HB_ADDR_W, TEST_HB_DATA_W, TEST_HB_NUM_PARTITIONS>;
+//    type RamWrResp = ram::WriteResp;
+//
+//    type ZstdDecodedPacket = common::ZstdDecodedPacket;
+//    terminator: chan<bool> out;
+//
+//    init {}
+//
+//    config(terminator: chan<bool> out) {
+//
+//        let (csr_axi_aw_s, csr_axi_aw_r) = chan<CsrAxiAw>("csr_axi_aw");
+//        let (csr_axi_w_s, csr_axi_w_r) = chan<CsrAxiW>("csr_axi_w");
+//        let (csr_axi_b_s, csr_axi_b_r) = chan<CsrAxiB>("csr_axi_b");
+//        let (csr_axi_ar_s, csr_axi_ar_r) = chan<CsrAxiAr>("csr_axi_ar");
+//        let (csr_axi_r_s, csr_axi_r_r) = chan<CsrAxiR>("csr_axi_r");
+//
+//        let (fh_axi_ar_s, fh_axi_ar_r) = chan<MemAxiAr>("fh_axi_ar_s");
+//        let (fh_axi_r_s, fh_axi_r_r) = chan<MemAxiR>("fh_axi_r_r");
+//
+//        let (bh_axi_ar_s, bh_axi_ar_r) = chan<MemAxiAr>("bh_axi_ar");
+//        let (bh_axi_r_s, bh_axi_r_r) = chan<MemAxiR>("bh_axi_r");
+//
+//        let (raw_axi_ar_s, raw_axi_ar_r) = chan<MemAxiAr>("raw_axi_ar");
+//        let (raw_axi_r_s, raw_axi_r_r) = chan<MemAxiR>("raw_axi_r");
+//
+//        let (rle_axi_ar_s, rle_axi_ar_r) = chan<MemAxiAr>("rle_axi_ar");
+//        let (rle_axi_r_s, rle_axi_r_r) = chan<MemAxiR>("rle_axi_r");
+//
+//        let (ram_rd_req_0_s, ram_rd_req_0_r) = chan<RamRdReq>("ram_rd_req_0");
+//        let (ram_rd_req_1_s, ram_rd_req_1_r) = chan<RamRdReq>("ram_rd_req_1");
+//        let (ram_rd_req_2_s, ram_rd_req_2_r) = chan<RamRdReq>("ram_rd_req_2");
+//        let (ram_rd_req_3_s, ram_rd_req_3_r) = chan<RamRdReq>("ram_rd_req_3");
+//        let (ram_rd_req_4_s, ram_rd_req_4_r) = chan<RamRdReq>("ram_rd_req_4");
+//        let (ram_rd_req_5_s, ram_rd_req_5_r) = chan<RamRdReq>("ram_rd_req_5");
+//        let (ram_rd_req_6_s, ram_rd_req_6_r) = chan<RamRdReq>("ram_rd_req_6");
+//        let (ram_rd_req_7_s, ram_rd_req_7_r) = chan<RamRdReq>("ram_rd_req_7");
+//
+//        let (ram_rd_resp_0_s, ram_rd_resp_0_r) = chan<RamRdResp>("ram_rd_resp_0");
+//        let (ram_rd_resp_1_s, ram_rd_resp_1_r) = chan<RamRdResp>("ram_rd_resp_1");
+//        let (ram_rd_resp_2_s, ram_rd_resp_2_r) = chan<RamRdResp>("ram_rd_resp_2");
+//        let (ram_rd_resp_3_s, ram_rd_resp_3_r) = chan<RamRdResp>("ram_rd_resp_3");
+//        let (ram_rd_resp_4_s, ram_rd_resp_4_r) = chan<RamRdResp>("ram_rd_resp_4");
+//        let (ram_rd_resp_5_s, ram_rd_resp_5_r) = chan<RamRdResp>("ram_rd_resp_5");
+//        let (ram_rd_resp_6_s, ram_rd_resp_6_r) = chan<RamRdResp>("ram_rd_resp_6");
+//        let (ram_rd_resp_7_s, ram_rd_resp_7_r) = chan<RamRdResp>("ram_rd_resp_7");
+//
+//        let (ram_wr_req_0_s, ram_wr_req_0_r) = chan<RamWrReq>("ram_wr_req_0");
+//        let (ram_wr_req_1_s, ram_wr_req_1_r) = chan<RamWrReq>("ram_wr_req_1");
+//        let (ram_wr_req_2_s, ram_wr_req_2_r) = chan<RamWrReq>("ram_wr_req_2");
+//        let (ram_wr_req_3_s, ram_wr_req_3_r) = chan<RamWrReq>("ram_wr_req_3");
+//        let (ram_wr_req_4_s, ram_wr_req_4_r) = chan<RamWrReq>("ram_wr_req_4");
+//        let (ram_wr_req_5_s, ram_wr_req_5_r) = chan<RamWrReq>("ram_wr_req_5");
+//        let (ram_wr_req_6_s, ram_wr_req_6_r) = chan<RamWrReq>("ram_wr_req_6");
+//        let (ram_wr_req_7_s, ram_wr_req_7_r) = chan<RamWrReq>("ram_wr_req_7");
+//
+//        let (ram_wr_resp_0_s, ram_wr_resp_0_r) = chan<RamWrResp>("ram_wr_resp_0");
+//        let (ram_wr_resp_1_s, ram_wr_resp_1_r) = chan<RamWrResp>("ram_wr_resp_1");
+//        let (ram_wr_resp_2_s, ram_wr_resp_2_r) = chan<RamWrResp>("ram_wr_resp_2");
+//        let (ram_wr_resp_3_s, ram_wr_resp_3_r) = chan<RamWrResp>("ram_wr_resp_3");
+//        let (ram_wr_resp_4_s, ram_wr_resp_4_r) = chan<RamWrResp>("ram_wr_resp_4");
+//        let (ram_wr_resp_5_s, ram_wr_resp_5_r) = chan<RamWrResp>("ram_wr_resp_5");
+//        let (ram_wr_resp_6_s, ram_wr_resp_6_r) = chan<RamWrResp>("ram_wr_resp_6");
+//        let (ram_wr_resp_7_s, ram_wr_resp_7_r) = chan<RamWrResp>("ram_wr_resp_7");
+//
+//        let (output_s, output_r) = chan<ZstdDecodedPacket>("output");
+//        let (notify_s, notify_r) = chan<()>("notify");
+//
+//        spawn ZstdDecoder<
+//            TEST_AXI_DATA_W, TEST_AXI_ADDR_W, TEST_AXI_ID_W, TEST_AXI_DEST_W,
+//            TEST_REGS_N, TEST_WINDOW_LOG_MAX,
+//            TEST_HB_ADDR_W, TEST_HB_DATA_W, TEST_HB_NUM_PARTITIONS, TEST_HB_SIZE_KB,
+//        >(
+//            csr_axi_aw_r, csr_axi_w_r, csr_axi_b_s, csr_axi_ar_r, csr_axi_r_s,
+//            fh_axi_ar_s, fh_axi_r_r,
+//            bh_axi_ar_s, bh_axi_r_r,
+//            raw_axi_ar_s, raw_axi_r_r,
+//            rle_axi_ar_s, rle_axi_r_r,
+//            ram_rd_req_0_s, ram_rd_req_1_s, ram_rd_req_2_s, ram_rd_req_3_s,
+//            ram_rd_req_4_s, ram_rd_req_5_s, ram_rd_req_6_s, ram_rd_req_7_s,
+//            ram_rd_resp_0_r, ram_rd_resp_1_r, ram_rd_resp_2_r, ram_rd_resp_3_r,
+//            ram_rd_resp_4_r, ram_rd_resp_5_r, ram_rd_resp_6_r, ram_rd_resp_7_r,
+//            ram_wr_req_0_s, ram_wr_req_1_s, ram_wr_req_2_s, ram_wr_req_3_s,
+//            ram_wr_req_4_s, ram_wr_req_5_s, ram_wr_req_6_s, ram_wr_req_7_s,
+//            ram_wr_resp_0_r, ram_wr_resp_1_r, ram_wr_resp_2_r, ram_wr_resp_3_r,
+//            ram_wr_resp_4_r, ram_wr_resp_5_r, ram_wr_resp_6_r, ram_wr_resp_7_r,
+//            output_s, notify_s,
+//        );
+//
+//        spawn ram::RamModel<
+//            TEST_HB_DATA_W, TEST_HB_RAM_SIZE, TEST_HB_RAM_WORD_PARTITION_SIZE,
+//            TEST_HB_RAM_SIMULTANEOUS_READ_WRITE_BEHAVIOR, TEST_HB_RAM_INITIALIZED,
+//            TEST_HB_RAM_ASSERT_VALID_READ
+//        > (ram_rd_req_0_r, ram_rd_resp_0_s, ram_wr_req_0_r, ram_wr_resp_0_s);
+//
+//        spawn ram::RamModel<
+//            TEST_HB_DATA_W, TEST_HB_RAM_SIZE, TEST_HB_RAM_WORD_PARTITION_SIZE,
+//            TEST_HB_RAM_SIMULTANEOUS_READ_WRITE_BEHAVIOR, TEST_HB_RAM_INITIALIZED,
+//            TEST_HB_RAM_ASSERT_VALID_READ
+//        > (ram_rd_req_1_r, ram_rd_resp_1_s, ram_wr_req_1_r, ram_wr_resp_1_s);
+//
+//        spawn ram::RamModel<
+//            TEST_HB_DATA_W, TEST_HB_RAM_SIZE, TEST_HB_RAM_WORD_PARTITION_SIZE,
+//            TEST_HB_RAM_SIMULTANEOUS_READ_WRITE_BEHAVIOR, TEST_HB_RAM_INITIALIZED,
+//            TEST_RAM_ASSERT_VALID_READ
+//        > (ram_rd_req_2_r, ram_rd_resp_2_s, ram_wr_req_2_r, ram_wr_resp_2_s);
+//
+//        spawn ram::RamModel<
+//            RAM_DATA_WIDTH, TEST_RAM_SIZE, RAM_WORD_PARTITION_SIZE,
+//            TEST_HB_RAM_SIMULTANEOUS_READ_WRITE_BEHAVIOR, TEST_HB_RAM_INITIALIZED,
+//            TEST_RAM_ASSERT_VALID_READ
+//        > (ram_rd_req_3_r, ram_rd_resp_3_s, ram_wr_req_3_r, ram_wr_resp_3_s);
+//
+//        spawn ram::RamModel<
+//            TEST_HB_DATA_W, TEST_HB_RAM_SIZE, TEST_HB_RAM_WORD_PARTITION_SIZE,
+//            TEST_HB_RAM_SIMULTANEOUS_READ_WRITE_BEHAVIOR, TEST_HB_RAM_INITIALIZED,
+//            TEST_RAM_ASSERT_VALID_READ
+//        > (ram_rd_req_4_r, ram_rd_resp_4_s, ram_wr_req_4_r, ram_wr_resp_4_s);
+//
+//        spawn ram::RamModel<
+//            TEST_HB_DATA_W, TEST_HB_RAM_SIZE, TEST_HB_RAM_WORD_PARTITION_SIZE,
+//            TEST_HB_RAM_SIMULTANEOUS_READ_WRITE_BEHAVIOR, TEST_HB_RAM_INITIALIZED,
+//            TEST_RAM_ASSERT_VALID_READ
+//        > (ram_rd_req_5_r, ram_rd_resp_5_s, ram_wr_req_5_r, ram_wr_resp_5_s);
+//
+//        spawn ram::RamModel<
+//            TEST_HB_DATA_W, TEST_HB_RAM_SIZE, TEST_HB_RAM_WORD_PARTITION_SIZE,
+//            TEST_HB_RAM_SIMULTANEOUS_READ_WRITE_BEHAVIOR, TEST_HB_RAM_INITIALIZED,
+//            TEST_RAM_ASSERT_VALID_READ
+//        > (ram_rd_req_6_r, ram_rd_resp_6_s, ram_wr_req_6_r, ram_wr_resp_6_s);
+//
+//        spawn ram::RamModel<
+//            TEST_HB_DATA_W, TEST_HB_RAM_SIZE, TEST_HB_RAM_WORD_PARTITION_SIZE,
+//            TEST_HB_RAM_SIMULTANEOUS_READ_WRITE_BEHAVIOR, TEST_HB_RAM_INITIALIZED,
+//            TEST_RAM_ASSERT_VALID_READ
+//        > (ram_rd_req_7_r, ram_rd_resp_7_s, ram_wr_req_7_r, ram_wr_resp_7_s);
+//
+//        (
+//            terminator,
+//            csr_axi_aw_s, csr_axi_w_s, csr_axi_b_r, csr_axi_ar_s, csr_axi_s_r,
+//            fh_axi_ar_r, fh_axi_s_s,
+//            bh_axi_ar_r, bh_axi_s_s,
+//            raw_axi_ar_r, raw_axi_s_s,
+//            rle_axi_ar_r, rle_axi_s_s,
+//            ram_sd_seq_0_r, ram_sd_seq_1_r, ram_sd_seq_2_r, ram_sd_seq_3_r,
+//            ram_sd_seq_4_r, ram_sd_seq_5_r, ram_sd_seq_6_r, ram_sd_seq_7_r,
+//            ram_sd_sesp_0_s, ram_sd_sesp_1_s, ram_sd_sesp_2_s, ram_sd_sesp_3_s,
+//            ram_sd_sesp_4_s, ram_sd_sesp_5_s, ram_sd_sesp_6_s, ram_sd_sesp_7_s,
+//            ram_wr_seq_0_r, ram_wr_seq_1_r, ram_wr_seq_2_r, ram_wr_seq_3_r,
+//            ram_wr_seq_4_r, ram_wr_seq_5_r, ram_wr_seq_6_r, ram_wr_seq_7_r,
+//            ram_wr_sesp_0_s, ram_wr_sesp_1_s, ram_wr_sesp_2_s, ram_wr_sesp_3_s,
+//            ram_wr_sesp_4_s, ram_wr_sesp_5_s, ram_wr_sesp_6_s, ram_wr_sesp_7_s,
+//            output_r, notify_r,
+//        )
+//    }
+//
+//    next (state: ()) {
+//
+//        trace_fmt!("Test start");
+//
+//        send(join(), terminator, true);
+//    }
+//}
 
 
 const INST_AXI_DATA_W = u32:64;
@@ -1076,7 +1240,6 @@ proc ZstdDecoderInternalInst {
     type BlockHeaderDecoderResp = block_header_dec::BlockHeaderDecoderResp;
 
     type RawBlockDecoderReq = raw_block_dec_new_mem::RawBlockDecoderReq<INST_AXI_ADDR_W>;
-    type RawBlockDecoderCtrl = raw_block_dec_new_mem::RawBlockDecoderCtrl;
     type RawBlockDecoderResp = raw_block_dec_new_mem::RawBlockDecoderResp;
 
     type RleBlockDecoderReq = rle_block_dec_new_mem::RleBlockDecoderReq<INST_AXI_ADDR_W>;
@@ -1101,7 +1264,6 @@ proc ZstdDecoderInternalInst {
         bh_resp_r: chan<BlockHeaderDecoderResp> in,
 
         // MemReader + RawBlockDecoder
-        raw_ctrl_s: chan<RawBlockDecoderCtrl> out,
         raw_req_s: chan<RawBlockDecoderReq> out,
         raw_resp_r: chan<RawBlockDecoderResp> in,
 
@@ -1119,7 +1281,7 @@ proc ZstdDecoderInternalInst {
             csr_rd_req_s, csr_rd_resp_r, csr_wr_req_s, csr_wr_resp_r, csr_change_r,
             fh_req_s, fh_resp_r,
             bh_req_s, bh_resp_r,
-            raw_ctrl_s, raw_req_s, raw_resp_r,
+            raw_req_s, raw_resp_r,
             rle_ctrl_s, rle_req_s, rle_resp_r,
             notify_s,
         );

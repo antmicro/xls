@@ -218,9 +218,10 @@ async def test_decoder(dut, test_cases, block_type):
       mem_size = MAX_ENCODED_FRAME_SIZE_B
       GenerateFrame(i+1, block_type, encoded.name)
       decoded_frame_memory = get_decoded_frame_buffer(encoded, 0x0)
-      decoded_frame_memory.hexdump(0, mem_size)
+      #decoded_frame_memory.hexdump(0, mem_size)
       encoded.close()
       memory = AxiRamFromFile(bus=memory_bus, clock=dut.clk, reset=dut.rst, path=encoded.name, size=mem_size)
+      memory.hexdump(0, mem_size)
       ibuf_addr = 0x0
       obuf_addr = mem_size // 2
       await configure_decoder(cpu, ibuf_addr, obuf_addr)
@@ -232,7 +233,7 @@ async def test_decoder(dut, test_cases, block_type):
       #expected_decoded_frame = decoded_frame_memory.read(0, memory.size-obuf_addr)
       #assert decoded_frame == expected_decoded_frame
 
-  await ClockCycles(dut.clk, 200)
+  await ClockCycles(dut.clk, 1000)
 
 @cocotb.test(timeout_time=50, timeout_unit="ms")
 async def zstd_csr_test(dut):

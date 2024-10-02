@@ -66,7 +66,7 @@ pub proc BlockHeaderDecoder<DATA_W: u32, ADDR_W: u32> {
         let (tok1_0, req, req_valid) = recv_non_blocking(tok0, req_r, zero!<DecoderReq>());
 
         // send memory read request
-        let mem_req = MemReaderReq {addr: req.addr, length: uN[ADDR_W]:24 };
+        let mem_req = MemReaderReq {addr: req.addr, length: uN[ADDR_W]:3 };
         let tok2_0 = send_if(tok1_0, mem_req_s, req_valid, mem_req);
 
         // receive memory read response

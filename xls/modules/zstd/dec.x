@@ -353,7 +353,7 @@ proc ZstdDecoderInternal<
 
                 let bh_addr = state.input_buffer + fh_resp.length as Addr;
                 let req_sent = if !fh_resp_valid && !error { true } else { false };
-                State {fsm, csr_wr_req, csr_wr_req_valid, bh_addr, ..state }
+                State {fsm, csr_wr_req, csr_wr_req_valid, bh_addr, req_sent, ..state }
             },
 
             Fsm::DECODE_BLOCK_HEADER => {

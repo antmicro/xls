@@ -154,27 +154,6 @@ module zstd_dec_wrapper #(
   wire                  raw_block_decoder_axi_r_rlast;
 
 
-  // RleBlockDecoder
-  wire                  rle_block_decoder_axi_ar_arvalid;
-  wire                  rle_block_decoder_axi_ar_arready;
-  wire [  AXI_ID_W-1:0] rle_block_decoder_axi_ar_arid;
-  wire [AXI_ADDR_W-1:0] rle_block_decoder_axi_ar_araddr;
-  wire [           3:0] rle_block_decoder_axi_ar_arregion;
-  wire [           7:0] rle_block_decoder_axi_ar_arlen;
-  wire [           2:0] rle_block_decoder_axi_ar_arsize;
-  wire [           1:0] rle_block_decoder_axi_ar_arburst;
-  wire [           3:0] rle_block_decoder_axi_ar_arcache;
-  wire [           2:0] rle_block_decoder_axi_ar_arprot;
-  wire [           3:0] rle_block_decoder_axi_ar_arqos;
-
-  wire                  rle_block_decoder_axi_r_rvalid;
-  wire                  rle_block_decoder_axi_r_rready;
-  wire [  AXI_ID_W-1:0] rle_block_decoder_axi_r_rid;
-  wire [AXI_DATA_W-1:0] rle_block_decoder_axi_r_rdata;
-  wire [           2:0] rle_block_decoder_axi_r_rresp;
-  wire                  rle_block_decoder_axi_r_rlast;
-
-
   // BlockHeaderDecoder
   wire                  block_header_decoder_axi_ar_arvalid;
   wire                  block_header_decoder_axi_ar_arready;
@@ -285,14 +264,6 @@ module zstd_dec_wrapper #(
   wire [39:0] dec__raw_axi_r;
   wire dec__raw_axi_r_rdy;
   wire dec__raw_axi_r_vld;
-
-  // RLE Block Decoder
-  wire [47:0] dec__rle_axi_ar;
-  wire dec__rle_axi_ar_rdy;
-  wire dec__rle_axi_ar_vld;
-  wire [39:0] dec__rle_axi_r;
-  wire dec__rle_axi_r_rdy;
-  wire dec__rle_axi_r_vld;
 
   /*
    * Mapping XLS Channels to AXI channels fields
@@ -409,28 +380,6 @@ module zstd_dec_wrapper #(
   assign dec__raw_axi_r_vld = raw_block_decoder_axi_r_rvalid;
   assign raw_block_decoder_axi_r_rready = dec__raw_axi_r_rdy;
 
-  // RLE Block Decoder
-  assign {
-      rle_block_decoder_axi_ar_arid,
-      rle_block_decoder_axi_ar_araddr,
-      rle_block_decoder_axi_ar_arregion,
-      rle_block_decoder_axi_ar_arlen,
-      rle_block_decoder_axi_ar_arsize,
-      rle_block_decoder_axi_ar_arburst,
-      rle_block_decoder_axi_ar_arcache,
-      rle_block_decoder_axi_ar_arprot,
-      rle_block_decoder_axi_ar_arqos
-      } = dec__rle_axi_ar;
-  assign rle_block_decoder_axi_ar_arvalid = dec__rle_axi_ar_vld;
-  assign dec__rle_axi_ar_rdy = rle_block_decoder_axi_ar_arready;
-  assign dec__rle_axi_r = {
-      rle_block_decoder_axi_r_rid,
-      rle_block_decoder_axi_r_rdata,
-      rle_block_decoder_axi_r_rresp,
-      rle_block_decoder_axi_r_rlast};
-  assign dec__rle_axi_r_vld = rle_block_decoder_axi_r_rvalid;
-  assign rle_block_decoder_axi_r_rready = dec__rle_axi_r_rdy;
-
 assign csr_axi_b_buser = 1'b0;
 assign csr_axi_r_ruser = 1'b0;
 assign notify_data = notify_vld;
@@ -482,14 +431,6 @@ assign notify_data = notify_vld;
       .dec__raw_axi_r_r(dec__raw_axi_r),
       .dec__raw_axi_r_r_vld(dec__raw_axi_r_vld),
       .dec__raw_axi_r_r_rdy(dec__raw_axi_r_rdy),
-
-      // RleBlock decoder
-      .dec__rle_axi_ar_s(dec__rle_axi_ar),
-      .dec__rle_axi_ar_s_vld(dec__rle_axi_ar_vld),
-      .dec__rle_axi_ar_s_rdy(dec__rle_axi_ar_rdy),
-      .dec__rle_axi_r_r(dec__rle_axi_r),
-      .dec__rle_axi_r_r_vld(dec__rle_axi_r_vld),
-      .dec__rle_axi_r_r_rdy(dec__rle_axi_r_rdy),
 
       // Other ports
       .dec__notify_s_vld(notify_vld),
@@ -594,7 +535,6 @@ assign notify_data = notify_vld;
   assign frame_header_decoder_axi_r_rresp[2] = '0;
   assign block_header_decoder_axi_r_rresp[2] = '0;
   assign raw_block_decoder_axi_r_rresp[2] = '0;
-  assign rle_block_decoder_axi_r_rresp[2] = '0;
   assign sequence_executor_axi_b_bresp[2] = '0;
   assign memory_axi_b_bresp[2] = '0;
   assign memory_axi_r_rresp[2] = '0;
@@ -747,93 +687,49 @@ assign notify_data = notify_vld;
       .s02_axi_rvalid(raw_block_decoder_axi_r_rvalid),
       .s02_axi_rready(raw_block_decoder_axi_r_rready),
 
-      // RleBlockDecoder
-      .s03_axi_awid('0),
-      .s03_axi_awaddr('0),
-      .s03_axi_awlen('0),
-      .s03_axi_awsize('0),
-      .s03_axi_awburst('0),
+      // SequenceExecutor
+      .s03_axi_awid(sequence_executor_axi_aw_awid),
+      .s03_axi_awaddr(sequence_executor_axi_aw_awaddr),
+      .s03_axi_awlen(sequence_executor_axi_aw_awlen),
+      .s03_axi_awsize(sequence_executor_axi_aw_awsize),
+      .s03_axi_awburst(sequence_executor_axi_aw_awburst),
       .s03_axi_awlock('0),
       .s03_axi_awcache('0),
       .s03_axi_awprot('0),
       .s03_axi_awqos('0),
       .s03_axi_awuser('0),
-      .s03_axi_awvalid('0),
-      .s03_axi_awready(),
-      .s03_axi_wdata('0),
-      .s03_axi_wstrb('0),
-      .s03_axi_wlast('0),
+      .s03_axi_awvalid(sequence_executor_axi_aw_awvalid),
+      .s03_axi_awready(sequence_executor_axi_aw_awready),
+      .s03_axi_wdata(sequence_executor_axi_w_wdata),
+      .s03_axi_wstrb(sequence_executor_axi_w_wstrb),
+      .s03_axi_wlast(sequence_executor_axi_w_wlast),
       .s03_axi_wuser('0),
-      .s03_axi_wvalid(),
-      .s03_axi_wready(),
-      .s03_axi_bid(),
-      .s03_axi_bresp(),
+      .s03_axi_wvalid(sequence_executor_axi_w_wvalid),
+      .s03_axi_wready(sequence_executor_axi_w_wready),
+      .s03_axi_bid(sequence_executor_axi_b_bid),
+      .s03_axi_bresp(sequence_executor_axi_b_bresp[1:0]),
       .s03_axi_buser(),
-      .s03_axi_bvalid(),
-      .s03_axi_bready('0),
-      .s03_axi_arid(rle_block_decoder_axi_ar_arid),
-      .s03_axi_araddr(rle_block_decoder_axi_ar_araddr),
-      .s03_axi_arlen(rle_block_decoder_axi_ar_arlen),
-      .s03_axi_arsize(rle_block_decoder_axi_ar_arsize),
-      .s03_axi_arburst(rle_block_decoder_axi_ar_arburst),
+      .s03_axi_bvalid(sequence_executor_axi_b_bvalid),
+      .s03_axi_bready(sequence_executor_axi_b_bready),
+      .s03_axi_arid('0),
+      .s03_axi_araddr('0),
+      .s03_axi_arlen('0),
+      .s03_axi_arsize('0),
+      .s03_axi_arburst('0),
       .s03_axi_arlock('0),
-      .s03_axi_arcache(rle_block_decoder_axi_ar_arcache),
-      .s03_axi_arprot(rle_block_decoder_axi_ar_arprot),
-      .s03_axi_arqos(rle_block_decoder_axi_ar_arqos),
+      .s03_axi_arcache('0),
+      .s03_axi_arprot('0),
+      .s03_axi_arqos('0),
       .s03_axi_aruser('0),
-      .s03_axi_arvalid(rle_block_decoder_axi_ar_arvalid),
-      .s03_axi_arready(rle_block_decoder_axi_ar_arready),
-      .s03_axi_rid(rle_block_decoder_axi_r_rid),
-      .s03_axi_rdata(rle_block_decoder_axi_r_rdata),
-      .s03_axi_rresp(rle_block_decoder_axi_r_rresp[1:0]),
-      .s03_axi_rlast(rle_block_decoder_axi_r_rlast),
+      .s03_axi_arvalid('0),
+      .s03_axi_arready(),
+      .s03_axi_rid(),
+      .s03_axi_rdata(),
+      .s03_axi_rresp(),
+      .s03_axi_rlast(),
       .s03_axi_ruser(),
-      .s03_axi_rvalid(rle_block_decoder_axi_r_rvalid),
-      .s03_axi_rready(rle_block_decoder_axi_r_rready),
-
-      // SequenceExecutor
-      .s04_axi_awid(sequence_executor_axi_aw_awid),
-      .s04_axi_awaddr(sequence_executor_axi_aw_awaddr),
-      .s04_axi_awlen(sequence_executor_axi_aw_awlen),
-      .s04_axi_awsize(sequence_executor_axi_aw_awsize),
-      .s04_axi_awburst(sequence_executor_axi_aw_awburst),
-      .s04_axi_awlock('0),
-      .s04_axi_awcache('0),
-      .s04_axi_awprot('0),
-      .s04_axi_awqos('0),
-      .s04_axi_awuser('0),
-      .s04_axi_awvalid(sequence_executor_axi_aw_awvalid),
-      .s04_axi_awready(sequence_executor_axi_aw_awready),
-      .s04_axi_wdata(sequence_executor_axi_w_wdata),
-      .s04_axi_wstrb(sequence_executor_axi_w_wstrb),
-      .s04_axi_wlast(sequence_executor_axi_w_wlast),
-      .s04_axi_wuser('0),
-      .s04_axi_wvalid(sequence_executor_axi_w_wvalid),
-      .s04_axi_wready(sequence_executor_axi_w_wready),
-      .s04_axi_bid(sequence_executor_axi_b_bid),
-      .s04_axi_bresp(sequence_executor_axi_b_bresp[1:0]),
-      .s04_axi_buser(),
-      .s04_axi_bvalid(sequence_executor_axi_b_bvalid),
-      .s04_axi_bready(sequence_executor_axi_b_bready),
-      .s04_axi_arid('0),
-      .s04_axi_araddr('0),
-      .s04_axi_arlen('0),
-      .s04_axi_arsize('0),
-      .s04_axi_arburst('0),
-      .s04_axi_arlock('0),
-      .s04_axi_arcache('0),
-      .s04_axi_arprot('0),
-      .s04_axi_arqos('0),
-      .s04_axi_aruser('0),
-      .s04_axi_arvalid('0),
-      .s04_axi_arready(),
-      .s04_axi_rid(),
-      .s04_axi_rdata(),
-      .s04_axi_rresp(),
-      .s04_axi_rlast(),
-      .s04_axi_ruser(),
-      .s04_axi_rvalid(),
-      .s04_axi_rready('0),
+      .s03_axi_rvalid(),
+      .s03_axi_rready('0),
 
       /*
        * AXI master interface

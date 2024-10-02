@@ -23,7 +23,8 @@ module zstd_dec_wrapper #(
     parameter WUSER_WIDTH = 1,
     parameter BUSER_WIDTH = 1,
     parameter ARUSER_WIDTH = 1,
-    parameter RUSER_WIDTH = 1
+    parameter RUSER_WIDTH = 1,
+    parameter OUTPUT_WIDTH = 97
 ) (
     input wire clk,
     input wire rst,
@@ -122,7 +123,11 @@ module zstd_dec_wrapper #(
 
     output wire                     notify_data,
     output wire                     notify_vld,
-    input  wire                     notify_rdy
+    input  wire                     notify_rdy,
+
+    output wire [OUTPUT_WIDTH-1:0]  output_data,
+    output wire                     output_vld,
+    input  wire                     output_rdy
 );
 
   /*
@@ -428,7 +433,7 @@ module zstd_dec_wrapper #(
 
 assign csr_axi_b_buser = 1'b0;
 assign csr_axi_r_ruser = 1'b0;
-//assign notify_data = 1'b0;
+assign notify_data = notify_vld;
 
   /*
    * ZSTD Decoder instance
@@ -487,11 +492,11 @@ assign csr_axi_r_ruser = 1'b0;
       .dec__rle_axi_r_r_rdy(dec__rle_axi_r_rdy),
 
       // Other ports
-      .dec__notify_s_vld(),
-      .dec__notify_s_rdy(),
-      .dec__output_s(),
-      .dec__output_s_vld(),
-      .dec__output_s_rdy(),
+      .dec__notify_s_vld(notify_vld),
+      .dec__notify_s_rdy(notify_rdy),
+      .dec__output_s(output_data),
+      .dec__output_s_vld(output_vld),
+      .dec__output_s_rdy(output_rdy),
       .dec__ram_rd_req_0_s(),
       .dec__ram_rd_req_1_s(),
       .dec__ram_rd_req_2_s(),

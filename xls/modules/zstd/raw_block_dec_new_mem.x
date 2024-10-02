@@ -116,7 +116,7 @@ pub proc RawBlockDecoder<DATA_W: u32, ADDR_W: u32> {
                 last_block: state.last_block,
                 id: state.id,
                 data: checked_cast<BlockData>(mem_resp.data),
-                length: checked_cast<BlockPacketLength>(mem_resp.length),
+                length: checked_cast<BlockPacketLength>(mem_resp.length ++ u3:0),
             },
         };
 

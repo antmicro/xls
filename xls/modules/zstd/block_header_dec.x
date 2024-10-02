@@ -24,33 +24,38 @@ pub struct BlockHeaderDecoderReq<ADDR_W: u32> {
     addr: uN[ADDR_W],
 }
 
-pub enum BlockHeaderDecoderStatus: u1 {
+pub enum BlockHeaderDecoderStatus: u2 {
    OKAY = 0,
    CORRUPTED = 1,
+   MEMORY_ACCESS_ERROR = 2,
 }
 
 pub struct BlockHeaderDecoderResp {
     status: BlockHeaderDecoderStatus,
     header: BlockHeader,
+    rle_symbol: u8,
 }
 
 pub proc BlockHeaderDecoder<DATA_W: u32, ADDR_W: u32> {
-    type DecoderReq = BlockHeaderDecoderReq<ADDR_W>;
-    type DecoderResp = BlockHeaderDecoderResp<ADDR_W>;
+    type Req = BlockHeaderDecoderReq<ADDR_W>;
+    type Resp = BlockHeaderDecoderResp<ADDR_W>;
 
     type MemReaderReq = mem_reader::MemReaderReq<ADDR_W>;
     type MemReaderResp = mem_reader::MemReaderResp<DATA_W, ADDR_W>;
+    type MemReaderStatus = mem_reader::MemReaderStatus;
 
     type Status = BlockHeaderDecoderStatus;
+    type Length = uN[ADDR_W];
+    type Addr = uN[ADDR_W];
 
-    req_r: chan<DecoderReq> in;
-    resp_s: chan<DecoderResp> out;
+    req_r: chan<Req> in;
+    resp_s: chan<Resp> out;
     mem_req_s: chan<MemReaderReq> out;
     mem_resp_r: chan<MemReaderResp> in;
 
     config (
-        req_r: chan<DecoderReq> in,
-        resp_s: chan<DecoderResp> out,
+        req_r: chan<Req> in,
+        resp_s: chan<Resp> out,
         mem_req_s: chan<MemReaderReq> out,
         mem_resp_r: chan<MemReaderResp> in,
     ) {
@@ -63,160 +68,225 @@ pub proc BlockHeaderDecoder<DATA_W: u32, ADDR_W: u32> {
         let tok0 = join();
 
         // receive request
-        let (tok1_0, req, req_valid) = recv_non_blocking(tok0, req_r, zero!<DecoderReq>());
+        let (tok1_0, req, req_valid) = recv_non_blocking(tok0, req_r, zero!<Req>());
 
         // send memory read request
-        let mem_req = MemReaderReq {addr: req.addr, length: uN[ADDR_W]:3 };
+        let mem_req = MemReaderReq {addr: req.addr, length: Length:4 };
         let tok2_0 = send_if(tok1_0, mem_req_s, req_valid, mem_req);
 
         // receive memory read response
         let (tok1_1, mem_resp, mem_resp_valid) = recv_non_blocking(tok0, mem_resp_r, zero!<MemReaderResp>());
-        let header = block_header::extract_block_header(mem_resp.data as u24);
 
-        let resp = match header.btype {
-            BlockType::RAW => DecoderResp {
-                status: Status::OKAY,
-                header: BlockHeader { size: header.size + BlockSize:3, ..header },
-            },
-            BlockType::RLE => DecoderResp {
-                status: Status::OKAY,
-                header: BlockHeader { size: BlockSize:4, ..header },
-            },
-            BlockType::COMPRESSED => DecoderResp {
-                status: Status::OKAY,
-                header: BlockHeader { size: header.size + BlockSize:3, ..header }
-            },
-            BlockType::RESERVED   => DecoderResp {
-                status: Status::CORRUPTED,
-                header: zero!<BlockHeader>()
-            },
-            _ => fail!("impossible_case", zero!<DecoderResp>()),
+        let header = block_header::extract_block_header(mem_resp.data as u24);
+        let rle_symbol = mem_resp.data[u32:24 +: u8];
+        let status = match ( mem_resp.status == MemReaderStatus::OKAY, header.btype != BlockType::RESERVED) {
+            (true,  true) => Status::OKAY,
+            (true, false) => Status::CORRUPTED,
+            (   _,     _) => Status::MEMORY_ACCESS_ERROR,
         };
 
-        // send parsed header
+        let resp = Resp { status, header, rle_symbol };
         let tok2_1 = send_if(tok1_1, resp_s, mem_resp_valid, resp);
     }
 }
 
-const INST_DATA_W = u32:32;
-const INST_ADDR_W = u32:32;
+const INST_DATA_W = u32:64;
+const INST_ADDR_W = u32:16;
 
 proc BlockHeaderDecoderInst {
-    type DecoderReq = BlockHeaderDecoderReq<INST_ADDR_W>;
-    type DecoderResp = BlockHeaderDecoderResp;
+    type Req = BlockHeaderDecoderReq<INST_ADDR_W>;
+    type Resp = BlockHeaderDecoderResp;
     type MemReaderReq = mem_reader::MemReaderReq<INST_ADDR_W>;
     type MemReaderResp = mem_reader::MemReaderResp<INST_DATA_W, INST_ADDR_W>;
 
     config (
-        req_r: chan<DecoderReq> in,
-        resp_s: chan<DecoderResp> out,
+        req_r: chan<Req> in,
+        resp_s: chan<Resp> out,
         mem_req_s: chan<MemReaderReq> out,
         mem_resp_r: chan<MemReaderResp> in,
     ) {
-        spawn BlockHeaderDecoder<INST_DATA_W, INST_ADDR_W>(
-            req_r, resp_s, mem_req_s, mem_resp_r,
-        );
+        spawn BlockHeaderDecoder<INST_DATA_W, INST_ADDR_W>( req_r, resp_s, mem_req_s, mem_resp_r);
     }
 
     init { }
     next (state: ()) { }
 }
 
-
 const TEST_DATA_W = u32:32;
 const TEST_ADDR_W = u32:32;
 
-type TestDecoderReq = BlockHeaderDecoderReq<INST_ADDR_W>;
-type TestDecoderResp = BlockHeaderDecoderResp;
-
-type TestMemReaderReq = mem_reader::MemReaderReq<TEST_ADDR_W>;
-type TestMemReaderResp = mem_reader::MemReaderResp<TEST_DATA_W, TEST_ADDR_W>;
-
-struct TestData {
-    addr: uN[TEST_ADDR_W],
-    header_enc: u24,
-    header_dec: TestDecoderResp,
+fn header_to_raw(header: BlockHeader, rle_symbol: u8) -> u32 {
+    rle_symbol ++ header.size ++ (header.btype as u2) ++ header.last
 }
 
-fn gen_test_data(addr: uN[TEST_ADDR_W], size: BlockSize, btype: BlockType, last: bool) -> TestData {
-    let size_dec = if btype == BlockType::RLE { BlockSize:4 } else { size + BlockSize:3 };
-
-    TestData {
-        addr: addr,
-        header_enc: size ++ (btype as u2) ++ last,
-        header_dec: TestDecoderResp {
-            status: BlockHeaderDecoderStatus::OKAY,
-            header: BlockHeader { size: size_dec, btype: btype, last:last },
-        }
-    }
-}
-
-const TEST_DATA = TestData[2]:[
-    gen_test_data(uN[TEST_ADDR_W]:0, BlockSize:32, BlockType::RAW, false),
-    gen_test_data(uN[TEST_ADDR_W]:32, BlockSize:16, BlockType::RAW, false),
-];
 
 #[test_proc]
-proc BlockHeaderDecoder_test {
+proc BlockHeaderDecoderTest {
+    type Req = BlockHeaderDecoderReq<TEST_ADDR_W>;
+    type Resp = BlockHeaderDecoderResp;
+
+    type MemReaderReq = mem_reader::MemReaderReq<TEST_ADDR_W>;
+    type MemReaderResp = mem_reader::MemReaderResp<TEST_DATA_W, TEST_ADDR_W>;
+    type MemReaderStatus = mem_reader::MemReaderStatus;
+
+    type Data = uN[TEST_DATA_W];
+    type Addr = uN[TEST_ADDR_W];
+    type Length = uN[TEST_ADDR_W];
+
     terminator: chan<bool> out;
 
-    req_s: chan<TestDecoderReq> out;
-    resp_r: chan<TestDecoderResp> in;
+    req_s: chan<Req> out;
+    resp_r: chan<Resp> in;
 
-    mem_req_r: chan<TestMemReaderReq> in;
-    mem_resp_s: chan<TestMemReaderResp> out;
-
+    mem_req_r: chan<MemReaderReq> in;
+    mem_resp_s: chan<MemReaderResp> out;
 
     config (terminator: chan<bool> out) {
-        let (req_s, req_r) = chan<TestDecoderReq>("req");
-        let (resp_s, resp_r) = chan<TestDecoderResp>("resp");
 
-        let (mem_req_s, mem_req_r) = chan<TestMemReaderReq>("mem_req");
-        let (mem_resp_s, mem_resp_r) = chan<TestMemReaderResp>("mem_resp");
+        let (req_s, req_r) = chan<Req>("req");
+        let (resp_s, resp_r) = chan<Resp>("resp");
+
+        let (mem_req_s, mem_req_r) = chan<MemReaderReq>("mem_req");
+        let (mem_resp_s, mem_resp_r) = chan<MemReaderResp>("mem_resp");
 
         spawn BlockHeaderDecoder<TEST_DATA_W, TEST_ADDR_W> (
-            req_r, resp_s,
-            mem_req_s, mem_resp_r,
+            req_r, resp_s, mem_req_s, mem_resp_r
         );
 
-        (
-            terminator,
-            req_s, resp_r,
-            mem_req_r, mem_resp_s,
-        )
+        (terminator, req_s, resp_r, mem_req_r, mem_resp_s)
     }
 
     init { }
 
     next (state: ()) {
+        const LENGTH = Length:4;
+
         let tok = join();
 
-        let tok = for ((i, test_data), tok): ((u32, TestData), token) in enumerate(TEST_DATA) {
+        // Test Raw
+        let addr = Addr:0x1234;
+        let header = BlockHeader { size: BlockSize:0x100, btype: BlockType::RAW, last: true};
+        let rle_symbol = u8:0;
 
-            let req = TestDecoderReq { addr: test_data.addr };
-            let tok = send(tok, req_s, req);
-            trace_fmt!("Send #{} req {:#x}", i + u32:1, req);
+        let req = Req { addr };
+        let tok = send(tok, req_s, req);
 
-            let (tok, mem_req) = recv(tok, mem_req_r);
-            trace_fmt!("Received #{} mem reader request {:#x}", i + u32:1, mem_req);
-            let expected_mem_req = TestMemReaderReq { addr: test_data.addr, length: uN[TEST_ADDR_W]:24 };
-            assert_eq(expected_mem_req, mem_req);
+        let (tok, mem_req) = recv(tok, mem_req_r);
+        assert_eq(mem_req, MemReaderReq { addr, length: LENGTH });
 
-            let mem_resp = TestMemReaderResp {
-                status: mem_reader::MemReaderStatus::OKAY,
-                data: test_data.header_enc as u32,
-                length: uN[TEST_ADDR_W]:24,
-                last: true,
-            };
-            let tok = send(tok, mem_resp_s, mem_resp);
-            trace_fmt!("Sent #{} mem resp {:#x}", i + u32:1, mem_resp);
+        let mem_resp = MemReaderResp {
+            status: MemReaderStatus::OKAY,
+            data: checked_cast<Data>(header_to_raw(header, rle_symbol)),
+            length: LENGTH,
+            last: true,
+        };
+        let tok = send(tok, mem_resp_s, mem_resp);
+        let (tok, resp) = recv(tok, resp_r);
+        assert_eq(resp, Resp {
+            status: BlockHeaderDecoderStatus::OKAY,
+            header: header,
+            rle_symbol: rle_symbol
+        });
 
-            let (tok, resp) = recv(tok, resp_r);
-            trace_fmt!("Received #{} response {:#x}", i + u32:1, resp);
-            assert_eq(test_data.header_dec, resp);
+        // Test RLE
+        let addr = Addr:0x2000;
+        let header = BlockHeader { size: BlockSize:0x40, btype: BlockType::RLE, last: false};
+        let rle_symbol = u8:123;
 
-            tok
-        }(tok);
+        let req = Req { addr };
+        let tok = send(tok, req_s, req);
+
+        let (tok, mem_req) = recv(tok, mem_req_r);
+        assert_eq(mem_req, MemReaderReq { addr, length: LENGTH });
+
+        let mem_resp = MemReaderResp {
+            status: MemReaderStatus::OKAY,
+            data: checked_cast<Data>(header_to_raw(header, rle_symbol)),
+            length: LENGTH,
+            last: true,
+        };
+        let tok = send(tok, mem_resp_s, mem_resp);
+        let (tok, resp) = recv(tok, resp_r);
+        assert_eq(resp, Resp {
+            status: BlockHeaderDecoderStatus::OKAY,
+            header: header,
+            rle_symbol: rle_symbol
+        });
+
+        // Test COMPRESSED
+        let addr = Addr:0x2000;
+        let header = BlockHeader { size: BlockSize:0x40, btype: BlockType::COMPRESSED, last: true};
+        let rle_symbol = u8:0;
+
+        let req = Req { addr };
+        let tok = send(tok, req_s, req);
+
+        let (tok, mem_req) = recv(tok, mem_req_r);
+        assert_eq(mem_req, MemReaderReq { addr, length: LENGTH });
+
+        let mem_resp = MemReaderResp {
+            status: MemReaderStatus::OKAY,
+            data: checked_cast<Data>(header_to_raw(header, rle_symbol)),
+            length: LENGTH,
+            last: true,
+        };
+        let tok = send(tok, mem_resp_s, mem_resp);
+        let (tok, resp) = recv(tok, resp_r);
+        assert_eq(resp, Resp {
+            status: BlockHeaderDecoderStatus::OKAY,
+            header: header,
+            rle_symbol: rle_symbol
+        });
+
+        // Test RESERVED
+        let addr = Addr:0x2000;
+        let header = BlockHeader { size: BlockSize:0x40, btype: BlockType::RESERVED, last: true};
+        let rle_symbol = u8:0;
+
+        let req = Req { addr };
+        let tok = send(tok, req_s, req);
+
+        let (tok, mem_req) = recv(tok, mem_req_r);
+        assert_eq(mem_req, MemReaderReq { addr, length: LENGTH });
+
+        let mem_resp = MemReaderResp {
+            status: MemReaderStatus::OKAY,
+            data: checked_cast<Data>(header_to_raw(header, rle_symbol)),
+            length: LENGTH,
+            last: true,
+        };
+        let tok = send(tok, mem_resp_s, mem_resp);
+        let (tok, resp) = recv(tok, resp_r);
+        assert_eq(resp, Resp {
+            status: BlockHeaderDecoderStatus::CORRUPTED,
+            header: header,
+            rle_symbol: rle_symbol
+        });
+
+        // Test memory error
+        let addr = Addr:0x2000;
+        let header = BlockHeader { size: BlockSize:0x40, btype: BlockType::RESERVED, last: true};
+        let rle_symbol = u8:0;
+
+        let req = Req { addr };
+        let tok = send(tok, req_s, req);
+
+        let (tok, mem_req) = recv(tok, mem_req_r);
+        assert_eq(mem_req, MemReaderReq { addr, length: LENGTH });
+
+        let mem_resp = MemReaderResp {
+            status: MemReaderStatus::ERROR,
+            data: checked_cast<Data>(header_to_raw(header, rle_symbol)),
+            length: LENGTH,
+            last: true,
+        };
+        let tok = send(tok, mem_resp_s, mem_resp);
+        let (tok, resp) = recv(tok, resp_r);
+        assert_eq(resp, Resp {
+            status: BlockHeaderDecoderStatus::MEMORY_ACCESS_ERROR,
+            header: header,
+            rle_symbol: rle_symbol
+        });
 
         send(tok, terminator, true);
     }

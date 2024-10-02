@@ -54,6 +54,7 @@ enum ZstdDecoderStatus: u3 {
     FINISHED = 1,
     FRAME_HEADER_CORRUPTED = 2,
     FRAME_HEADER_UNSUPPORTED_WINDOW_SIZE = 3,
+    BLOCK_HEADER_CORRUPTED = 4,
 }
 
 enum Csr: u3 {
@@ -92,6 +93,7 @@ struct ZstdDecoderInternalState<AXI_DATA_W: u32, AXI_ADDR_W: u32, LOG2_REGS_N: u
     block_length: uN[AXI_ADDR_W],
     block_last: bool,
     block_id: u32,
+    block_rle_symbol: u8,
 
     // Req
     req_sent: bool,
@@ -118,23 +120,21 @@ proc ZstdDecoderInternal<
     type MemReaderReq  = mem_reader::MemReaderReq<AXI_ADDR_W>;
     type MemReaderResp = mem_reader::MemReaderResp<AXI_DATA_W, AXI_ADDR_W>;
 
+    type FrameHeaderDecoderStatus = frame_header_dec::FrameHeaderDecoderStatus;
     type FrameHeaderDecoderReq = frame_header_dec::FrameHeaderDecoderReq<AXI_ADDR_W>;
     type FrameHeaderDecoderResp = frame_header_dec::FrameHeaderDecoderResp;
 
+    type BlockHeaderDecoderStatus = block_header_dec::BlockHeaderDecoderStatus;
     type BlockHeaderDecoderReq = block_header_dec::BlockHeaderDecoderReq<AXI_ADDR_W>;
     type BlockHeaderDecoderResp = block_header_dec::BlockHeaderDecoderResp;
 
+    type RawBlockDecoderStatus = raw_block_dec_new_mem::RawBlockDecoderStatus;
     type RawBlockDecoderReq = raw_block_dec_new_mem::RawBlockDecoderReq<AXI_ADDR_W>;
     type RawBlockDecoderResp = raw_block_dec_new_mem::RawBlockDecoderResp;
 
-    type RleBlockDecoderReq = rle_block_dec_new_mem::RleBlockDecoderReq<AXI_ADDR_W>;
-    type RleBlockDecoderCtrl = rle_block_dec_new_mem::RleBlockDecoderCtrl;
-    type RleBlockDecoderResp = rle_block_dec_new_mem::RleBlockDecoderResp;
-
-    type FrameHeaderDecoderStatus = frame_header_dec::FrameHeaderDecoderStatus;
-    type BlockHeaderDecoderStatus = block_header_dec::BlockHeaderDecoderStatus;
-    type RawBlockDecoderStatus = raw_block_dec_new_mem::RawBlockDecoderStatus;
     type RleBlockDecoderStatus = rle_block_dec_new_mem::RleBlockDecoderStatus;
+    type RleBlockDecoderReq = rle_block_dec_new_mem::RleBlockDecoderReq<AXI_ADDR_W>;
+    type RleBlockDecoderResp = rle_block_dec_new_mem::RleBlockDecoderResp;
 
     // CsrConfig
     csr_rd_req_s: chan<CsrRdReq> out;
@@ -156,7 +156,6 @@ proc ZstdDecoderInternal<
     raw_resp_r: chan<RawBlockDecoderResp> in;
 
     // MemReader + RleBlockDecoder
-    rle_ctrl_s: chan<RleBlockDecoderCtrl> out;
     rle_req_s: chan<RleBlockDecoderReq> out;
     rle_resp_r: chan<RleBlockDecoderResp> in;
 
@@ -186,7 +185,6 @@ proc ZstdDecoderInternal<
         raw_resp_r: chan<RawBlockDecoderResp> in,
 
         // MemReader + RleBlockDecoder
-        rle_ctrl_s: chan<RleBlockDecoderCtrl> out,
         rle_req_s: chan<RleBlockDecoderReq> out,
         rle_resp_r: chan<RleBlockDecoderResp> in,
 
@@ -197,15 +195,13 @@ proc ZstdDecoderInternal<
             fh_req_s, fh_resp_r,
             bh_req_s, bh_resp_r,
             raw_req_s, raw_resp_r,
-            rle_ctrl_s, rle_req_s, rle_resp_r,
+            rle_req_s, rle_resp_r,
             notify_s,
         )
     }
 
     next (state: State) {
         let tok0 = join();
-
-        send_if(tok0, rle_ctrl_s, false, zero!<RleBlockDecoderCtrl>());
 
         const CSR_REQS = CsrRdReq<LOG2_REGS_N>[2]:[
             CsrRdReq {csr: csr<LOG2_REGS_N>(Csr::INPUT_BUFFER)},
@@ -288,11 +284,10 @@ proc ZstdDecoderInternal<
 
         let do_send_rle_req = (state.fsm == Fsm::DECODE_RLE_BLOCK) && !state.req_sent;
         let rle_req = RleBlockDecoderReq {
-            last: false,
-            last_block: state.block_last,
             id: state.block_id,
-            addr: state.block_addr,
+            symbol: state.block_rle_symbol,
             length: state.block_length,
+            last_block: state.block_last,
         };
         let tok1_7 = send_if(tok0, rle_req_s, do_send_rle_req, rle_req);
         if do_send_rle_req {
@@ -374,20 +369,26 @@ proc ZstdDecoderInternal<
                     (    _,      _,                     _) => Fsm::DECODE_BLOCK_HEADER,
                 };
 
-                let (block_addr, block_length, block_last, bh_addr) = if bh_resp_valid {
+                let (block_addr, block_length, block_last, block_rle_symbol, bh_addr) = if bh_resp_valid {
                     let block_addr = state.bh_addr + Addr:3;
                     let block_length = checked_cast<Addr>(bh_resp.header.size);
+                    let block_rle_symbol = bh_resp.rle_symbol;
                     let bh_addr = block_addr + block_length;
 
                     trace_fmt!("bh_addr: {:#x}", bh_addr);
 
-                    (block_addr, block_length, bh_resp.header.last, bh_addr)
+                    (block_addr, block_length, bh_resp.header.last, block_rle_symbol, bh_addr)
                 } else {
-                    (state.block_addr, state.block_length, state.block_last, state.bh_addr)
+                    (state.block_addr, state.block_length, state.block_last, state.block_rle_symbol, state.bh_addr)
                 };
 
                 let req_sent = if !bh_resp_valid && !error { true } else { false };
-                State {fsm, bh_addr, block_addr, block_length, block_last, csr_wr_req, csr_wr_req_valid, req_sent, ..state}
+                State {
+                    fsm, bh_addr, req_sent,
+                    block_addr, block_length, block_last, block_rle_symbol,
+                    csr_wr_req, csr_wr_req_valid,
+                    ..state
+                }
             },
 
             Fsm::DECODE_RAW_BLOCK => {
@@ -531,7 +532,6 @@ proc ZstdDecoderInternalTest {
     type RawBlockDecoderResp = raw_block_dec_new_mem::RawBlockDecoderResp;
     type RawBlockDecoderStatus = raw_block_dec_new_mem::RawBlockDecoderStatus;
 
-    type RleBlockDecoderCtrl = rle_block_dec_new_mem::RleBlockDecoderCtrl;
     type RleBlockDecoderReq = rle_block_dec_new_mem::RleBlockDecoderReq<TEST_AXI_ADDR_W>;
     type RleBlockDecoderResp = rle_block_dec_new_mem::RleBlockDecoderResp;
     type RleBlockDecoderStatus = rle_block_dec_new_mem::RleBlockDecoderStatus;
@@ -553,7 +553,6 @@ proc ZstdDecoderInternalTest {
     raw_req_r: chan<RawBlockDecoderReq> in;
     raw_resp_s: chan<RawBlockDecoderResp> out;
 
-    rle_ctrl_r: chan<RleBlockDecoderCtrl> in;
     rle_req_r: chan<RleBlockDecoderReq> in;
     rle_resp_s: chan<RleBlockDecoderResp> out;
 
@@ -579,7 +578,6 @@ proc ZstdDecoderInternalTest {
 
         let (rle_req_s, rle_req_r) = chan<RleBlockDecoderReq>("rle_req");
         let (rle_resp_s, rle_resp_r) = chan<RleBlockDecoderResp>("rle_resp");
-        let (rle_ctrl_s, rle_ctrl_r) = chan<RleBlockDecoderCtrl>("rle_ctrl");
 
         let (notify_s, notify_r) = chan<()>("notify");
 
@@ -588,7 +586,7 @@ proc ZstdDecoderInternalTest {
             fh_req_s, fh_resp_r,
             bh_req_s, bh_resp_r,
             raw_req_s, raw_resp_r,
-            rle_ctrl_s, rle_req_s, rle_resp_r,
+            rle_req_s, rle_resp_r,
             notify_s,
         );
 
@@ -598,7 +596,7 @@ proc ZstdDecoderInternalTest {
             fh_req_r, fh_resp_s,
             bh_req_r, bh_resp_s,
             raw_req_r, raw_resp_s,
-            rle_ctrl_r, rle_req_r, rle_resp_s,
+            rle_req_r, rle_resp_s,
             notify_r,
         )
     }
@@ -682,7 +680,8 @@ proc ZstdDecoderInternalTest {
                 last: false,
                 btype: BlockType::RAW,
                 size: BlockSize:0x1000,
-            }
+            },
+            rle_symbol: u8:0,
         });
 
         let (tok, raw_req) = recv(tok, raw_req_r);
@@ -707,15 +706,15 @@ proc ZstdDecoderInternalTest {
                 last: false,
                 btype: BlockType::RLE,
                 size: BlockSize:0x1000,
-            }
+            },
+            rle_symbol: u8:123,
         });
 
         let (tok, rle_req) = recv(tok, rle_req_r);
         assert_eq(rle_req, RleBlockDecoderReq {
-            last: false,
-            last_block: false,
             id: u32:1,
-            addr: Addr:0x2009,
+            symbol: u8:123,
+            last_block: false,
             length: Length:0x1000
         });
         let tok = send(tok, rle_resp_s, RleBlockDecoderResp {
@@ -733,7 +732,8 @@ proc ZstdDecoderInternalTest {
                 last: true,
                 btype: BlockType::RAW,
                 size: BlockSize:0x1000,
-            }
+            },
+            rle_symbol: u8:0,
         });
 
         let (tok, raw_req) = recv(tok, raw_req_r);
@@ -794,12 +794,10 @@ proc ZstdDecoder<
     type BlockHeaderDecoderResp = block_header_dec::BlockHeaderDecoderResp;
 
     type RawBlockDecoderReq = raw_block_dec_new_mem::RawBlockDecoderReq<AXI_ADDR_W>;
-    type RawBlockDecoderCtrl = raw_block_dec_new_mem::RawBlockDecoderCtrl;
     type RawBlockDecoderResp = raw_block_dec_new_mem::RawBlockDecoderResp;
     type ExtendedBlockDataPacket = common::ExtendedBlockDataPacket;
 
     type RleBlockDecoderReq = rle_block_dec_new_mem::RleBlockDecoderReq<AXI_ADDR_W>;
-    type RleBlockDecoderCtrl = rle_block_dec_new_mem::RleBlockDecoderCtrl;
     type RleBlockDecoderResp = rle_block_dec_new_mem::RleBlockDecoderResp;
 
     type SequenceExecutorPacket = common::SequenceExecutorPacket;
@@ -834,10 +832,6 @@ proc ZstdDecoder<
         //// AXI RAW Block Decoder (manager)
         raw_axi_ar_s: chan<MemAxiAr> out,
         raw_axi_r_r: chan<MemAxiR> in,
-
-        //// AXI RLE Block Decoder (manager)
-        rle_axi_ar_s: chan<MemAxiAr> out,
-        rle_axi_r_r: chan<MemAxiR> in,
 
         // History Buffer
         ram_rd_req_0_s: chan<RamRdReq> out,
@@ -952,23 +946,12 @@ proc ZstdDecoder<
 
         // RLE Block Decoder
 
-        let (rle_mem_rd_req_s, rle_mem_rd_req_r) = chan<MemReaderReq, CHANNEL_DEPTH>("rle_mem_rd_req");
-        let (rle_mem_rd_resp_s, rle_mem_rd_resp_r) = chan<MemReaderResp, CHANNEL_DEPTH>("rle_mem_rd_resp");
-
-        spawn mem_reader::MemReader<AXI_DATA_W, AXI_ADDR_W, AXI_DEST_W, AXI_ID_W, CHANNEL_DEPTH>(
-           rle_mem_rd_req_r, rle_mem_rd_resp_s,
-           rle_axi_ar_s, rle_axi_r_r,
-        );
-
-        let (rle_ctrl_s, rle_ctrl_r) = chan<RleBlockDecoderCtrl, CHANNEL_DEPTH>("rle_ctrl");
         let (rle_req_s,  rle_req_r) = chan<RleBlockDecoderReq, CHANNEL_DEPTH>("rle_req");
         let (rle_resp_s, rle_resp_r) = chan<RleBlockDecoderResp, CHANNEL_DEPTH>("rle_resp");
         let (rle_output_s, rle_output_r) = chan<ExtendedBlockDataPacket, CHANNEL_DEPTH>("rle_output");
 
         spawn rle_block_dec_new_mem::RleBlockDecoder<AXI_DATA_W, AXI_ADDR_W>(
-            rle_ctrl_r, rle_req_r,
-            rle_mem_rd_req_s, rle_mem_rd_resp_r,
-            rle_resp_s, rle_output_s,
+            rle_req_r, rle_resp_s, rle_output_s
         );
 
         // Collecting Packets
@@ -1010,7 +993,7 @@ proc ZstdDecoder<
             fh_req_s, fh_resp_r,
             bh_req_s, bh_resp_r,
             raw_req_s, raw_resp_r,
-            rle_ctrl_s, rle_req_s, rle_resp_r,
+            rle_req_s, rle_resp_r,
             notify_s,
         );
 
@@ -1243,7 +1226,6 @@ proc ZstdDecoderInternalInst {
     type RawBlockDecoderResp = raw_block_dec_new_mem::RawBlockDecoderResp;
 
     type RleBlockDecoderReq = rle_block_dec_new_mem::RleBlockDecoderReq<INST_AXI_ADDR_W>;
-    type RleBlockDecoderCtrl = rle_block_dec_new_mem::RleBlockDecoderCtrl;
     type RleBlockDecoderResp = rle_block_dec_new_mem::RleBlockDecoderResp;
 
     init { }
@@ -1268,7 +1250,6 @@ proc ZstdDecoderInternalInst {
         raw_resp_r: chan<RawBlockDecoderResp> in,
 
         // MemReader + RleBlockDecoder
-        rle_ctrl_s: chan<RleBlockDecoderCtrl> out,
         rle_req_s: chan<RleBlockDecoderReq> out,
         rle_resp_r: chan<RleBlockDecoderResp> in,
 
@@ -1282,7 +1263,7 @@ proc ZstdDecoderInternalInst {
             fh_req_s, fh_resp_r,
             bh_req_s, bh_resp_r,
             raw_req_s, raw_resp_r,
-            rle_ctrl_s, rle_req_s, rle_resp_r,
+            rle_req_s, rle_resp_r,
             notify_s,
         );
 
@@ -1333,10 +1314,6 @@ proc ZstdDecoderInst {
         raw_axi_ar_s: chan<MemAxiAr> out,
         raw_axi_r_r: chan<MemAxiR> in,
 
-        // AXI RLE Block Decoder (manager)
-        rle_axi_ar_s: chan<MemAxiAr> out,
-        rle_axi_r_r: chan<MemAxiR> in,
-
         // History Buffer
         ram_rd_req_0_s: chan<RamRdReq> out,
         ram_rd_req_1_s: chan<RamRdReq> out,
@@ -1384,7 +1361,6 @@ proc ZstdDecoderInst {
             fh_axi_ar_s, fh_axi_r_r,
             bh_axi_ar_s, bh_axi_r_r,
             raw_axi_ar_s, raw_axi_r_r,
-            rle_axi_ar_s, rle_axi_r_r,
             ram_rd_req_0_s, ram_rd_req_1_s, ram_rd_req_2_s, ram_rd_req_3_s,
             ram_rd_req_4_s, ram_rd_req_5_s, ram_rd_req_6_s, ram_rd_req_7_s,
             ram_rd_resp_0_r, ram_rd_resp_1_r, ram_rd_resp_2_r, ram_rd_resp_3_r,

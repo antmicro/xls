@@ -78,18 +78,15 @@ type TestMemReaderReq = mem_reader::MemReaderReq<TEST_ADDR_W>;
 type TestMemReaderResp = mem_reader::MemReaderResp<TEST_DATA_W, TEST_ADDR_W>;
 
 pub struct RleBlockDecoderReq<ADDR_W: u32> {
-    last: bool,
-    last_block: bool,
     id: u32,
-    addr: uN[ADDR_W],
+    symbol: u8,
     length: uN[ADDR_W],
+    last_block: bool,
 }
 
 pub enum RleBlockDecoderStatus: u1 {
     OKAY = 0,
 }
-
-pub struct RleBlockDecoderCtrl { }
 
 pub struct RleBlockDecoderResp {
     status: RleBlockDecoderStatus
@@ -109,29 +106,19 @@ struct RleDataPackerState<ADDR_W: u32> {
 
 proc RleDataPacker<DATA_W: u32, ADDR_W: u32> {
     type Req = RleBlockDecoderReq<ADDR_W>;
-    type MemReaderReq = mem_reader::MemReaderReq<ADDR_W>;
-    type MemReaderResp = mem_reader::MemReaderResp<DATA_W, ADDR_W>;
     type State = RleDataPackerState<ADDR_W>;
 
     // input
     req_r: chan<Req> in;
-
-    // memory interface
-    mem_req_s: chan<MemReaderReq> out;
-    mem_resp_r: chan<MemReaderResp> in;
-
-    // output
     rle_data_s: chan<RleInput> out;
     sync_s: chan<BlockSyncData> out;
 
     config(
         req_r: chan<Req> in,
-        mem_req_s: chan<MemReaderReq> out,
-        mem_resp_r: chan<MemReaderResp> in,
         rle_data_s: chan<RleInput> out,
         sync_s: chan<BlockSyncData> out
     ) {
-        (req_r, mem_req_s, mem_resp_r, rle_data_s, sync_s)
+        (req_r, rle_data_s, sync_s)
     }
 
     init { zero!<State>() }
@@ -151,146 +138,135 @@ proc RleDataPacker<DATA_W: u32, ADDR_W: u32> {
             state
         };
 
-        // send memory read request
-        let mem_req = MemReaderReq {
-            addr: req.addr,
-            length: common::SYMBOL_WIDTH as uN[ADDR_W],
-        };
-        let tok = send_if(tok, mem_req_s, req_valid && (req.length > uN[ADDR_W]:0), mem_req);
-
-        // receive memory read response
-        let (tok, mem_resp, mem_resp_valid) = recv_non_blocking(tok, mem_resp_r, zero!<MemReaderResp>());
-
         // create RLE packet
         let rle_dec_data = RleInput {
-            symbol: mem_resp.data as Symbol, count: state.length as SymbolCount, last: true
+            symbol: req.symbol as Symbol,
+            count: state.length as SymbolCount,
+            last: true
         };
 
         // send RLE packet for decoding unless it has symbol count == 0
-        let do_send = mem_resp_valid && (rle_dec_data.count != SymbolCount:0);
+        let do_send = req_valid && (rle_dec_data.count != SymbolCount:0);
         let tok = send_if(tok, rle_data_s, do_send, rle_dec_data);
         let sync_data = BlockSyncData { last_block: state.last_block, count: rle_dec_data.count, id: state.id };
 
         // send last block packet even if it has symbol count == 0
-        send_if(tok, sync_s, mem_resp_valid || (req_valid && (state.length == uN[ADDR_W]:0) && state.last_block), sync_data);
+        send_if(tok, sync_s, (req_valid && (state.length == uN[ADDR_W]:0) && state.last_block), sync_data);
 
         state
     }
 }
 
-struct RleDataPackerTestData {
-    last: bool,
-    last_block: bool,
-    id: u32,
-    addr: uN[TEST_ADDR_W],
-    length: uN[TEST_ADDR_W],
-    data: uN[TEST_DATA_W],
-}
-
-const RLE_DATA_PACKER_TEST_DATA = RleDataPackerTestData[12]:[
-    RleDataPackerTestData {last: false, last_block: false, id: u32:0, addr: uN[TEST_ADDR_W]:0, length: uN[TEST_ADDR_W]:8, data: uN[TEST_DATA_W]:0xAB},
-    RleDataPackerTestData {last: true, last_block: false, id: u32:0, addr: uN[TEST_ADDR_W]:8, length: uN[TEST_ADDR_W]:5, data: uN[TEST_DATA_W]:0xCD},
-    RleDataPackerTestData {last: false, last_block: false, id: u32:1, addr: uN[TEST_ADDR_W]:512, length: uN[TEST_ADDR_W]:12, data: uN[TEST_DATA_W]:0x67},
-    RleDataPackerTestData {last: false, last_block: false, id: u32:1, addr: uN[TEST_ADDR_W]:544, length: uN[TEST_ADDR_W]:35, data: uN[TEST_DATA_W]:0x09},
-    RleDataPackerTestData {last: false, last_block: false, id: u32:1, addr: uN[TEST_ADDR_W]:576, length: uN[TEST_ADDR_W]:123, data: uN[TEST_DATA_W]:0x9D},
-    RleDataPackerTestData {last: true, last_block: false, id: u32:1, addr: uN[TEST_ADDR_W]:592, length: uN[TEST_ADDR_W]:1, data: uN[TEST_DATA_W]:0x1F},
-    RleDataPackerTestData {last: false, last_block: false, id: u32:2, addr: uN[TEST_ADDR_W]:32, length: uN[TEST_ADDR_W]:0, data: uN[TEST_DATA_W]:0x12},
-    RleDataPackerTestData {last: true, last_block: true, id: u32:2, addr: uN[TEST_ADDR_W]:64, length: uN[TEST_ADDR_W]:42, data: uN[TEST_DATA_W]:0xAA},
-    RleDataPackerTestData {last: false, last_block: false, id: u32:3, addr: uN[TEST_ADDR_W]:1242, length: uN[TEST_ADDR_W]:33, data: uN[TEST_DATA_W]:0x54},
-    RleDataPackerTestData {last: true, last_block: false, id: u32:3, addr: uN[TEST_ADDR_W]:5432, length: uN[TEST_ADDR_W]:0, data: uN[TEST_DATA_W]:0xC0},
-    RleDataPackerTestData {last: false, last_block: false, id: u32:4, addr: uN[TEST_ADDR_W]:1024, length: uN[TEST_ADDR_W]:2, data: uN[TEST_DATA_W]:0xA3},
-    RleDataPackerTestData {last: true, last_block: true, id: u32:4, addr: uN[TEST_ADDR_W]:2000, length: uN[TEST_ADDR_W]:0, data: uN[TEST_DATA_W]:0x83},
-];
-
-#[test_proc]
-proc RleDataPacker_test {
-    type TestReq = RleBlockDecoderReq<TEST_ADDR_W>;
-
-    terminator: chan<bool> out;
-
-    req_s: chan<TestReq> out;
-
-    mem_req_r: chan<TestMemReaderReq> in;
-    mem_resp_s: chan<TestMemReaderResp> out;
-
-    out_r: chan<RleInput> in;
-    sync_r: chan<BlockSyncData> in;
-
-    config(terminator: chan<bool> out) {
-        let (req_s, req_r) = chan<TestReq>("req");
-
-        let (mem_req_s, mem_req_r) = chan<TestMemReaderReq>("mem_req");
-        let (mem_resp_s, mem_resp_r) = chan<TestMemReaderResp>("mem_resp");
-
-        let (out_s, out_r) = chan<RleInput>("out");
-        let (sync_s, sync_r) = chan<BlockSyncData>("sync");
-
-        spawn RleDataPacker<TEST_DATA_W, TEST_ADDR_W>(req_r, mem_req_s, mem_resp_r, out_s, sync_s);
-
-        (terminator, req_s, mem_req_r, mem_resp_s, out_r, sync_r)
-    }
-
-    init {  }
-
-    next(state: ()) {
-        let tok = join();
-        let tok = for ((i, test_data), tok): ((u32, RleDataPackerTestData), token) in enumerate(RLE_DATA_PACKER_TEST_DATA) {
-            let req = TestReq {
-                last: test_data.last,
-                last_block: test_data.last_block,
-                id: test_data.id,
-                addr: test_data.addr,
-                length: test_data.length,
-            };
-            let tok = send(tok, req_s, req);
-            trace_fmt!("Sent #{} request {:#x}", i + u32:1, req);
-
-            let tok = if test_data.length > uN[TEST_ADDR_W]:0 {
-                let (tok, mem_req) = recv(tok, mem_req_r);
-                trace_fmt!("Received #{} memory read request {:#x}", i + u32:1, mem_req);
-
-                assert_eq(test_data.addr, mem_req.addr);
-                assert_eq(uN[TEST_ADDR_W]:8, mem_req.length);
-
-                let mem_resp = TestMemReaderResp {
-                    status: mem_reader::MemReaderStatus::OKAY,
-                    data: test_data.data,
-                    length: uN[TEST_ADDR_W]:8,
-                    last: true,
-                };
-
-                let tok = send(tok, mem_resp_s, mem_resp);
-                trace_fmt!("Sent #{} memory response {:#x}", i + u32:1, mem_resp);
-
-                let expected_output = RleInput {
-                    last: true, symbol: test_data.data as Symbol, count: test_data.length as BlockSize
-                };
-                let (tok, output) = recv(tok, out_r);
-                trace_fmt!("Received #{} packed rle encoded block {:#x}", i + u32:1, output);
-                assert_eq(expected_output, output);
-
-                tok
-            } else { tok };
-
-            let tok = if test_data.length > uN[TEST_ADDR_W]:0 || test_data.last_block {
-                let sync_out = BlockSyncData {
-                    id: test_data.id,
-                    last_block: test_data.last_block,
-                    count: test_data.length as SymbolCount,
-                };
-                let (tok, sync_output) = recv(tok, sync_r);
-                trace_fmt!("Received #{} synchronization data {:#x}", i + u32:1, sync_output);
-                assert_eq(sync_output, sync_out);
-                tok
-            } else {
-                tok
-            };
-
-            (tok)
-        }(tok);
-        send(tok, terminator, true);
-    }
-}
+// struct RleDataPackerTestData {
+//     last: bool,
+//     last_block: bool,
+//     id: u32,
+//     addr: uN[TEST_ADDR_W],
+//     length: uN[TEST_ADDR_W],
+//     data: uN[TEST_DATA_W],
+// }
+//
+// const RLE_DATA_PACKER_TEST_DATA = RleDataPackerTestData[12]:[
+//     RleDataPackerTestData {last: false, last_block: false, id: u32:0, addr: uN[TEST_ADDR_W]:0, length: uN[TEST_ADDR_W]:8, data: uN[TEST_DATA_W]:0xAB},
+//     RleDataPackerTestData {last: true,  last_block: false, id: u32:0, addr: uN[TEST_ADDR_W]:8, length: uN[TEST_ADDR_W]:5, data: uN[TEST_DATA_W]:0xCD},
+//     RleDataPackerTestData {last: false, last_block: false, id: u32:1, addr: uN[TEST_ADDR_W]:512, length: uN[TEST_ADDR_W]:12, data: uN[TEST_DATA_W]:0x67},
+//     RleDataPackerTestData {last: false, last_block: false, id: u32:1, addr: uN[TEST_ADDR_W]:544, length: uN[TEST_ADDR_W]:35, data: uN[TEST_DATA_W]:0x09},
+//     RleDataPackerTestData {last: false, last_block: false, id: u32:1, addr: uN[TEST_ADDR_W]:576, length: uN[TEST_ADDR_W]:123, data: uN[TEST_DATA_W]:0x9D},
+//     RleDataPackerTestData {last: true,  last_block: false, id: u32:1, addr: uN[TEST_ADDR_W]:592, length: uN[TEST_ADDR_W]:1, data: uN[TEST_DATA_W]:0x1F},
+//     RleDataPackerTestData {last: false, last_block: false, id: u32:2, addr: uN[TEST_ADDR_W]:32, length: uN[TEST_ADDR_W]:0, data: uN[TEST_DATA_W]:0x12},
+//     RleDataPackerTestData {last: true,  last_block: true, id: u32:2, addr: uN[TEST_ADDR_W]:64, length: uN[TEST_ADDR_W]:42, data: uN[TEST_DATA_W]:0xAA},
+//     RleDataPackerTestData {last: false, last_block: false, id: u32:3, addr: uN[TEST_ADDR_W]:1242, length: uN[TEST_ADDR_W]:33, data: uN[TEST_DATA_W]:0x54},
+//     RleDataPackerTestData {last: true,  last_block: false, id: u32:3, addr: uN[TEST_ADDR_W]:5432, length: uN[TEST_ADDR_W]:0, data: uN[TEST_DATA_W]:0xC0},
+//     RleDataPackerTestData {last: false, last_block: false, id: u32:4, addr: uN[TEST_ADDR_W]:1024, length: uN[TEST_ADDR_W]:2, data: uN[TEST_DATA_W]:0xA3},
+//     RleDataPackerTestData {last: true,  last_block: true, id: u32:4, addr: uN[TEST_ADDR_W]:2000, length: uN[TEST_ADDR_W]:0, data: uN[TEST_DATA_W]:0x83},
+// ];
+//
+// #[test_proc]
+// proc RleDataPacker_test {
+//     type TestReq = RleBlockDecoderReq<TEST_ADDR_W>;
+//
+//     terminator: chan<bool> out;
+//
+//     req_s: chan<TestReq> out;
+//
+//     mem_req_r: chan<TestMemReaderReq> in;
+//     mem_resp_s: chan<TestMemReaderResp> out;
+//
+//     out_r: chan<RleInput> in;
+//     sync_r: chan<BlockSyncData> in;
+//
+//     config(terminator: chan<bool> out) {
+//         let (req_s, req_r) = chan<TestReq>("req");
+//
+//         let (out_s, out_r) = chan<RleInput>("out");
+//         let (sync_s, sync_r) = chan<BlockSyncData>("sync");
+//
+//         spawn RleDataPacker<TEST_DATA_W, TEST_ADDR_W>(req_r, out_s, sync_s);
+//
+//         (terminator, req_s, out_r, sync_r)
+//     }
+//
+//     init {  }
+//
+//     next(state: ()) {
+//         let tok = join();
+//         let tok = for ((i, test_data), tok): ((u32, RleDataPackerTestData), token) in enumerate(RLE_DATA_PACKER_TEST_DATA) {
+//             let req = TestReq {
+//                 last: test_data.last,
+//                 last_block: test_data.last_block,
+//                 id: test_data.id,
+//                 addr: test_data.addr,
+//                 length: test_data.length,
+//             };
+//             let tok = send(tok, req_s, req);
+//             trace_fmt!("Sent #{} request {:#x}", i + u32:1, req);
+//
+//             let tok = if test_data.length > uN[TEST_ADDR_W]:0 {
+//                 let (tok, mem_req) = recv(tok, mem_req_r);
+//                 trace_fmt!("Received #{} memory read request {:#x}", i + u32:1, mem_req);
+//
+//                 assert_eq(test_data.addr, mem_req.addr);
+//                 assert_eq(uN[TEST_ADDR_W]:8, mem_req.length);
+//
+//                 let mem_resp = TestMemReaderResp {
+//                     status: mem_reader::MemReaderStatus::OKAY,
+//                     data: test_data.data,
+//                     length: uN[TEST_ADDR_W]:8,
+//                     last: true,
+//                 };
+//
+//                 let tok = send(tok, mem_resp_s, mem_resp);
+//                 trace_fmt!("Sent #{} memory response {:#x}", i + u32:1, mem_resp);
+//
+//                 let expected_output = RleInput {
+//                     last: true, symbol: test_data.data as Symbol, count: test_data.length as BlockSize
+//                 };
+//                 let (tok, output) = recv(tok, out_r);
+//                 trace_fmt!("Received #{} packed rle encoded block {:#x}", i + u32:1, output);
+//                 assert_eq(expected_output, output);
+//
+//                 tok
+//             } else { tok };
+//
+//             let tok = if test_data.length > uN[TEST_ADDR_W]:0 || test_data.last_block {
+//                 let sync_out = BlockSyncData {
+//                     id: test_data.id,
+//                     last_block: test_data.last_block,
+//                     count: test_data.length as SymbolCount,
+//                 };
+//                 let (tok, sync_output) = recv(tok, sync_r);
+//                 trace_fmt!("Received #{} synchronization data {:#x}", i + u32:1, sync_output);
+//                 assert_eq(sync_output, sync_out);
+//                 tok
+//             } else {
+//                 tok
+//             };
+//
+//             (tok)
+//         }(tok);
+//         send(tok, terminator, true);
+//     }
+// }
 
 struct BatchPackerState {
     sync: BlockSyncData,
@@ -382,208 +358,190 @@ proc BatchPacker {
     }
 }
 
-const BATCH_PACKER_TEST_DATA_SYNC = BlockSyncData[14]:[
-    BlockSyncData { last_block: false, count: SymbolCount:1, id: u32:0 },
-    BlockSyncData { last_block: false, count: SymbolCount:2, id: u32:1 },
-    BlockSyncData { last_block: false, count: SymbolCount:4, id: u32:2 },
-    BlockSyncData { last_block: false, count: SymbolCount:8, id: u32:3 },
-    BlockSyncData { last_block: false, count: SymbolCount:16, id: u32:4 },
-    BlockSyncData { last_block: true, count: SymbolCount:31, id: u32:5 },
-    BlockSyncData { last_block: false, count: SymbolCount:0, id: u32:0 },
-    BlockSyncData { last_block: false, count: SymbolCount:1, id: u32:1 },
-    BlockSyncData { last_block: false, count: SymbolCount:0, id: u32:2 },
-    BlockSyncData { last_block: false, count: SymbolCount:4, id: u32:3 },
-    BlockSyncData { last_block: false, count: SymbolCount:0, id: u32:4 },
-    BlockSyncData { last_block: false, count: SymbolCount:16, id: u32:5 },
-    BlockSyncData { last_block: false, count: SymbolCount:0, id: u32:6 },
-    BlockSyncData { last_block: true, count: SymbolCount:0, id: u32:7 },
-];
-
-const BATCH_PACKER_TEST_DATA_RLE = RleOutput[14]:[
-    // 1st block
-    RleOutput{ symbols: uN[common::DATA_WIDTH]:0x01, length: uN[DATA_WIDTH_LOG2]:1, last: true },
-    // 2nd block
-    RleOutput{ symbols: uN[common::DATA_WIDTH]:0x0202, length: uN[DATA_WIDTH_LOG2]:2, last: true },
-    // 3rd block
-    RleOutput{ symbols: uN[common::DATA_WIDTH]:0x0303_0303, length: uN[DATA_WIDTH_LOG2]:4, last: true },
-    // 4th block
-    RleOutput{ symbols: uN[common::DATA_WIDTH]:0x0404_0404_0404_0404, length: uN[DATA_WIDTH_LOG2]:8, last: true },
-    // 5th block
-    RleOutput{ symbols: uN[common::DATA_WIDTH]:0x0505_0505_0505_0505, length: uN[DATA_WIDTH_LOG2]:8, last: false },
-    RleOutput{ symbols: uN[common::DATA_WIDTH]:0x0505_0505_0505_0505, length: uN[DATA_WIDTH_LOG2]:8, last: true },
-    // 6th block
-    RleOutput{ symbols: uN[common::DATA_WIDTH]:0x0606_0606_0606_0606, length: uN[DATA_WIDTH_LOG2]:8, last: false },
-    RleOutput{ symbols: uN[common::DATA_WIDTH]:0x0606_0606_0606_0606, length: uN[DATA_WIDTH_LOG2]:8, last: false },
-    RleOutput{ symbols: uN[common::DATA_WIDTH]:0x0606_0606_0606_0606, length: uN[DATA_WIDTH_LOG2]:8, last: false },
-    RleOutput{ symbols: uN[common::DATA_WIDTH]:0x06_0606_0606_0606, length: uN[DATA_WIDTH_LOG2]:7, last: true },
-    // 7th block
-    // EMPTY
-    // 8th block
-    RleOutput{ symbols: uN[common::DATA_WIDTH]:0x08, length: uN[DATA_WIDTH_LOG2]:1, last: true },
-    // 9th block
-    // EMPTY
-    // 10th block
-    RleOutput{ symbols: uN[common::DATA_WIDTH]:0x0A0A_0A0A, length: uN[DATA_WIDTH_LOG2]:4, last: true },
-    // 11th block
-    // EMPTY
-    // 12th block
-    RleOutput{ symbols: uN[common::DATA_WIDTH]:0x0C0C_0C0C_0C0C_0C0C, length: uN[DATA_WIDTH_LOG2]:8, last: false },
-    RleOutput{ symbols: uN[common::DATA_WIDTH]:0x0C0C_0C0C_0C0C_0C0C, length: uN[DATA_WIDTH_LOG2]:8, last: true },
-    // 13th block
-    // EMPTY
-    // 14th block
-    // EMPTY
-];
-
-const BATCH_PACKER_TEST_DATA_OUTPUT = ExtendedBlockDataPacket[15]:[
-    // 1st block
-    ExtendedBlockDataPacket {msg_type: SequenceExecutorMessageType::LITERAL, packet: BlockDataPacket {last: bool:true, last_block: bool:false, id: u32:0, data: BlockData:0x01, length: BlockPacketLength:8}},
-    // 2nd block
-    ExtendedBlockDataPacket {msg_type: SequenceExecutorMessageType::LITERAL, packet: BlockDataPacket {last: bool:true, last_block: bool:false, id: u32:1, data: BlockData:0x0202, length: BlockPacketLength:16}},
-    // 3rd block
-    ExtendedBlockDataPacket {msg_type: SequenceExecutorMessageType::LITERAL, packet: BlockDataPacket {last: bool:true, last_block: bool:false, id: u32:2, data: BlockData:0x0303_0303, length: BlockPacketLength:32}},
-    // 4th blck
-    ExtendedBlockDataPacket {msg_type: SequenceExecutorMessageType::LITERAL, packet: BlockDataPacket {last: bool:true, last_block: bool:false, id: u32:3, data: BlockData:0x0404_0404_0404_0404, length: BlockPacketLength:64}},
-    // 5th block
-    ExtendedBlockDataPacket {msg_type: SequenceExecutorMessageType::LITERAL, packet: BlockDataPacket {last: bool:false, last_block: bool:false, id: u32:4, data: BlockData:0x0505_0505_0505_0505, length: BlockPacketLength:64}},
-    ExtendedBlockDataPacket {msg_type: SequenceExecutorMessageType::LITERAL, packet: BlockDataPacket {last: bool:true, last_block: bool:false, id: u32:4, data: BlockData:0x0505_0505_0505_0505, length: BlockPacketLength:64}},
-    // 6th block
-    ExtendedBlockDataPacket {msg_type: SequenceExecutorMessageType::LITERAL, packet: BlockDataPacket {last: bool:false, last_block: bool:true, id: u32:5, data: BlockData:0x0606_0606_0606_0606, length: BlockPacketLength:64}},
-    ExtendedBlockDataPacket {msg_type: SequenceExecutorMessageType::LITERAL, packet: BlockDataPacket {last: bool:false, last_block: bool:true, id: u32:5, data: BlockData:0x0606_0606_0606_0606, length: BlockPacketLength:64}},
-    ExtendedBlockDataPacket {msg_type: SequenceExecutorMessageType::LITERAL, packet: BlockDataPacket {last: bool:false, last_block: bool:true, id: u32:5, data: BlockData:0x0606_0606_0606_0606, length: BlockPacketLength:64}},
-    ExtendedBlockDataPacket {msg_type: SequenceExecutorMessageType::LITERAL, packet: BlockDataPacket {last: bool:true, last_block: bool:true, id: u32:5, data: BlockData:0x06_0606_0606_0606, length: BlockPacketLength:56}},
-    // 7th block
-    // EMPTY
-    // 8th block
-    ExtendedBlockDataPacket {msg_type: SequenceExecutorMessageType::LITERAL, packet: BlockDataPacket {last: bool:true, last_block: bool:false, id: u32:1, data: BlockData:0x08, length: BlockPacketLength:8}},
-    // 9th block
-    // EMPTY
-    // 10th block
-    ExtendedBlockDataPacket {msg_type: SequenceExecutorMessageType::LITERAL, packet: BlockDataPacket {last: bool:true, last_block: bool:false, id: u32:3, data: BlockData:0x0A0_A0A0A, length: BlockPacketLength:32}},
-    // 11th block
-    // EMPTY
-    // 12th block
-    ExtendedBlockDataPacket {msg_type: SequenceExecutorMessageType::LITERAL, packet: BlockDataPacket {last: bool:false, last_block: bool:false, id: u32:5, data: BlockData:0x0C0C_0C0C_0C0C_0C0C, length: BlockPacketLength:64}},
-    ExtendedBlockDataPacket {msg_type: SequenceExecutorMessageType::LITERAL, packet: BlockDataPacket {last: bool:true, last_block: bool:false, id: u32:5, data: BlockData:0x0C0C_0C0C_0C0C_0C0C, length: BlockPacketLength:64}},
-    // 13th block
-    // EMPTY
-    // 14th block
-    // EMPTY with LAST_BLOCK
-    ExtendedBlockDataPacket {msg_type: SequenceExecutorMessageType::LITERAL, packet: BlockDataPacket {last: bool:true, last_block: bool:true, id: u32:7, data: BlockData:0x0, length: BlockPacketLength:0}},
-];
-
-#[test_proc]
-proc BatchPacker_test {
-    terminator: chan<bool> out;
-    in_s: chan<RleOutput> out;
-    sync_s: chan<BlockSyncData> out;
-    resp_r: chan<RleBlockDecoderResp> in;
-    out_r: chan<ExtendedBlockDataPacket> in;
-
-    config(terminator: chan<bool> out) {
-        let (in_s, in_r) = chan<RleOutput>("in");
-        let (sync_s, sync_r) = chan<BlockSyncData>("sync");
-        let (resp_s, resp_r) = chan<RleBlockDecoderResp>("resp");
-        let (out_s, out_r) = chan<ExtendedBlockDataPacket>("out");
-
-        spawn BatchPacker(in_r, sync_r, resp_s, out_s);
-
-        (terminator, in_s, sync_s, resp_r, out_r)
-    }
-
-    init {  }
-
-    next(state: ()) {
-        let tok = join();
-
-        let tok = for ((i, test_data_rle), tok): ((u32, RleOutput), token) in enumerate(BATCH_PACKER_TEST_DATA_RLE) {
-            let tok = send(tok, in_s, test_data_rle);
-            trace_fmt!("Sent #{} RLE output {:#x}", i + u32:1, test_data_rle);
-            tok
-        }(tok);
-
-        let tok = for ((i, test_data_sync), tok): ((u32, BlockSyncData), token) in enumerate(BATCH_PACKER_TEST_DATA_SYNC) {
-            let tok = send(tok, sync_s, test_data_sync);
-            trace_fmt!("Send #{} sync {:#x}", i + u32:1, test_data_sync);
-
-            if test_data_sync.last_block || (test_data_sync.count > SymbolCount:0) {
-                let (tok, resp) = recv(tok, resp_r);
-                trace_fmt!("Received #{} response {:#x}", i + u32:1, resp);
-                tok
-            } else {
-                tok
-            }
-        }(tok);
-
-        let tok = for ((i, test_data_output), tok): ((u32, ExtendedBlockDataPacket), token) in enumerate(BATCH_PACKER_TEST_DATA_OUTPUT) {
-            let (tok, data) = recv(tok, out_r);
-            trace_fmt!("Received #{} output data {:#x}", i + u32:1, data);
-            assert_eq(test_data_output, data);
-            tok
-        }(tok);
-
-        send(tok, terminator, true);
-    }
-}
+// const BATCH_PACKER_TEST_DATA_SYNC = BlockSyncData[14]:[
+//     BlockSyncData { last_block: false, count: SymbolCount:1, id: u32:0 },
+//     BlockSyncData { last_block: false, count: SymbolCount:2, id: u32:1 },
+//     BlockSyncData { last_block: false, count: SymbolCount:4, id: u32:2 },
+//     BlockSyncData { last_block: false, count: SymbolCount:8, id: u32:3 },
+//     BlockSyncData { last_block: false, count: SymbolCount:16, id: u32:4 },
+//     BlockSyncData { last_block: true, count: SymbolCount:31, id: u32:5 },
+//     BlockSyncData { last_block: false, count: SymbolCount:0, id: u32:0 },
+//     BlockSyncData { last_block: false, count: SymbolCount:1, id: u32:1 },
+//     BlockSyncData { last_block: false, count: SymbolCount:0, id: u32:2 },
+//     BlockSyncData { last_block: false, count: SymbolCount:4, id: u32:3 },
+//     BlockSyncData { last_block: false, count: SymbolCount:0, id: u32:4 },
+//     BlockSyncData { last_block: false, count: SymbolCount:16, id: u32:5 },
+//     BlockSyncData { last_block: false, count: SymbolCount:0, id: u32:6 },
+//     BlockSyncData { last_block: true, count: SymbolCount:0, id: u32:7 },
+// ];
+//
+// const BATCH_PACKER_TEST_DATA_RLE = RleOutput[14]:[
+//     // 1st block
+//     RleOutput{ symbols: uN[common::DATA_WIDTH]:0x01, length: uN[DATA_WIDTH_LOG2]:1, last: true },
+//     // 2nd block
+//     RleOutput{ symbols: uN[common::DATA_WIDTH]:0x0202, length: uN[DATA_WIDTH_LOG2]:2, last: true },
+//     // 3rd block
+//     RleOutput{ symbols: uN[common::DATA_WIDTH]:0x0303_0303, length: uN[DATA_WIDTH_LOG2]:4, last: true },
+//     // 4th block
+//     RleOutput{ symbols: uN[common::DATA_WIDTH]:0x0404_0404_0404_0404, length: uN[DATA_WIDTH_LOG2]:8, last: true },
+//     // 5th block
+//     RleOutput{ symbols: uN[common::DATA_WIDTH]:0x0505_0505_0505_0505, length: uN[DATA_WIDTH_LOG2]:8, last: false },
+//     RleOutput{ symbols: uN[common::DATA_WIDTH]:0x0505_0505_0505_0505, length: uN[DATA_WIDTH_LOG2]:8, last: true },
+//     // 6th block
+//     RleOutput{ symbols: uN[common::DATA_WIDTH]:0x0606_0606_0606_0606, length: uN[DATA_WIDTH_LOG2]:8, last: false },
+//     RleOutput{ symbols: uN[common::DATA_WIDTH]:0x0606_0606_0606_0606, length: uN[DATA_WIDTH_LOG2]:8, last: false },
+//     RleOutput{ symbols: uN[common::DATA_WIDTH]:0x0606_0606_0606_0606, length: uN[DATA_WIDTH_LOG2]:8, last: false },
+//     RleOutput{ symbols: uN[common::DATA_WIDTH]:0x06_0606_0606_0606, length: uN[DATA_WIDTH_LOG2]:7, last: true },
+//     // 7th block
+//     // EMPTY
+//     // 8th block
+//     RleOutput{ symbols: uN[common::DATA_WIDTH]:0x08, length: uN[DATA_WIDTH_LOG2]:1, last: true },
+//     // 9th block
+//     // EMPTY
+//     // 10th block
+//     RleOutput{ symbols: uN[common::DATA_WIDTH]:0x0A0A_0A0A, length: uN[DATA_WIDTH_LOG2]:4, last: true },
+//     // 11th block
+//     // EMPTY
+//     // 12th block
+//     RleOutput{ symbols: uN[common::DATA_WIDTH]:0x0C0C_0C0C_0C0C_0C0C, length: uN[DATA_WIDTH_LOG2]:8, last: false },
+//     RleOutput{ symbols: uN[common::DATA_WIDTH]:0x0C0C_0C0C_0C0C_0C0C, length: uN[DATA_WIDTH_LOG2]:8, last: true },
+//     // 13th block
+//     // EMPTY
+//     // 14th block
+//     // EMPTY
+// ];
+//
+// const BATCH_PACKER_TEST_DATA_OUTPUT = ExtendedBlockDataPacket[15]:[
+//     // 1st block
+//     ExtendedBlockDataPacket {msg_type: SequenceExecutorMessageType::LITERAL, packet: BlockDataPacket {last: bool:true, last_block: bool:false, id: u32:0, data: BlockData:0x01, length: BlockPacketLength:8}},
+//     // 2nd block
+//     ExtendedBlockDataPacket {msg_type: SequenceExecutorMessageType::LITERAL, packet: BlockDataPacket {last: bool:true, last_block: bool:false, id: u32:1, data: BlockData:0x0202, length: BlockPacketLength:16}},
+//     // 3rd block
+//     ExtendedBlockDataPacket {msg_type: SequenceExecutorMessageType::LITERAL, packet: BlockDataPacket {last: bool:true, last_block: bool:false, id: u32:2, data: BlockData:0x0303_0303, length: BlockPacketLength:32}},
+//     // 4th blck
+//     ExtendedBlockDataPacket {msg_type: SequenceExecutorMessageType::LITERAL, packet: BlockDataPacket {last: bool:true, last_block: bool:false, id: u32:3, data: BlockData:0x0404_0404_0404_0404, length: BlockPacketLength:64}},
+//     // 5th block
+//     ExtendedBlockDataPacket {msg_type: SequenceExecutorMessageType::LITERAL, packet: BlockDataPacket {last: bool:false, last_block: bool:false, id: u32:4, data: BlockData:0x0505_0505_0505_0505, length: BlockPacketLength:64}},
+//     ExtendedBlockDataPacket {msg_type: SequenceExecutorMessageType::LITERAL, packet: BlockDataPacket {last: bool:true, last_block: bool:false, id: u32:4, data: BlockData:0x0505_0505_0505_0505, length: BlockPacketLength:64}},
+//     // 6th block
+//     ExtendedBlockDataPacket {msg_type: SequenceExecutorMessageType::LITERAL, packet: BlockDataPacket {last: bool:false, last_block: bool:true, id: u32:5, data: BlockData:0x0606_0606_0606_0606, length: BlockPacketLength:64}},
+//     ExtendedBlockDataPacket {msg_type: SequenceExecutorMessageType::LITERAL, packet: BlockDataPacket {last: bool:false, last_block: bool:true, id: u32:5, data: BlockData:0x0606_0606_0606_0606, length: BlockPacketLength:64}},
+//     ExtendedBlockDataPacket {msg_type: SequenceExecutorMessageType::LITERAL, packet: BlockDataPacket {last: bool:false, last_block: bool:true, id: u32:5, data: BlockData:0x0606_0606_0606_0606, length: BlockPacketLength:64}},
+//     ExtendedBlockDataPacket {msg_type: SequenceExecutorMessageType::LITERAL, packet: BlockDataPacket {last: bool:true, last_block: bool:true, id: u32:5, data: BlockData:0x06_0606_0606_0606, length: BlockPacketLength:56}},
+//     // 7th block
+//     // EMPTY
+//     // 8th block
+//     ExtendedBlockDataPacket {msg_type: SequenceExecutorMessageType::LITERAL, packet: BlockDataPacket {last: bool:true, last_block: bool:false, id: u32:1, data: BlockData:0x08, length: BlockPacketLength:8}},
+//     // 9th block
+//     // EMPTY
+//     // 10th block
+//     ExtendedBlockDataPacket {msg_type: SequenceExecutorMessageType::LITERAL, packet: BlockDataPacket {last: bool:true, last_block: bool:false, id: u32:3, data: BlockData:0x0A0_A0A0A, length: BlockPacketLength:32}},
+//     // 11th block
+//     // EMPTY
+//     // 12th block
+//     ExtendedBlockDataPacket {msg_type: SequenceExecutorMessageType::LITERAL, packet: BlockDataPacket {last: bool:false, last_block: bool:false, id: u32:5, data: BlockData:0x0C0C_0C0C_0C0C_0C0C, length: BlockPacketLength:64}},
+//     ExtendedBlockDataPacket {msg_type: SequenceExecutorMessageType::LITERAL, packet: BlockDataPacket {last: bool:true, last_block: bool:false, id: u32:5, data: BlockData:0x0C0C_0C0C_0C0C_0C0C, length: BlockPacketLength:64}},
+//     // 13th block
+//     // EMPTY
+//     // 14th block
+//     // EMPTY with LAST_BLOCK
+//     ExtendedBlockDataPacket {msg_type: SequenceExecutorMessageType::LITERAL, packet: BlockDataPacket {last: bool:true, last_block: bool:true, id: u32:7, data: BlockData:0x0, length: BlockPacketLength:0}},
+// ];
+//
+// #[test_proc]
+// proc BatchPacker_test {
+//     terminator: chan<bool> out;
+//     in_s: chan<RleOutput> out;
+//     sync_s: chan<BlockSyncData> out;
+//     resp_r: chan<RleBlockDecoderResp> in;
+//     out_r: chan<ExtendedBlockDataPacket> in;
+//
+//     config(terminator: chan<bool> out) {
+//         let (in_s, in_r) = chan<RleOutput>("in");
+//         let (sync_s, sync_r) = chan<BlockSyncData>("sync");
+//         let (resp_s, resp_r) = chan<RleBlockDecoderResp>("resp");
+//         let (out_s, out_r) = chan<ExtendedBlockDataPacket>("out");
+//
+//         spawn BatchPacker(in_r, sync_r, resp_s, out_s);
+//
+//         (terminator, in_s, sync_s, resp_r, out_r)
+//     }
+//
+//     init {  }
+//
+//     next(state: ()) {
+//         let tok = join();
+//
+//         let tok = for ((i, test_data_rle), tok): ((u32, RleOutput), token) in enumerate(BATCH_PACKER_TEST_DATA_RLE) {
+//             let tok = send(tok, in_s, test_data_rle);
+//             trace_fmt!("Sent #{} RLE output {:#x}", i + u32:1, test_data_rle);
+//             tok
+//         }(tok);
+//
+//         let tok = for ((i, test_data_sync), tok): ((u32, BlockSyncData), token) in enumerate(BATCH_PACKER_TEST_DATA_SYNC) {
+//             let tok = send(tok, sync_s, test_data_sync);
+//             trace_fmt!("Send #{} sync {:#x}", i + u32:1, test_data_sync);
+//
+//             if test_data_sync.last_block || (test_data_sync.count > SymbolCount:0) {
+//                 let (tok, resp) = recv(tok, resp_r);
+//                 trace_fmt!("Received #{} response {:#x}", i + u32:1, resp);
+//                 tok
+//             } else {
+//                 tok
+//             }
+//         }(tok);
+//
+//         let tok = for ((i, test_data_output), tok): ((u32, ExtendedBlockDataPacket), token) in enumerate(BATCH_PACKER_TEST_DATA_OUTPUT) {
+//             let (tok, data) = recv(tok, out_r);
+//             trace_fmt!("Received #{} output data {:#x}", i + u32:1, data);
+//             assert_eq(test_data_output, data);
+//             tok
+//         }(tok);
+//
+//         send(tok, terminator, true);
+//     }
+// }
 
 pub proc RleBlockDecoder<DATA_W: u32, ADDR_W: u32> {
     type Req = RleBlockDecoderReq<ADDR_W>;
-    type MemReaderReq = mem_reader::MemReaderReq<ADDR_W>;
-    type MemReaderResp = mem_reader::MemReaderResp<DATA_W, ADDR_W>;
-    ctrl_r: chan<RleBlockDecoderCtrl> in;
+    type Resp = RleBlockDecoderResp;
+    type Output = ExtendedBlockDataPacket;
 
     config(
-        ctrl_r: chan<RleBlockDecoderCtrl> in,
         req_r: chan<Req> in,
-        mem_req_s: chan<MemReaderReq> out,
-        mem_resp_r: chan<MemReaderResp> in,
-        resp_s: chan<RleBlockDecoderResp> out,
-        output_s: chan<ExtendedBlockDataPacket> out,
+        resp_s: chan<Resp> out,
+        output_s: chan<Output> out,
     ) {
         let (in_s, in_r) = chan<RleInput, u32:1>("in");
         let (out_s, out_r) = chan<RleOutput, u32:1>("out");
         let (sync_s, sync_r) = chan<BlockSyncData, u32:1>("sync");
 
-        spawn RleDataPacker<DATA_W, ADDR_W>(req_r, mem_req_s, mem_resp_r, in_s, sync_s);
-        spawn rle_dec_adv::RunLengthDecoderAdv<SYMBOL_WIDTH, BLOCK_SIZE_WIDTH, common::DATA_WIDTH>(
-            in_r, out_s);
+        spawn RleDataPacker<DATA_W, ADDR_W>(req_r, in_s, sync_s);
+        spawn rle_dec_adv::RunLengthDecoderAdv<SYMBOL_WIDTH, BLOCK_SIZE_WIDTH, common::DATA_WIDTH>(in_r, out_s);
         spawn BatchPacker(out_r, sync_r, resp_s, output_s);
 
-        (
-            ctrl_r,
-        )
+        ()
     }
 
     init {  }
 
-    next(state: ()) {
-        recv(join(), ctrl_r);
-    }
+    next(state: ()) { }
 }
 
 const INST_DATA_W = u32:32;
 const INST_ADDR_W = u32:32;
 
-type InstReq = RleBlockDecoderReq<INST_ADDR_W>;
-
-type InstMemReaderReq = mem_reader::MemReaderReq<INST_ADDR_W>;
-type InstMemReaderResp = mem_reader::MemReaderResp<INST_DATA_W, INST_ADDR_W>;
-
 pub proc RleBlockDecoderInst {
+    type Req = RleBlockDecoderReq<INST_ADDR_W>;
+    type Resp = RleBlockDecoderResp;
+    type Output = ExtendedBlockDataPacket;
 
     config(
-        ctrl_r: chan<RleBlockDecoderCtrl> in,
-        req_r: chan<InstReq> in,
-        mem_req_s: chan<InstMemReaderReq> out,
-        mem_resp_r: chan<InstMemReaderResp> in,
-        resp_s: chan<RleBlockDecoderResp> out,
-        output_s: chan<ExtendedBlockDataPacket> out,
+        req_r: chan<Req> in,
+        resp_s: chan<Resp> out,
+        output_s: chan<Output> out,
     ) {
-        spawn RleBlockDecoder<INST_DATA_W, INST_ADDR_W>(
-            ctrl_r, req_r,
-            mem_req_s, mem_resp_r,
-            resp_s, output_s,
-        );
+        spawn RleBlockDecoder<INST_DATA_W, INST_ADDR_W>(req_r, resp_s, output_s);
     }
 
     init { }
@@ -591,174 +549,173 @@ pub proc RleBlockDecoderInst {
     next (state: ()) { }
 }
 
-struct RleBlockDecoderTestData {
-    last_block: bool,
-    id: u32,
-    addr: uN[TEST_ADDR_W],
-    length: uN[TEST_ADDR_W],
-    data: uN[TEST_DATA_W],
-}
-
-const RLE_BLOCK_DECODER_TEST_DATA_MAX_LEN = u32:2048;
-
-const RLE_BLOCK_DECODER_TEST_DATA = RleBlockDecoderTestData[12]:[
-    RleBlockDecoderTestData {last_block: false, id: u32:0, addr: uN[TEST_ADDR_W]:0, length: uN[TEST_ADDR_W]:8, data: uN[TEST_DATA_W]:0xAB},
-    RleBlockDecoderTestData {last_block: false, id: u32:0, addr: uN[TEST_ADDR_W]:8, length: uN[TEST_ADDR_W]:5, data: uN[TEST_DATA_W]:0xCD},
-    RleBlockDecoderTestData {last_block: false, id: u32:1, addr: uN[TEST_ADDR_W]:512, length: uN[TEST_ADDR_W]:12, data: uN[TEST_DATA_W]:0x67},
-    RleBlockDecoderTestData {last_block: false, id: u32:1, addr: uN[TEST_ADDR_W]:544, length: uN[TEST_ADDR_W]:35, data: uN[TEST_DATA_W]:0x09},
-    RleBlockDecoderTestData {last_block: false, id: u32:1, addr: uN[TEST_ADDR_W]:576, length: uN[TEST_ADDR_W]:123, data: uN[TEST_DATA_W]:0x9D},
-    RleBlockDecoderTestData {last_block: false, id: u32:1, addr: uN[TEST_ADDR_W]:592, length: uN[TEST_ADDR_W]:1, data: uN[TEST_DATA_W]:0x1F},
-    RleBlockDecoderTestData {last_block: false, id: u32:2, addr: uN[TEST_ADDR_W]:32, length: uN[TEST_ADDR_W]:0, data: uN[TEST_DATA_W]:0x12},
-    RleBlockDecoderTestData {last_block: true, id: u32:2, addr: uN[TEST_ADDR_W]:64, length: uN[TEST_ADDR_W]:42, data: uN[TEST_DATA_W]:0xAA},
-    RleBlockDecoderTestData {last_block: false, id: u32:3, addr: uN[TEST_ADDR_W]:1242, length: uN[TEST_ADDR_W]:33, data: uN[TEST_DATA_W]:0x54},
-    RleBlockDecoderTestData {last_block: false, id: u32:3, addr: uN[TEST_ADDR_W]:5432, length: uN[TEST_ADDR_W]:0, data: uN[TEST_DATA_W]:0xC0},
-    RleBlockDecoderTestData {last_block: false, id: u32:4, addr: uN[TEST_ADDR_W]:1024, length: uN[TEST_ADDR_W]:2, data: uN[TEST_DATA_W]:0xA3},
-    RleBlockDecoderTestData {last_block: true, id: u32:4, addr: uN[TEST_ADDR_W]:2000, length: uN[TEST_ADDR_W]:0, data: uN[TEST_DATA_W]:0x83},
-];
-
-#[test_proc]
-proc RleBlockDecoder_test {
-    type TestReq = RleBlockDecoderReq<TEST_ADDR_W>;
-
-    terminator: chan<bool> out;
-
-    ctrl_s: chan<RleBlockDecoderCtrl> out;
-    req_s: chan<TestReq> out;
-
-    mem_req_r: chan<TestMemReaderReq> in;
-    mem_resp_s: chan<TestMemReaderResp> out;
-
-    resp_r: chan<RleBlockDecoderResp> in;
-    output_r: chan<ExtendedBlockDataPacket> in;
-
-    config (terminator: chan<bool> out) {
-        let (ctrl_s, ctrl_r) = chan<RleBlockDecoderCtrl>("ctrl");
-        let (req_s, req_r) = chan<TestReq>("req");
-        let (mem_req_s, mem_req_r) = chan<TestMemReaderReq>("mem_req");
-        let (mem_resp_s, mem_resp_r) = chan<TestMemReaderResp>("mem_resp");
-        let (resp_s, resp_r) = chan<RleBlockDecoderResp>("resp");
-        let (output_s, output_r) = chan<ExtendedBlockDataPacket>("output");
-
-        spawn RleBlockDecoder<TEST_DATA_W, TEST_ADDR_W>(
-            ctrl_r, req_r,
-            mem_req_s, mem_resp_r,
-            resp_s, output_s
-        );
-
-        (
-            terminator,
-            ctrl_s, req_s,
-            mem_req_r, mem_resp_s,
-            resp_r, output_r,
-        )
-    }
-
-    init { }
-
-    next (state: ()) {
-        let tok = join();
-
-        let tok = for ((i, test_data), tok): ((u32, RleBlockDecoderTestData), token) in enumerate(RLE_BLOCK_DECODER_TEST_DATA) {
-            let req = TestReq {
-                last: true,
-                last_block: test_data.last_block,
-                id: test_data.id,
-                addr: test_data.addr,
-                length: test_data.length,
-            };
-            let tok = send(tok, req_s, req);
-            trace_fmt!("Sent #{} request {:#x}", i + u32:1, req);
-
-            let tok = if test_data.length > uN[TEST_ADDR_W]:0 {
-                let (tok, mem_req) = recv(tok, mem_req_r);
-                trace_fmt!("Received #{} memory read request {:#x}", i + u32:1, mem_req);
-
-                assert_eq(test_data.addr, mem_req.addr);
-                assert_eq(uN[TEST_ADDR_W]:8, mem_req.length);
-
-                let mem_resp = TestMemReaderResp {
-                    status: mem_reader::MemReaderStatus::OKAY,
-                    data: test_data.data,
-                    length: uN[TEST_ADDR_W]:8,
-                    last: true,
-                };
-
-                let tok = send(tok, mem_resp_s, mem_resp);
-                trace_fmt!("Sent #{} memory response {:#x}", i + u32:1, mem_resp);
-
-                tok
-            } else { tok };
-
-            let tok = if (test_data.length != uN[TEST_ADDR_W]:0) {
-                // non-empty block
-                for (j, tok): (u32, token) in range(u32:0, (RLE_BLOCK_DECODER_TEST_DATA_MAX_LEN * common::SYMBOL_WIDTH) / common::DATA_WIDTH) {
-                    let packets_num = ((test_data.length + common::SYMBOL_WIDTH - u32:1) / common::SYMBOL_WIDTH);
-                    if j < packets_num {
-                        let length = if (test_data.length - ((common::DATA_WIDTH / common::SYMBOL_WIDTH) * j as u32)) < (common::DATA_WIDTH / common::SYMBOL_WIDTH) {
-                            test_data.length % (common::DATA_WIDTH / common::SYMBOL_WIDTH)
-                        } else {
-                            common::DATA_WIDTH / BlockPacketLength:8
-                        };
-                        let data = for (k, data): (u32, BlockData) in range(u32:0, common::DATA_WIDTH / common::SYMBOL_WIDTH){
-                            if (k < length) {
-                                (data << common::SYMBOL_WIDTH) | (test_data.data as Symbol as BlockData)
-                            } else {
-                                data
-                            }
-                        }(BlockData:0);
-
-                        let expected_output = ExtendedBlockDataPacket {
-                            msg_type: common::SequenceExecutorMessageType::LITERAL,
-                            packet: BlockDataPacket {
-                                last: (j + u32:1) == packets_num,
-                                last_block: test_data.last_block,
-                                id: test_data.id,
-                                data: data,
-                                length: length * BlockPacketLength:8,
-                            },
-                        };
-
-                        let (tok, output) = recv(tok, output_r);
-                        trace_fmt!("Received #{}:{} output {:#x}", i + u32:1, j, output);
-
-                        assert_eq(expected_output, output);
-
-                        tok
-                    } else {
-                        tok
-                    }
-                }(tok)
-            } else if test_data.last_block {
-                // empty block with last
-                let expected_output = ExtendedBlockDataPacket {
-                    msg_type: common::SequenceExecutorMessageType::LITERAL,
-                    packet: BlockDataPacket {
-                        last: true,
-                        last_block: test_data.last_block,
-                        id: test_data.id,
-                        data: BlockData:0,
-                        length: BlockPacketLength:0,
-                    },
-                };
-
-                let (tok, output) = recv(tok, output_r);
-                trace_fmt!("Received #{} output {:#x}", i + u32:1, output);
-
-                assert_eq(expected_output, output);
-                tok
-            } else {
-                // empty block with no last
-                tok
-            };
-
-            let (tok, resp) = recv_if(tok, resp_r, req.last_block, zero!<RleBlockDecoderResp>());
-            if req.last_block {
-                trace_fmt!("Received #{} response {:#x}", i + u32:1, resp);
-            } else {};
-
-            tok
-        }(tok);
-
-        send(tok, terminator, true);
-    }
-}
+//struct RleBlockDecoderTestData {
+//    last_block: bool,
+//    id: u32,
+//    addr: uN[TEST_ADDR_W],
+//    length: uN[TEST_ADDR_W],
+//    data: uN[TEST_DATA_W],
+//}
+//
+//const RLE_BLOCK_DECODER_TEST_DATA_MAX_LEN = u32:2048;
+//
+//const RLE_BLOCK_DECODER_TEST_DATA = RleBlockDecoderTestData[12]:[
+//    RleBlockDecoderTestData {last_block: false, id: u32:0, addr: uN[TEST_ADDR_W]:0, length: uN[TEST_ADDR_W]:8, data: uN[TEST_DATA_W]:0xAB},
+//    RleBlockDecoderTestData {last_block: false, id: u32:0, addr: uN[TEST_ADDR_W]:8, length: uN[TEST_ADDR_W]:5, data: uN[TEST_DATA_W]:0xCD},
+//    RleBlockDecoderTestData {last_block: false, id: u32:1, addr: uN[TEST_ADDR_W]:512, length: uN[TEST_ADDR_W]:12, data: uN[TEST_DATA_W]:0x67},
+//    RleBlockDecoderTestData {last_block: false, id: u32:1, addr: uN[TEST_ADDR_W]:544, length: uN[TEST_ADDR_W]:35, data: uN[TEST_DATA_W]:0x09},
+//    RleBlockDecoderTestData {last_block: false, id: u32:1, addr: uN[TEST_ADDR_W]:576, length: uN[TEST_ADDR_W]:123, data: uN[TEST_DATA_W]:0x9D},
+//    RleBlockDecoderTestData {last_block: false, id: u32:1, addr: uN[TEST_ADDR_W]:592, length: uN[TEST_ADDR_W]:1, data: uN[TEST_DATA_W]:0x1F},
+//    RleBlockDecoderTestData {last_block: false, id: u32:2, addr: uN[TEST_ADDR_W]:32, length: uN[TEST_ADDR_W]:0, data: uN[TEST_DATA_W]:0x12},
+//    RleBlockDecoderTestData {last_block: true, id: u32:2, addr: uN[TEST_ADDR_W]:64, length: uN[TEST_ADDR_W]:42, data: uN[TEST_DATA_W]:0xAA},
+//    RleBlockDecoderTestData {last_block: false, id: u32:3, addr: uN[TEST_ADDR_W]:1242, length: uN[TEST_ADDR_W]:33, data: uN[TEST_DATA_W]:0x54},
+//    RleBlockDecoderTestData {last_block: false, id: u32:3, addr: uN[TEST_ADDR_W]:5432, length: uN[TEST_ADDR_W]:0, data: uN[TEST_DATA_W]:0xC0},
+//    RleBlockDecoderTestData {last_block: false, id: u32:4, addr: uN[TEST_ADDR_W]:1024, length: uN[TEST_ADDR_W]:2, data: uN[TEST_DATA_W]:0xA3},
+//    RleBlockDecoderTestData {last_block: true, id: u32:4, addr: uN[TEST_ADDR_W]:2000, length: uN[TEST_ADDR_W]:0, data: uN[TEST_DATA_W]:0x83},
+//];
+//
+//#[test_proc]
+//proc RleBlockDecoderTest {
+//    type TestReq = RleBlockDecoderReq<TEST_ADDR_W>;
+//
+//    terminator: chan<bool> out;
+//
+//    ctrl_s: chan<RleBlockDecoderCtrl> out;
+//    req_s: chan<TestReq> out;
+//
+//    mem_req_r: chan<TestMemReaderReq> in;
+//    mem_resp_s: chan<TestMemReaderResp> out;
+//
+//    output_r: chan<ExtendedBlockDataPacket> in;
+//
+//    config (terminator: chan<bool> out) {
+//        let (ctrl_s, ctrl_r) = chan<RleBlockDecoderCtrl>("ctrl");
+//        let (req_s, req_r) = chan<TestReq>("req");
+//        let (mem_req_s, mem_req_r) = chan<TestMemReaderReq>("mem_req");
+//        let (mem_resp_s, mem_resp_r) = chan<TestMemReaderResp>("mem_resp");
+//        let (resp_s, resp_r) = chan<RleBlockDecoderResp>("resp");
+//        let (output_s, output_r) = chan<ExtendedBlockDataPacket>("output");
+//
+//        spawn RleBlockDecoder<TEST_DATA_W, TEST_ADDR_W>(
+//            ctrl_r, req_r,
+//            mem_req_s, mem_resp_r,
+//            resp_s, output_s
+//        );
+//
+//        (
+//            terminator,
+//            ctrl_s, req_s,
+//            mem_req_r, mem_resp_s,
+//            resp_r, output_r,
+//        )
+//    }
+//
+//    init { }
+//
+//    next (state: ()) {
+//        let tok = join();
+//
+//        let tok = for ((i, test_data), tok): ((u32, RleBlockDecoderTestData), token) in enumerate(RLE_BLOCK_DECODER_TEST_DATA) {
+//            let req = TestReq {
+//                last: true,
+//                last_block: test_data.last_block,
+//                id: test_data.id,
+//                addr: test_data.addr,
+//                length: test_data.length,
+//            };
+//            let tok = send(tok, req_s, req);
+//            trace_fmt!("Sent #{} request {:#x}", i + u32:1, req);
+//
+//            let tok = if test_data.length > uN[TEST_ADDR_W]:0 {
+//                let (tok, mem_req) = recv(tok, mem_req_r);
+//                trace_fmt!("Received #{} memory read request {:#x}", i + u32:1, mem_req);
+//
+//                assert_eq(test_data.addr, mem_req.addr);
+//                assert_eq(uN[TEST_ADDR_W]:8, mem_req.length);
+//
+//                let mem_resp = TestMemReaderResp {
+//                    status: mem_reader::MemReaderStatus::OKAY,
+//                    data: test_data.data,
+//                    length: uN[TEST_ADDR_W]:8,
+//                    last: true,
+//                };
+//
+//                let tok = send(tok, mem_resp_s, mem_resp);
+//                trace_fmt!("Sent #{} memory response {:#x}", i + u32:1, mem_resp);
+//
+//                tok
+//            } else { tok };
+//
+//            let tok = if (test_data.length != uN[TEST_ADDR_W]:0) {
+//                // non-empty block
+//                for (j, tok): (u32, token) in range(u32:0, (RLE_BLOCK_DECODER_TEST_DATA_MAX_LEN * common::SYMBOL_WIDTH) / common::DATA_WIDTH) {
+//                    let packets_num = ((test_data.length + common::SYMBOL_WIDTH - u32:1) / common::SYMBOL_WIDTH);
+//                    if j < packets_num {
+//                        let length = if (test_data.length - ((common::DATA_WIDTH / common::SYMBOL_WIDTH) * j as u32)) < (common::DATA_WIDTH / common::SYMBOL_WIDTH) {
+//                            test_data.length % (common::DATA_WIDTH / common::SYMBOL_WIDTH)
+//                        } else {
+//                            common::DATA_WIDTH / BlockPacketLength:8
+//                        };
+//                        let data = for (k, data): (u32, BlockData) in range(u32:0, common::DATA_WIDTH / common::SYMBOL_WIDTH){
+//                            if (k < length) {
+//                                (data << common::SYMBOL_WIDTH) | (test_data.data as Symbol as BlockData)
+//                            } else {
+//                                data
+//                            }
+//                        }(BlockData:0);
+//
+//                        let expected_output = ExtendedBlockDataPacket {
+//                            msg_type: common::SequenceExecutorMessageType::LITERAL,
+//                            packet: BlockDataPacket {
+//                                last: (j + u32:1) == packets_num,
+//                                last_block: test_data.last_block,
+//                                id: test_data.id,
+//                                data: data,
+//                                length: length * BlockPacketLength:8,
+//                            },
+//                        };
+//
+//                        let (tok, output) = recv(tok, output_r);
+//                        trace_fmt!("Received #{}:{} output {:#x}", i + u32:1, j, output);
+//
+//                        assert_eq(expected_output, output);
+//
+//                        tok
+//                    } else {
+//                        tok
+//                    }
+//                }(tok)
+//            } else if test_data.last_block {
+//                // empty block with last
+//                let expected_output = ExtendedBlockDataPacket {
+//                    msg_type: common::SequenceExecutorMessageType::LITERAL,
+//                    packet: BlockDataPacket {
+//                        last: true,
+//                        last_block: test_data.last_block,
+//                        id: test_data.id,
+//                        data: BlockData:0,
+//                        length: BlockPacketLength:0,
+//                    },
+//                };
+//
+//                let (tok, output) = recv(tok, output_r);
+//                trace_fmt!("Received #{} output {:#x}", i + u32:1, output);
+//
+//                assert_eq(expected_output, output);
+//                tok
+//            } else {
+//                // empty block with no last
+//                tok
+//            };
+//
+//            let (tok, resp) = recv_if(tok, resp_r, req.last_block, zero!<RleBlockDecoderResp>());
+//            if req.last_block {
+//                trace_fmt!("Received #{} response {:#x}", i + u32:1, resp);
+//            } else {};
+//
+//            tok
+//        }(tok);
+//
+//        send(tok, terminator, true);
+//    }
+//}

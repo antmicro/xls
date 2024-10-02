@@ -138,7 +138,6 @@ proc MemWriter<
                         address: req_in.addr,
                         length: req_in.length
                     },
-                    ..state
                 }
             },
             Fsm::SEND_WRITE_REQ => {
@@ -520,7 +519,7 @@ proc MemWriterTest {
 
         // Crossing AXI 4kB boundary, aligned 2 burst transfers
         let tok = send(tok, req_in_s, TestReq {
-            offset: TestAddr:0x0FFC,
+            addr: TestAddr:0x0FFC,
             length: TestLength:8
         });
         let tok = send(tok, data_in_s, TestData {
@@ -574,7 +573,7 @@ proc MemWriterTest {
 
         // Crossing AXI 4kB boundary, unaligned 2 burst transfers
         let tok = send(tok, req_in_s, TestReq {
-            offset: TestAddr:0x1FFF,
+            addr: TestAddr:0x1FFF,
             length: TestLength:7
         });
         let tok = send(tok, data_in_s, TestData {

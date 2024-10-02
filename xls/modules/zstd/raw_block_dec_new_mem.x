@@ -234,7 +234,7 @@ proc RawBlockDecoderTest {
                 last_block: false,
                 id: u32:0,
                 data: Data:0x1122_3344,
-                length: Length:8,
+                length: Length:64,
             },
         });
 
@@ -269,7 +269,7 @@ proc RawBlockDecoderTest {
                 last_block: true,
                 id: u32:1,
                 data: Data:0x1122_3344_5566_7788,
-                length: Length:8,
+                length: Length:64,
             },
         });
 
@@ -281,7 +281,7 @@ proc RawBlockDecoderTest {
                 last_block: true,
                 id: u32:1,
                 data: Data:0xAA_BBCC_DDEE_FF99,
-                length: Length:7,
+                length: Length:56,
             },
         });
 

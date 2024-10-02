@@ -17,6 +17,7 @@
 load("@rules_hdl//place_and_route:build_defs.bzl", "place_and_route")
 load("@rules_hdl//synthesis:build_defs.bzl", "benchmark_synth", "synthesize_rtl")
 load("@rules_hdl//verilog:providers.bzl", "verilog_library")
+load("@xls_pip_deps//:requirements.bzl", "requirement")
 load(
     "//xls/build_rules:xls_build_defs.bzl",
     "xls_benchmark_ir",
@@ -26,7 +27,6 @@ load(
     "xls_dslx_test",
     "xls_dslx_verilog",
 )
-load("@xls_pip_deps//:requirements.bzl", "requirement")
 
 package(
     default_applicable_licenses = ["//:license"],
@@ -1260,7 +1260,7 @@ xls_dslx_library(
     deps = [
         ":block_header_dslx",
         ":common_dslx",
-        "//xls/modules/zstd/memory:mem_reader_dslx"
+        "//xls/modules/zstd/memory:mem_reader_dslx",
     ],
 )
 
@@ -1283,7 +1283,7 @@ xls_dslx_verilog(
     library = ":block_header_dec_dslx",
     opt_ir_args = {
         "inline_procs": "true",
-        "top": "__block_header_dec__BlockHeaderDecoderInst__BlockHeaderDecoder_0__32_32_next",
+        "top": "__block_header_dec__BlockHeaderDecoderInst__BlockHeaderDecoder_0__16_64_next",
     },
     tags = ["manual"],
     verilog_file = "block_header_dec.v",
@@ -1524,11 +1524,11 @@ xls_dslx_verilog(
         "reset": "rst",
         "use_system_verilog": "false",
     },
-    dslx_top = "FrameHeaderDecCsrConfigInst",
+    dslx_top = "FrameHeaderDecoderInst",
     library = ":frame_header_dec_dslx",
     opt_ir_args = {
         "inline_procs": "true",
-        "top": "__frame_header_dec__CsrConfigInst__CsrConfig_0__2_32_4_32_4_next",
+        "top": "__frame_header_dec__FrameHeaderDecoderInst__FrameHeaderDecoder_0__16_32_30_5_next",
     },
     tags = ["manual"],
     verilog_file = "frame_header_dec.v",
@@ -1587,19 +1587,19 @@ xls_dslx_library(
     ],
     deps = [
         ":axi_csr_accessor_dslx",
+        ":block_header_dec_dslx",
+        ":block_header_dslx",
         ":common_dslx",
         ":csr_config_dslx",
-        ":frame_header_dec_dslx",
-        ":block_header_dslx",
-        ":block_header_dec_dslx",
-        ":raw_block_dec_new_mem_dslx",
-        ":rle_block_dec_new_mem_dslx",
         ":dec_mux_dslx",
-        ":sequence_executor_dslx",
+        ":frame_header_dec_dslx",
+        ":raw_block_dec_new_mem_dslx",
         ":repacketizer_dslx",
+        ":rle_block_dec_new_mem_dslx",
+        ":sequence_executor_dslx",
         "//xls/examples:ram_dslx",
         "//xls/modules/zstd/memory:mem_reader_dslx",
-    ]
+    ],
 )
 
 xls_dslx_test(
@@ -1629,7 +1629,6 @@ xls_dslx_verilog(
     verilog_file = "dec.v",
 )
 
-
 xls_dslx_verilog(
     name = "dec_internal_verilog",
     codegen_args = {
@@ -1646,7 +1645,7 @@ xls_dslx_verilog(
     dslx_top = "ZstdDecoderInternalInst",
     library = ":dec_dslx",
     opt_ir_args = {
-        "top": "__dec__ZstdDecoderInternalInst__ZstdDecoderInternal_0__32_64_8_2_4_next",
+        "top": "__dec__ZstdDecoderInternalInst__ZstdDecoderInternal_0__16_32_8_4_16_next",
     },
     tags = ["manual"],
     verilog_file = "dec_internal.v",

@@ -268,7 +268,7 @@ async def test_decoder(dut, test_cases, block_type):
       #decoded_frame = memory.read(obuf_addr, memory.size-obuf_addr)
       #assert decoded_frame == expected_decoded_frame
 
-  await ClockCycles(dut.clk, 1000)
+  await ClockCycles(dut.clk, 5000)
 
 @cocotb.test(timeout_time=50, timeout_unit="ms")
 async def zstd_csr_test(dut):
@@ -280,12 +280,12 @@ async def zstd_raw_frames_test(dut):
   block_type = BlockType.RAW
   await test_decoder(dut, test_cases, block_type)
 
-#@cocotb.test(timeout_time=20000, timeout_unit="ms")
-#async def zstd_rle_frames_test(dut):
-#  test_cases = 1
-#  block_type = BlockType.RLE
-#  await test_decoder(dut, test_cases, block_type)
-#
+@cocotb.test(timeout_time=50000, timeout_unit="ms")
+async def zstd_rle_frames_test(dut):
+  test_cases = 1
+  block_type = BlockType.RLE
+  await test_decoder(dut, test_cases, block_type)
+
 #@cocotb.test(timeout_time=20000, timeout_unit="ms")
 #async def zstd_compressed_frames_test(dut):
 #  test_cases = 1

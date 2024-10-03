@@ -240,8 +240,8 @@ async def test_decoder(dut, test_cases, block_type):
 
   scoreboard = Scoreboard(dut)
 
-  terminate = Event()
-  set_termination_event(monitor_notify, terminate, 1)
+  assert_notify = Event()
+  set_termination_event(monitor_notify, assert_notify, 1)
 
   cpu = AxiMaster(csr_bus, dut.clk, dut.rst)
 
@@ -251,11 +251,13 @@ async def test_decoder(dut, test_cases, block_type):
       mem_size = MAX_ENCODED_FRAME_SIZE_B
       ibuf_addr = 0x0
       obuf_addr = mem_size // 2
+      assert_expected_output = Event()
       GenerateFrame(i+1, block_type, encoded.name)
       expected_decoded_frame = get_decoded_frame_bytes(encoded)
       print("Expected decoded frame: {}".format(expected_decoded_frame))
       expected_output_packets = generate_expected_output(expected_decoded_frame)
       print("Expected output: {}".format(expected_output_packets))
+      set_termination_event(monitor_output, assert_expected_output, len(expected_output_packets))
       scoreboard.add_interface(monitor_output, expected_output_packets)
       encoded.close()
       memory = AxiRamFromFile(bus=memory_bus, clock=dut.clk, reset=dut.rst, path=encoded.name, size=mem_size)
@@ -263,12 +265,13 @@ async def test_decoder(dut, test_cases, block_type):
       await configure_decoder(cpu, ibuf_addr, obuf_addr)
       await start_decoder(cpu)
       ##await mock_decoder(dut, memory, memory_bus, csr, csr_bus, encoded.name, obuf_addr)
-      #await terminate.wait()
-      #await wait_for_idle(cpu)
+      await assert_notify.wait()
+      await assert_expected_output.wait()
+      await wait_for_idle(cpu)
       #decoded_frame = memory.read(obuf_addr, memory.size-obuf_addr)
       #assert decoded_frame == expected_decoded_frame
 
-  await ClockCycles(dut.clk, 5000)
+  await ClockCycles(dut.clk, 20)
 
 @cocotb.test(timeout_time=50, timeout_unit="ms")
 async def zstd_csr_test(dut):

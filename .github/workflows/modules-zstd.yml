@@ -16,21 +16,19 @@ jobs:
   test:
     name: Test ZSTD module (opt)
     runs-on:
-      labels: ubuntu-22.04-64core
+      labels: ubuntu-22.04
     timeout-minutes: 600
     continue-on-error: true
     steps:
       - uses: actions/checkout@v2
 
-      - name: Restore Nightly Bazel Cache
-        uses: actions/cache/restore@v4
-        with:
-          path: "~/.cache/bazel"
-          key: bazel-cache-nightly-${{ runner.os }}-${{ github.sha }}
-          restore-keys: bazel-cache-nightly-${{ runner.os }}-
-
       - name: Install dependencies via apt
         run: sudo apt-get install python3-distutils python3-dev python-is-python3 libtinfo5  build-essential liblapack-dev libblas-dev gfortran
+
+      - name: Install Bazel
+        run: |
+          wget https://github.com/bazelbuild/bazelisk/releases/download/v1.20.0/bazelisk-linux-amd64 -O /usr/local/bin/bazel
+          chmod +x /usr/local/bin/bazel
 
       - name: Bazel Build Tools (opt)
         run: |

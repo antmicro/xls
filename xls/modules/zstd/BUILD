@@ -41,6 +41,11 @@ xls_dslx_library(
 )
 
 xls_dslx_test(
+    name = "const_array_value_as_range",
+    srcs = ["const_array_value_as_range.x"],
+)
+
+xls_dslx_test(
     name = "buffer_dslx_test",
     dslx_test_args = {"compare": "jit"},
     library = ":buffer_dslx",

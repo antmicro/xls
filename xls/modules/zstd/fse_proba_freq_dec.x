@@ -22,8 +22,17 @@ import xls.modules.zstd.common;
 import xls.modules.zstd.shift_buffer;
 import xls.modules.zstd.ram_wr_handler as ram_wr;
 
-type Remainder = common::FseRemainder;
-type DecoderCtrl = common::FseProbaFreqDecoderCtrl;
+pub const FSE_MAX_SYMBOLS = u32:256;
+pub const FSE_MAX_ACCURACY_LOG = u32:9;
+
+pub const FSE_ACCURACY_LOG_WIDTH = std::clog2(FSE_MAX_ACCURACY_LOG + u32:1);
+pub const FSE_SYMBOL_COUNT_WIDTH = std::clog2(FSE_MAX_SYMBOLS + u32:1);
+pub const FSE_REMAINING_PROBA_WIDTH = std::clog2((u32:1 << FSE_MAX_ACCURACY_LOG) + u32:1);
+
+pub type FseRemainingProba = uN[FSE_REMAINING_PROBA_WIDTH];
+pub type FseAccuracyLog = uN[FSE_ACCURACY_LOG_WIDTH];
+pub type FseSymbolCount = uN[FSE_SYMBOL_COUNT_WIDTH];
+
 type AccuracyLog = common::FseAccuracyLog;
 type RemainingProba = common::FseRemainingProba;
 type SymbolCount = common::FseSymbolCount;
@@ -32,19 +41,30 @@ type SequenceData = common::SequenceData;
 const SYMBOL_COUNT_WIDTH = common::FSE_SYMBOL_COUNT_WIDTH;
 const ACCURACY_LOG_WIDTH = common::FSE_ACCURACY_LOG_WIDTH;
 
-enum Status : u3 {
-    SEND_ACCURACY_LOG_REQ = 0,
-    RECV_ACCURACY_LOG = 1,
-    SEND_SYMBOL_REQ = 2,
-    RECV_SYMBOL = 3,
-    RECV_ZERO_PROBA = 4,
-    WRITE_ZERO_PROBA = 5,
-    WAIT_FOR_COMPLETION = 6,
-    INVALID = 7,
+pub struct Remainder { value: u1, valid: bool }
+
+enum FseProbaFreqDecoderStatus: u1 {
+    OK = 0,
+    ERROR = 1,
+}
+
+pub struct FseProbaFreqDecoderReq {}
+pub struct FseProbaFreqDecoderResp { status: FseProbaFreqDecoderStatus }
+
+enum Fsm : u4 {
+    IDLE                  = 0,
+    SEND_ACCURACY_LOG_REQ = 1,
+    RECV_ACCURACY_LOG     = 2,
+    SEND_SYMBOL_REQ       = 3,
+    RECV_SYMBOL           = 4,
+    RECV_ZERO_PROBA       = 5,
+    WRITE_ZERO_PROBA      = 6,
+    WAIT_FOR_COMPLETION   = 7,
+    INVALID               = 8,
 }
 
 struct State {
-    status: Status,
+    fsm: Fsm,
     // accuracy log used in the FSE decoding table
     accuracy_log: AccuracyLog,
     // remaining bit that can be a leftover from parsing small probability frequencies
@@ -70,24 +90,25 @@ pub proc FseInputBuffer<DATA_WIDTH: u32, LENGTH_WIDTH: u32> {
     type Length = bits[LENGTH_WIDTH];
 
     in_data_r: chan<SequenceData> in;
-    buff_in_data_s: chan<BufferInput> out;
+    buff_data_s: chan<BufferInput> out;
 
     config(
-        in_data_r: chan<SequenceData> in,
-        in_ctrl_r: chan<BufferCtrl> in,
-        out_data_s: chan<BufferOutput> out,
-        out_ctrl_s: chan<BufferOutput> out
+        data_r: chan<SequenceData> in,
+        ctrl_r: chan<BufferCtrl> in,
+        out_s: chan<BufferOutput> out,
     ) {
-        let (buff_in_data_s, buff_in_data_r) = chan<BufferInput, u32:1>("buff_in_data");
-        spawn shift_buffer::ShiftBuffer<DATA_WIDTH, LENGTH_WIDTH>(
-            buff_in_data_r, in_ctrl_r, out_data_s, out_ctrl_s);
+        let (buff_data_s, buff_data_r) = chan<BufferInput, u32:1>("buff_in_data");
 
-        (in_data_r, buff_in_data_s)
+        spawn shift_buffer::ShiftBuffer<DATA_WIDTH, LENGTH_WIDTH>(
+            buff_data_r, ctrl_r, out_s);
+
+        (data_r, buff_data_s)
     }
 
     init {  }
 
-    next(tok0: token, state: ()) {
+    next (state: ()) {
+        let tok0 = join();
         let (tok1, recv_data, recv_valid) = recv_non_blocking(tok0, in_data_r, zero!<SequenceData>());
 
         let shift_buffer_data = BufferInput {
@@ -96,7 +117,7 @@ pub proc FseInputBuffer<DATA_WIDTH: u32, LENGTH_WIDTH: u32> {
             last: recv_data.last
         };
 
-        send_if(tok1, buff_in_data_s, recv_valid, shift_buffer_data);
+        send_if(tok1, buff_data_s, recv_valid, shift_buffer_data);
     }
 }
 
@@ -107,7 +128,9 @@ fn get_bit_width(remaining_proba: RemainingProba) -> u16 {
 }
 
 // calculates mask for small probability frequency values
-fn get_lower_mask(bit_width: u16) -> u16 { (u16:1 << (bit_width - u16:1)) - u16:1 }
+fn get_lower_mask(bit_width: u16) -> u16 {
+    (u16:1 << (bit_width - u16:1)) - u16:1
+}
 
 // calculates threshold for a duplicated "upper" range of small probability frequencies
 fn get_threshold(bit_width: u16, remaining_proba: u16) -> u16 {
@@ -132,7 +155,6 @@ pub proc FseProbaFreqDecoder<
     type Length = bits[LENGTH_WIDTH];
     type BufferCtrl = shift_buffer::ShiftBufferCtrl<LENGTH_WIDTH>;
     type BufferOutput = shift_buffer::ShiftBufferOutput<DATA_WIDTH, LENGTH_WIDTH>;
-    type BufferOutputType = shift_buffer::ShiftBufferOutputType;
     type RamWriteReq = ram::WriteReq<RAM_ADDR_WIDTH, RAM_DATA_WIDTH, RAM_NUM_PARTITIONS>;
     type RamWriteResp = ram::WriteResp;
     type RamReadReq = ram::ReadReq<RAM_ADDR_WIDTH, RAM_NUM_PARTITIONS>;
@@ -140,21 +162,32 @@ pub proc FseProbaFreqDecoder<
     type RamAddr = bits[RAM_ADDR_WIDTH];
     type RamData = bits[RAM_DATA_WIDTH];
 
-    fse_table_ctrl_s: chan<DecoderCtrl> out;
+    type Req = FseProbaFreqDecoderReq;
+    type Resp = FseProbaFreqDecoderResp;
+    type Status = FseProbaFreqDecoderStatus;
+
+    req_r: chan<Req> in;
+    resp_s: chan<Resp> out;
+
     buff_in_ctrl_s: chan<BufferCtrl> out;
     buff_out_data_r: chan<BufferOutput> in;
-    buff_out_ctrl_r: chan<BufferOutput> in;
     resp_in_s: chan<bool> out;
     resp_out_r: chan<SymbolCount> in;
+
     rd_req_s: chan<RamReadReq> out;
     rd_resp_r: chan<RamReadResp> in;
     wr_req_s: chan<RamWriteReq> out;
 
     config(
-        fse_table_ctrl_s: chan<DecoderCtrl> out,
+        // control
+        req_r: chan<Req> in,
+        resp_s: chan<Resp> out,
+
+        // incomming data
         buff_in_ctrl_s: chan<BufferCtrl> out,
         buff_out_data_r: chan<BufferOutput> in,
-        buff_out_ctrl_r: chan<BufferOutput> in,
+
+        // created lookup
         rd_req_s: chan<RamReadReq> out,
         rd_resp_r: chan<RamReadResp> in,
         wr_req_s: chan<RamWriteReq> out,
@@ -163,10 +196,13 @@ pub proc FseProbaFreqDecoder<
         let (resp_in_s, resp_in_r) = chan<bool, u32:1>("resp_in");
         let (resp_out_s, resp_out_r) = chan<SymbolCount, u32:1>("resp_out");
 
-        spawn ram_wr::RamWrRespHandler<SYMBOL_COUNT_WIDTH>(resp_in_r, resp_out_s, wr_resp_r);
+        spawn ram_wr::RamWrRespHandler<SYMBOL_COUNT_WIDTH>(
+            resp_in_r, resp_out_s, wr_resp_r
+        );
+
         (
-            fse_table_ctrl_s,
-            buff_in_ctrl_s, buff_out_data_r, buff_out_ctrl_r,
+            req_r, resp_s,
+            buff_in_ctrl_s, buff_out_data_r,
             resp_in_s, resp_out_r,
             rd_req_s, rd_resp_r, wr_req_s,
         )
@@ -174,67 +210,78 @@ pub proc FseProbaFreqDecoder<
 
     init { zero!<State>() }
 
-    next(tok0: token, state: State) {
+    next(state: State) {
+        let tok0 = join();
+
         type BufferCtrl = shift_buffer::ShiftBufferCtrl<LENGTH_WIDTH>;
         type BufferOutput = shift_buffer::ShiftBufferOutput<DATA_WIDTH, LENGTH_WIDTH>;
+
         type RamWriteReq = ram::WriteReq<RAM_ADDR_WIDTH, RAM_DATA_WIDTH, RAM_NUM_PARTITIONS>;
         type RamWriteResp = ram::WriteResp;
         type RamReadReq = ram::ReadReq<RAM_ADDR_WIDTH, RAM_NUM_PARTITIONS>;
         type RamReadResp = ram::ReadResp<RAM_DATA_WIDTH>;
 
-        let (do_buff_ctrl_recv, do_buff_data_recv) = match (state.status) {
-            Status::RECV_ACCURACY_LOG => (true, false),
-            Status::RECV_SYMBOL => (false, true),
-            Status::RECV_ZERO_PROBA => (false, true),
-            _ => (false, false),
-        };
+        let do_recv_req = (state.fsm == Fsm::IDLE);
 
-        let (tok1_0, out_ctrl) =
-            recv_if(tok0, buff_out_ctrl_r, do_buff_ctrl_recv, zero!<BufferOutput>());
-        let (tok1_1, out_data) =
-            recv_if(tok0, buff_out_data_r, do_buff_data_recv, zero!<BufferOutput>());
+        let (tok1_0, _) = recv_if(tok0, req_r, do_recv_req, zero!<Req>());
+
+        let do_buff_data_recv = match (state.fsm) {
+            Fsm::RECV_ACCURACY_LOG => true,
+            Fsm::RECV_SYMBOL => true,
+            Fsm::RECV_ZERO_PROBA => true,
+            _ => false,
+        };
+        let (tok1_1, out_data) = recv_if(tok0, buff_out_data_r, do_buff_data_recv, zero!<BufferOutput>());
 
         let (tok1_2, written_symbol_count, written_symb_count_valid) =
             recv_non_blocking(tok0, resp_out_r, state.written_symbol_count);
 
-        let tok1 = join(tok1_0, tok1_1, tok1_2);
+        let tok1 = join(tok1_1, tok1_2);
 
-        let (buffer_ctrl_option, ram_option, new_state, finish_ctrl) = match state.status {
-            Status::SEND_ACCURACY_LOG_REQ => {
+        let (buffer_ctrl_option, ram_option, resp_option, new_state) = match state.fsm {
+            Fsm::IDLE => {
                 (
-                    (true, BufferCtrl { length: ACCURACY_LOG_WIDTH as Length, output: BufferOutputType::CTRL }),
+                    (false, zero!<BufferCtrl>()),
                     (false, zero!<RamWriteReq>()),
-                    State { status: Status::RECV_ACCURACY_LOG, written_symbol_count, ..state },
-                    zero!<DecoderCtrl>(),
+                    (false, zero!<Resp>()),
+                    State { fsm: Fsm::SEND_ACCURACY_LOG_REQ, ..state },
                 )
             },
-            Status::RECV_ACCURACY_LOG => {
-                let accuracy_log = AccuracyLog:5 + out_ctrl.data as AccuracyLog;
+            Fsm::SEND_ACCURACY_LOG_REQ => {
+                (
+                    (true, BufferCtrl { length: ACCURACY_LOG_WIDTH as Length }),
+                    (false, zero!<RamWriteReq>()),
+                    (false, zero!<Resp>()),
+                    State { fsm: Fsm::RECV_ACCURACY_LOG, written_symbol_count, ..state },
+                )
+            },
+            Fsm::RECV_ACCURACY_LOG => {
+                let accuracy_log = AccuracyLog:5 + out_data.data as AccuracyLog;
                 let remaining_proba = RemainingProba:1 << accuracy_log;
 
                 (
                     (false, zero!<BufferCtrl>()),
                     (false, zero!<RamWriteReq>()),
+                    (false, zero!<Resp>()),
                     State {
-                        status: Status::SEND_SYMBOL_REQ,
+                        fsm: Fsm::SEND_SYMBOL_REQ,
                         accuracy_log,
                         remaining_proba,
                         written_symbol_count,
                     ..state
                     },
-                    zero!<DecoderCtrl>(),
                 )
             },
-            Status::SEND_SYMBOL_REQ => {
+            Fsm::SEND_SYMBOL_REQ => {
                 let bit_width = get_bit_width(state.remaining_proba);
                 (
-                    (true, BufferCtrl { length: bit_width as Length, output: BufferOutputType::DATA }),
+                    (true, BufferCtrl { length: bit_width as Length }),
                     (false, zero!<RamWriteReq>()),
-                    State { status: Status::RECV_SYMBOL, written_symbol_count, ..state },
-                    zero!<DecoderCtrl>(),
+                    (false, zero!<Resp>()),
+                    State { fsm: Fsm::RECV_SYMBOL, written_symbol_count, ..state },
                 )
             },
-            Status::RECV_SYMBOL => {
+            Fsm::RECV_SYMBOL => {
                 let bit_width = get_bit_width(state.remaining_proba);
                 let lower_mask = get_lower_mask(bit_width);
                 let threshold = get_threshold(bit_width, state.remaining_proba as u16);
@@ -269,61 +316,55 @@ pub proc FseProbaFreqDecoder<
                             data: proba as RamData,
                             mask: std::unsigned_max_value<RAM_NUM_PARTITIONS>()
                         }),
+                        (false, zero!<Resp>()),
                         State {
-                            status: Status::WAIT_FOR_COMPLETION,
+                            fsm: Fsm::WAIT_FOR_COMPLETION,
                             written_symbol_count,
                             symbol_count,
                             remaining_proba,
                             remainder,
                         ..state
                         },
-                        zero!<DecoderCtrl>(),
                     )
                 // there are remaining symbols, and next symbol is normal
                 } else if remaining_proba > RemainingProba:0 && proba != s16:0 {
                     let next_bit_width = get_bit_width(remaining_proba) - remainder_count;
                     (
-                        (true, BufferCtrl {
-                            length: next_bit_width as Length,
-                            output: BufferOutputType::DATA
-                        }),
+                        (true, BufferCtrl { length: next_bit_width as Length }),
                         (true, RamWriteReq {
                             addr: state.symbol_count as RamAddr,
                             data: proba as RamData,
                             mask: std::unsigned_max_value<RAM_NUM_PARTITIONS>()
                         }),
+                        (false, zero!<Resp>()),
                         State {
-                            status: Status::RECV_SYMBOL,
+                            fsm: Fsm::RECV_SYMBOL,
                             written_symbol_count,
                             symbol_count,
                             remaining_proba,
                             remainder,
                         ..state
                         },
-                        zero!<DecoderCtrl>(),
                     )
                 // there are remaining symbols, and next data is info about zero probability
                 } else if remaining_proba > RemainingProba:0 && proba == s16:0 {
                     let next_bit_width = u16:2 - remainder_count;
                     (
-                        (true, BufferCtrl {
-                            length: next_bit_width as Length,
-                            output: BufferOutputType::DATA
-                        }),
+                        (true, BufferCtrl { length: next_bit_width as Length }),
                         (true, RamWriteReq {
                             addr: state.symbol_count as RamAddr,
                             data: proba as RamData,
                             mask: std::unsigned_max_value<RAM_NUM_PARTITIONS>()
                         }),
+                        (false, zero!<Resp>()),
                         State {
-                            status: Status::RECV_ZERO_PROBA,
+                            fsm: Fsm::RECV_ZERO_PROBA,
                             written_symbol_count,
                             symbol_count,
                             remaining_proba,
                             remainder,
                         ..state
-                        },
-                        zero!<DecoderCtrl>(),
+                        }
                     )
                 } else {
                     fail!(
@@ -331,36 +372,36 @@ pub proc FseProbaFreqDecoder<
                         (
                             (false, zero!<BufferCtrl>()),
                             (false, zero!<RamWriteReq>()),
-                            State { status: Status::INVALID, ..zero!<State>() },
-                            zero!<DecoderCtrl>(),
+                            (false, zero!<Resp>()),
+                            State { fsm: Fsm::INVALID, ..zero!<State>() },
                         ))
                 }
             },
-            Status::RECV_ZERO_PROBA => {
+            Fsm::RECV_ZERO_PROBA => {
                 let zero_proba_count = out_data.data as SymbolCount;
                 let zero_proba_length = out_data.length as SymbolCount;
                 let zero_proba_count = get_adjusted_value(zero_proba_count as u16, state.remainder) as SymbolCount;
 
                 // all zero probabilitis received
                 if zero_proba_count == SymbolCount:0 {
-                    let new_status = if state.remaining_proba > RemainingProba:0 {
-                        Status::SEND_SYMBOL_REQ
+                    let new_fsm = if state.remaining_proba > RemainingProba:0 {
+                        Fsm::SEND_SYMBOL_REQ
                     } else if state.remaining_proba == RemainingProba:0 {
-                        Status::WAIT_FOR_COMPLETION
+                        Fsm::WAIT_FOR_COMPLETION
                     } else {
-                        Status::INVALID
+                        Fsm::INVALID
                     };
 
                     (
                         (true, zero!<BufferCtrl>()),
                         (false, zero!<RamWriteReq>()),
+                        (false, zero!<Resp>()),
                         State {
-                            status: new_status,
+                            fsm: new_fsm,
                             remainder: zero!<Remainder>(),
                             written_symbol_count,
                         ..state
                         },
-                        zero!<DecoderCtrl>(),
                     )
                 // some zero probabilities left
                 } else {
@@ -368,19 +409,19 @@ pub proc FseProbaFreqDecoder<
                     (
                         (false, zero!<BufferCtrl>()),
                         (false, zero!<RamWriteReq>()),
+                        (false, zero!<Resp>()),
                         State {
-                            status: Status::WRITE_ZERO_PROBA,
+                            fsm: Fsm::WRITE_ZERO_PROBA,
                             remainder: zero!<Remainder>(),
                             written_symbol_count,
                             zero_proba_count,
                             next_recv_zero,
                         ..state
                         },
-                        zero!<DecoderCtrl>(),
                     )
                 }
             },
-            Status::WRITE_ZERO_PROBA => {
+            Fsm::WRITE_ZERO_PROBA => {
                 let zero_proba_count = state.zero_proba_count - SymbolCount:1;
                 let symbol_count = state.symbol_count + SymbolCount:1;
 
@@ -392,57 +433,61 @@ pub proc FseProbaFreqDecoder<
 
                 if zero_proba_count == SymbolCount:0 && state.next_recv_zero == true {
                     (
-                        (true, BufferCtrl { length: Length:2, output: BufferOutputType::DATA }),
+                        (true, BufferCtrl { length: Length:2 }),
                         (true, write_req),
+                        (false, zero!<Resp>()),
                         State {
-                            status: Status::RECV_ZERO_PROBA,
+                            fsm: Fsm::RECV_ZERO_PROBA,
                             next_recv_zero: false,
                             written_symbol_count,
                             zero_proba_count,
                             symbol_count,
                         ..state
                         },
-                        zero!<DecoderCtrl>(),
                     )
                 } else if zero_proba_count == SymbolCount:0 && state.next_recv_zero == false {
                     (
-                        (false, zero!<BufferCtrl>()), (true, write_req),
+                        (false, zero!<BufferCtrl>()),
+                        (true, write_req),
+                        (false, zero!<Resp>()),
                         State {
-                            status: Status::SEND_SYMBOL_REQ,
+                            fsm: Fsm::SEND_SYMBOL_REQ,
                             next_recv_zero: false,
                             zero_proba_count: SymbolCount:0,
                             written_symbol_count,
                             symbol_count,
                         ..state
-                        }, zero!<DecoderCtrl>(),
+                        },
                     )
                 } else {
                     (
-                        (false, zero!<BufferCtrl>()), (true, write_req),
+                        (false, zero!<BufferCtrl>()),
+                        (true, write_req),
+                        (false, zero!<Resp>()),
                         State {
-                            status: Status::WRITE_ZERO_PROBA,
+                            fsm: Fsm::WRITE_ZERO_PROBA,
                             zero_proba_count,
                             symbol_count,
                             written_symbol_count,
                         ..state
-                        }, zero!<DecoderCtrl>(),
+                        },
                     )
                 }
             },
-            Status::WAIT_FOR_COMPLETION => {
+            Fsm::WAIT_FOR_COMPLETION => {
                 if written_symbol_count == state.symbol_count {
                     (
                         (false, zero!<BufferCtrl>()),
                         (false, zero!<RamWriteReq>()),
+                        (true, Resp { status: Status::OK }),
                         zero!<State>(),
-                        DecoderCtrl { remainder: state.remainder, finished: true },
                     )
                 } else {
                     (
                         (false, zero!<BufferCtrl>()),
                         (false, zero!<RamWriteReq>()),
+                        (false, zero!<Resp>()),
                         state,
-                        zero!<DecoderCtrl>(),
                     )
                 }
             },
@@ -453,8 +498,8 @@ pub proc FseProbaFreqDecoder<
                     (
                         (false, zero!<BufferCtrl>()),
                         (false, zero!<RamWriteReq>()),
+                        (false, zero!<Resp>()),
                         state,
-                        zero!<DecoderCtrl>(),
                     ))
             },
         };
@@ -466,8 +511,8 @@ pub proc FseProbaFreqDecoder<
         let tok2_1 = send_if(tok1, wr_req_s, do_send_ram, ram_data);
         let tok2_2 = send_if(tok1, resp_in_s, do_send_ram, state.symbol_count == SymbolCount:0);
 
-        let (do_send_finish, finish_data) = (finish_ctrl.finished, finish_ctrl);
-        let tok2_3 = send_if(tok1, fse_table_ctrl_s, do_send_finish, finish_data);
+        let (do_send_finish, finish_data) = resp_option;
+        let tok2_3 = send_if(tok1, resp_s, do_send_finish, finish_data);
 
         // unused channels
         send_if(tok0, rd_req_s, false, zero!<RamReadReq>());
@@ -490,18 +535,18 @@ proc FseProbaFreqDecoderInst {
     rd_resp_r: chan<ram::ReadResp<INST_RAM_DATA_WIDTH>> in;
 
     config(
-        fse_table_ctrl_s: chan<DecoderCtrl> out,
+        req_r: chan<FseProbaFreqDecoderReq> in,
+        resp_s: chan<FseProbaFreqDecoderResp> out,
         buff_in_ctrl_s: chan<shift_buffer::ShiftBufferCtrl<INST_LENGTH_WIDTH>> out,
         buff_out_data_r: chan<shift_buffer::ShiftBufferOutput<INST_DATA_WIDTH, INST_LENGTH_WIDTH>> in,
-        buff_out_ctrl_r: chan<shift_buffer::ShiftBufferOutput<INST_DATA_WIDTH, INST_LENGTH_WIDTH>> in,
         rd_req_s: chan<ram::ReadReq<INST_RAM_ADDR_WIDTH, INST_RAM_NUM_PARTITIONS>> out,
         rd_resp_r: chan<ram::ReadResp<INST_RAM_DATA_WIDTH>> in,
         wr_req_s: chan<ram::WriteReq<INST_RAM_ADDR_WIDTH, INST_RAM_DATA_WIDTH, INST_RAM_NUM_PARTITIONS>> out,
         wr_resp_r: chan<ram::WriteResp> in) {
 
         spawn FseProbaFreqDecoder<INST_RAM_DATA_WIDTH, INST_RAM_SIZE, INST_RAM_WORD_PARTITION_SIZE>(
-            fse_table_ctrl_s,
-            buff_in_ctrl_s, buff_out_data_r, buff_out_ctrl_r,
+            req_r, resp_s,
+            buff_in_ctrl_s, buff_out_data_r,
             rd_req_s, rd_resp_r, wr_req_s, wr_resp_r
         );
 
@@ -509,7 +554,7 @@ proc FseProbaFreqDecoderInst {
     }
 
     init { }
-    next(tok: token, state: ()) { }
+    next(state: ()) { }
 }
 
 const TEST_RAM_DATA_WIDTH = u32:16;
@@ -528,14 +573,16 @@ proc FseProbaFreqDecoderTest {
     type WriteResp = ram::WriteResp;
     type BufferCtrl = shift_buffer::ShiftBufferCtrl<TEST_LENGTH_WIDTH>;
     type BufferOutput = shift_buffer::ShiftBufferOutput<TEST_DATA_WIDTH, TEST_LENGTH_WIDTH>;
-    type BufferOutputType = shift_buffer::ShiftBufferOutputType;
     type RamAddr = bits[TEST_RAM_ADDR_WIDTH];
     type RamData = uN[TEST_RAM_DATA_WIDTH];
     type RamDataSigned = sN[TEST_RAM_DATA_WIDTH];
+    type Req = FseProbaFreqDecoderReq;
+    type Resp = FseProbaFreqDecoderResp;
 
     terminator: chan<bool> out;
     seq_data_s: chan<SequenceData> out;
-    fse_table_ctrl_r: chan<DecoderCtrl> in;
+    req_s: chan<Req> out;
+    resp_r: chan<Resp> in;
     rd_req_s: chan<ReadReq> out;
     rd_resp_r: chan<ReadResp> in;
     wr_req_s: chan<WriteReq> out;
@@ -550,29 +597,32 @@ proc FseProbaFreqDecoderTest {
 
         // FseProbaFreqDecoder channels
         let (seq_data_s, seq_data_r) = chan<SequenceData>("seq_data");
-        let (fse_table_ctrl_s, fse_table_ctrl_r) = chan<DecoderCtrl>("fse_table_ctrl_s");
+
+        let (req_s, req_r) = chan<Req>("req");
+        let (resp_s, resp_r) = chan<Resp>("resp");
 
         let (buff_in_ctrl_s, buff_in_ctrl_r) = chan<BufferCtrl>("buff_in_ctrl");
         let (buff_out_data_s, buff_out_data_r) = chan<BufferOutput>("buff_out_data");
-        let (buff_out_ctrl_s, buff_out_ctrl_r) = chan<BufferOutput>("buff_out_ctrl");
 
         spawn FseInputBuffer<TEST_DATA_WIDTH, TEST_LENGTH_WIDTH>(
-            seq_data_r, buff_in_ctrl_r, buff_out_data_s, buff_out_ctrl_s);
+            seq_data_r, buff_in_ctrl_r, buff_out_data_s);
 
         spawn FseProbaFreqDecoder<TEST_RAM_DATA_WIDTH, TEST_RAM_SIZE, TEST_RAM_WORD_PARTITION_SIZE>(
-            fse_table_ctrl_s,
-            buff_in_ctrl_s, buff_out_data_r, buff_out_ctrl_r,
+            req_r, resp_s,
+            buff_in_ctrl_s, buff_out_data_r,
             rd_req_s, rd_resp_r, wr_req_s, wr_resp_r);
 
         spawn ram::RamModel<TEST_RAM_DATA_WIDTH, TEST_RAM_SIZE, TEST_RAM_WORD_PARTITION_SIZE>(
             rd_req_r, rd_resp_s, wr_req_r, wr_resp_s);
 
-        (terminator, seq_data_s, fse_table_ctrl_r, rd_req_s, rd_resp_r, wr_req_s, wr_resp_r)
+        (terminator, seq_data_s, req_s, resp_r, rd_req_s, rd_resp_r, wr_req_s, wr_resp_r)
     }
 
     init { }
 
-    next(tok: token, state: ()) {
+    next(state: ()) {
+        let tok = join();
+
         // * accuracy_log = 8
         // * probability frequencies:
         // | value | probability | bits (real) | symbol number |
@@ -606,7 +656,8 @@ proc FseProbaFreqDecoderTest {
             length: u32:47,
             last: false
         });
-        let (tok, _) = recv(tok, fse_table_ctrl_r);
+        let tok = send(tok, req_s, zero!<Req>());
+        let (tok, _) = recv(tok, resp_r);
 
         for ((i, exp_val), tok): ((u32, RamData), token) in enumerate(EXPECTED_RAM_CONTENTS) {
             let tok = send(tok, rd_req_s, ReadReq {
@@ -636,7 +687,8 @@ proc FseProbaFreqDecoderTest {
             length: u32:16,
             last: false
         });
-        let (tok, _) = recv(tok, fse_table_ctrl_r);
+        let tok = send(tok, req_s, zero!<Req>());
+        let (tok, _) = recv(tok, resp_r);
 
         for ((i, exp_val), tok): ((u32, RamData), token) in enumerate(EXPECTED_RAM_CONTENTS) {
             let tok = send(tok, rd_req_s, ReadReq {
@@ -666,7 +718,8 @@ proc FseProbaFreqDecoderTest {
             length: u32:16,
             last: false
         });
-        let (tok, _) = recv(tok, fse_table_ctrl_r);
+        let tok = send(tok, req_s, zero!<Req>());
+        let (tok, _) = recv(tok, resp_r);
 
         for ((i, exp_val), tok): ((u32, RamData), token) in enumerate(EXPECTED_RAM_CONTENTS) {
             let tok = send(tok, rd_req_s, ReadReq {

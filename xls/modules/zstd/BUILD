@@ -1114,8 +1114,30 @@ xls_dslx_library(
 
 xls_dslx_test(
     name = "comp_block_header_dec_dslx_test",
+    dslx_test_args = {"compare": "jit"},
     library = ":comp_block_header_dec_dslx",
 )
+
+
+xls_dslx_verilog(
+    name = "comp_block_header_dec_verilog",
+    codegen_args = window_buffer_codegen_args,
+    dslx_top = "LiteralsHeaderDecoderInst",
+    library = ":comp_block_header_dec_dslx",
+    tags = ["manual"],
+    verilog_file = "comp_block_header_dec.v",
+)
+
+xls_benchmark_ir(
+    name = "comp_block_header_dec_opt_ir_benchmark",
+    src = ":comp_block_header_dec_verilog.opt.ir",
+    benchmark_ir_args = {
+        "top": "__comp_block_header_dec__LiteralsHeaderDecoderInst__LiteralsHeaderDecoder_0__16_64_next",
+        "pipeline_stages": "10",
+    },
+    tags = ["manual"],
+)
+
 
 xls_dslx_library(
     name = "comp_block_dec_dslx",

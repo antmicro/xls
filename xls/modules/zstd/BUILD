@@ -1105,34 +1105,34 @@ place_and_route(
 )
 
 xls_dslx_library(
-    name = "comp_block_header_dec_dslx",
-    srcs = ["comp_block_header_dec.x"],
+    name = "literals_block_header_dec_dslx",
+    srcs = ["literals_block_header_dec.x"],
     deps = [
         "//xls/modules/zstd/memory:mem_reader_dslx",
     ],
 )
 
 xls_dslx_test(
-    name = "comp_block_header_dec_dslx_test",
+    name = "literals_block_header_dec_dslx_test",
     dslx_test_args = {"compare": "jit"},
-    library = ":comp_block_header_dec_dslx",
+    library = ":literals_block_header_dec_dslx",
 )
 
 
 xls_dslx_verilog(
-    name = "comp_block_header_dec_verilog",
+    name = "literals_block_header_dec_verilog",
     codegen_args = window_buffer_codegen_args,
     dslx_top = "LiteralsHeaderDecoderInst",
-    library = ":comp_block_header_dec_dslx",
+    library = ":literals_block_header_dec_dslx",
     tags = ["manual"],
-    verilog_file = "comp_block_header_dec.v",
+    verilog_file = "literals_block_header_dec.v",
 )
 
 xls_benchmark_ir(
-    name = "comp_block_header_dec_opt_ir_benchmark",
-    src = ":comp_block_header_dec_verilog.opt.ir",
+    name = "literals_block_header_dec_opt_ir_benchmark",
+    src = ":literals_block_header_dec_verilog.opt.ir",
     benchmark_ir_args = {
-        "top": "__comp_block_header_dec__LiteralsHeaderDecoderInst__LiteralsHeaderDecoder_0__16_64_next",
+        "top": "__literals_block_header_dec__LiteralsHeaderDecoderInst__LiteralsHeaderDecoder_0__16_64_next",
         "pipeline_stages": "10",
     },
     tags = ["manual"],
@@ -1147,7 +1147,7 @@ xls_dslx_library(
         "//xls/modules/zstd/memory:mem_reader_dslx",
         "//xls/modules/zstd/memory:axi_ram_dslx",
         ":fse_proba_freq_dec_dslx",
-        ":comp_block_header_dec_dslx",
+        ":literals_block_header_dec_dslx",
     ],
 )
 

@@ -1140,6 +1140,40 @@ xls_benchmark_ir(
 
 
 xls_dslx_library(
+    name = "sequence_conf_dec_dslx",
+    srcs = ["sequence_conf_dec.x"],
+    deps = [
+        "//xls/modules/zstd/memory:mem_reader_dslx",
+        ":common_dslx",
+    ],
+)
+
+xls_dslx_test(
+    name = "sequence_conf_dec_dslx_test",
+    dslx_test_args = {"compare": "jit"},
+    library = ":sequence_conf_dec_dslx",
+)
+
+xls_dslx_verilog(
+    name = "sequence_conf_dec_verilog",
+    codegen_args = window_buffer_codegen_args,
+    dslx_top = "SequenceConfDecoderInst",
+    library = ":sequence_conf_dec_dslx",
+    tags = ["manual"],
+    verilog_file = "sequence_conf_dec.v",
+)
+
+xls_benchmark_ir(
+    name = "sequence_conf_dec_opt_ir_benchmark",
+    src = ":sequence_conf_dec_verilog.opt.ir",
+    benchmark_ir_args = {
+        "top": "__sequence_conf_dec__SequenceConfDecoderInst__SequenceConfDecoder_0__16_64_next",
+        "pipeline_stages": "10",
+    },
+    tags = ["manual"],
+)
+
+xls_dslx_library(
     name = "comp_block_dec_dslx",
     srcs = ["comp_block_dec.x"],
     deps = [

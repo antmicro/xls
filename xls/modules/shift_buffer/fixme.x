@@ -12,17 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-fn fast_if<N: u32>(cond: bool, arg1: uN[N], arg2: uN[N]) -> uN[N] {
+pub fn fast_if<N: u32>(cond: bool, arg1: uN[N], arg2: uN[N]) -> uN[N] {
     let mask = if cond { !bits[N]:0 } else { bits[N]:0 };
     (arg1 & mask) | (arg2 & !mask)
 }
 
-fn fast_if_tuple_2<N: u32, M: u32>
+pub fn fast_if_tuple_2<N: u32, M: u32>
     (cond: bool, arg1: (uN[N], uN[M]), arg2: (uN[N], uN[M])) -> (uN[N], uN[M]) {
     (fast_if(cond, arg1.0, arg2.0), fast_if(cond, arg1.1, arg2.1))
 }
 
-fn fast_if_tuple_3<N: u32, M: u32, O: u32>
+pub fn fast_if_tuple_3<N: u32, M: u32, O: u32>
     (cond: bool, arg1: (uN[N], uN[M], uN[O]), arg2: (uN[N], uN[M], uN[O]))
     -> (uN[N], uN[M], uN[O]) {
     (fast_if(cond, arg1.0, arg2.0), fast_if(cond, arg1.1, arg2.1), fast_if(cond, arg1.2, arg2.2))

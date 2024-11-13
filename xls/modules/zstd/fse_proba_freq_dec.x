@@ -19,7 +19,7 @@
 import std;
 import xls.examples.ram;
 import xls.modules.zstd.common;
-import xls.modules.zstd.shift_buffer;
+import xls.modules.shift_buffer.shift_buffer;
 import xls.modules.zstd.ram_wr_handler as ram_wr;
 
 pub const FSE_MAX_SYMBOLS = u32:256;
@@ -83,7 +83,7 @@ struct State {
 
 // Adapter for input data, converting the data to a shift buffer input type
 pub proc FseInputBuffer<DATA_WIDTH: u32, LENGTH_WIDTH: u32> {
-    type BufferInput = shift_buffer::ShiftBufferInput<DATA_WIDTH, LENGTH_WIDTH>;
+    type BufferInput = shift_buffer::ShiftBufferPacket<DATA_WIDTH, LENGTH_WIDTH>;
     type BufferCtrl = shift_buffer::ShiftBufferCtrl<LENGTH_WIDTH>;
     type BufferOutput = shift_buffer::ShiftBufferOutput<DATA_WIDTH, LENGTH_WIDTH>;
     type Data = common::BlockData;
@@ -100,7 +100,7 @@ pub proc FseInputBuffer<DATA_WIDTH: u32, LENGTH_WIDTH: u32> {
         let (buff_data_s, buff_data_r) = chan<BufferInput, u32:1>("buff_in_data");
 
         spawn shift_buffer::ShiftBuffer<DATA_WIDTH, LENGTH_WIDTH>(
-            buff_data_r, ctrl_r, out_s);
+            ctrl_r, buff_data_r, out_s);
 
         (data_r, buff_data_s)
     }
@@ -256,7 +256,7 @@ pub proc FseProbaFreqDecoder<
                 )
             },
             Fsm::RECV_ACCURACY_LOG => {
-                let accuracy_log = AccuracyLog:5 + out_data.data as AccuracyLog;
+                let accuracy_log = AccuracyLog:5 + out_data.payload.data as AccuracyLog;
                 let remaining_proba = RemainingProba:1 << accuracy_log;
 
                 (
@@ -286,8 +286,8 @@ pub proc FseProbaFreqDecoder<
                 let lower_mask = get_lower_mask(bit_width);
                 let threshold = get_threshold(bit_width, state.remaining_proba as u16);
 
-                let mask = (u16:1 << out_data.length) - u16:1;
-                let data = out_data.data as u16;
+                let mask = (u16:1 << out_data.payload.length) - u16:1;
+                let data = out_data.payload.data as u16;
                 assert!(data & mask == data, "data should not contain additional bits");
 
                 let value = get_adjusted_value(data, state.remainder);
@@ -378,8 +378,8 @@ pub proc FseProbaFreqDecoder<
                 }
             },
             Fsm::RECV_ZERO_PROBA => {
-                let zero_proba_count = out_data.data as SymbolCount;
-                let zero_proba_length = out_data.length as SymbolCount;
+                let zero_proba_count = out_data.payload.data as SymbolCount;
+                let zero_proba_length = out_data.payload.length as SymbolCount;
                 let zero_proba_count = get_adjusted_value(zero_proba_count as u16, state.remainder) as SymbolCount;
 
                 // all zero probabilitis received
@@ -393,7 +393,7 @@ pub proc FseProbaFreqDecoder<
                     };
 
                     (
-                        (true, zero!<BufferCtrl>()),
+                        (false, zero!<BufferCtrl>()),
                         (false, zero!<RamWriteReq>()),
                         (false, zero!<Resp>()),
                         State {

@@ -190,7 +190,7 @@ proc ShiftBufferStorage<DATA_WIDTH: u32, LENGTH_WIDTH: u32> {
         type OutputPayload = ShiftBufferPacket<DATA_WIDTH, LENGTH_WIDTH>;
         type OutputStatus = ShiftBufferStatus;
         type DataLength = bits[LENGTH_WIDTH];
-trace_fmt!("state: {:#x}", state);
+        trace_fmt!("state: {:#x}", state);
 
         const MAX_BUFFER_CNT = (DATA_WIDTH * u32:3) as BufferLength;
 
@@ -480,7 +480,7 @@ proc ShiftBufferStorageTest {
     }
 }
 
-proc ShiftBuffer<DATA_WIDTH: u32, LENGTH_WIDTH: u32> {
+pub proc ShiftBuffer<DATA_WIDTH: u32, LENGTH_WIDTH: u32> {
     type Input = ShiftBufferPacket;
     type Ctrl = ShiftBufferCtrl;
     type Inter = ShiftBufferPacket;

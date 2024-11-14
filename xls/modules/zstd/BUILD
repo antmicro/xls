@@ -94,6 +94,7 @@ window_buffer_codegen_args = common_codegen_args | {
     "module_name": "WindowBuffer64",
     "clock_period_ps": "0",
     "pipeline_stages": "1",
+    "worst_case_throughput": "2",
 }
 
 xls_dslx_verilog(
@@ -1096,6 +1097,56 @@ xls_benchmark_ir(
     src = ":sequence_conf_dec_verilog.opt.ir",
     benchmark_ir_args = {
         "top": "__sequence_conf_dec__SequenceConfDecoderInst__SequenceConfDecoder_0__16_64_next",
+        "pipeline_stages": "10",
+    },
+    tags = ["manual"],
+)
+
+xls_dslx_library(
+    name = "refilling_shift_buffer_dslx",
+    srcs = ["refilling_shift_buffer.x"],
+    deps = [
+        "//xls/modules/shift_buffer:shift_buffer_dslx",
+        "//xls/modules/zstd/memory:mem_reader_dslx",
+    ],
+)
+
+xls_dslx_test(
+    name = "refilling_shift_buffer_dslx_test",
+    dslx_test_args = {"compare": "jit"},
+    library = ":refilling_shift_buffer_dslx",
+)
+
+xls_dslx_verilog(
+    name = "refilling_shift_buffer_verilog",
+    codegen_args = common_codegen_args | {
+        "module_name": "RefillingShiftBuffer",
+        "clock_period_ps": "1000",
+        "pipeline_stages": "2",
+        "worst_case_throughput": "2",
+    },
+    dslx_top = "RefillingShiftBufferInst",
+    library = ":refilling_shift_buffer_dslx",
+    tags = ["manual"],
+    verilog_file = "refilling_shift_buffer.v",
+    opt_ir_args = {
+        "inline_procs": "true",
+        "top": "__refilling_shift_buffer__RefillingShiftBufferInst__RefillingShiftBuffer_0__32_64_8_7_next",
+    },
+)
+
+xls_benchmark_ir(
+    name = "refilling_shift_buffer_opt_ir_benchmark",
+    src = ":refilling_shift_buffer_verilog.opt.ir",
+    codegen_args = common_codegen_args | {
+        "module_name": "RefillingShiftBuffer",
+        "clock_period_ps": "1000",
+        "pipeline_stages": "2",
+        "worst_case_throughput": "2",
+    },
+
+    benchmark_ir_args = {
+        "top": "__refilling_shift_buffer__RefillingShiftBufferInst__RefillingShiftBuffer_0__32_64_8_7_next",
         "pipeline_stages": "10",
     },
     tags = ["manual"],

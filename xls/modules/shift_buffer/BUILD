@@ -233,7 +233,7 @@ xls_dslx_verilog(
     library = ":shift_buffer_inst_dslx",
     opt_ir_args = {
         "inline_procs": "true",
-        "top": "__xls_modules_shift_buffer_shift_buffer__ShiftBufferInst__ShiftBuffer__ShiftBufferStorage_0__64_7_next",
+        "top": "__xls_modules_shift_buffer_shift_buffer__ShiftBufferInst__ShiftBuffer_0__ShiftBufferStorage_0__64_7_next",
     },
     verilog_file = "shift_buffer.v",
 )

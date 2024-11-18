@@ -80,23 +80,11 @@ pub proc RefillingShiftBuffer<
     }
 
     next(state: State) {
-        const REFILL_SIZE = (DATA_W_DIV8 * u32:2) as uN[ADDR_W];
+        const REFILL_SIZE = DATA_W_DIV8 as uN[ADDR_W];
         
         let tok = join();
         let (tok_start, start_req, start_req_valid) = recv_non_blocking(tok, start_req_r, zero!<RefillStart>());
-        
-        let next_curr_addr = if (start_req_valid) {
-            start_req.start_addr
-        } else {
-            state.curr_addr + DATA_W_DIV8 as uN[ADDR_W]
-        };
-
         let (tok_stop, (), stop_req_valid) = recv_non_blocking(tok, stop_req_r, ());
-        let next_state = if (stop_req_valid) {
-            RefillerStatus::STOPPED
-        } else {
-            state.status
-        };
 
         let next_state = match (start_req_valid, stop_req_valid, state.status) {
             // start takes precedence over stop
@@ -195,7 +183,7 @@ proc RefillingShiftBufferTest {
     next(state: ()) {
         let tok = join();
 
-        const REFILL_SIZE = (TEST_DATA_W_DIV8 * u32:2) as uN[TEST_ADDR_W];
+        const REFILL_SIZE = TEST_DATA_W_DIV8 as uN[TEST_ADDR_W];
         let tok = send(tok, start_req_s, StartReq { start_addr: uN[TEST_ADDR_W]:0xDEAD_0008 });
         let (tok, req) = recv(tok, reader_req_r);
         assert_eq(req, MemReaderReq {
@@ -208,22 +196,31 @@ proc RefillingShiftBufferTest {
             length: TEST_DATA_W,
             last: false,
         });
-        let tok = send(tok, reader_resp_s, MemReaderResp {
-            status: MemReaderStatus::OKAY,
-            data: uN[TEST_DATA_W]:0xFEBCBA_76543210,
-            length: TEST_DATA_W,
-            last: false,
-        });
 
+        // read single byte
         let tok = send(tok, buffer_ctrl_s, SBCtrl {
-            length: uN[TEST_LENGTH_W]:0x8
+            length: uN[TEST_LENGTH_W]:8
         });
         let (tok, resp) = recv(tok, buffer_data_out_r);
         assert_eq(resp, SBOutput {
             status: SBStatus::OK,
             payload: SBPacket {
                 data: uN[TEST_DATA_W]:0xEF,
-                length: uN[TEST_LENGTH_W]:0x8,
+                length: uN[TEST_LENGTH_W]:8,
+                last: false,
+            }
+        });
+
+        // read rest of the data in the buffer
+        let tok = send(tok, buffer_ctrl_s, SBCtrl {
+            length: uN[TEST_LENGTH_W]:56
+        });
+        let (tok, resp) = recv(tok, buffer_data_out_r);
+        assert_eq(resp, SBOutput {
+            status: SBStatus::OK,
+            payload: SBPacket {
+                data: uN[TEST_DATA_W]:0x01234567_89ABCD,
+                length: uN[TEST_LENGTH_W]:56,
                 last: false,
             }
         });

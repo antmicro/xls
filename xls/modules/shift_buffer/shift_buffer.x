@@ -47,7 +47,7 @@ struct ShiftBufferAlignerState<LENGTH_WIDTH: u32> {
     ptr: uN[LENGTH_WIDTH]
 }
 
-proc ShiftBufferAligner<
+pub proc ShiftBufferAligner<
     DATA_WIDTH: u32,
     LENGTH_WIDTH: u32 = {length_width(DATA_WIDTH)},
     DATA_WIDTH_X2: u32 = {DATA_WIDTH * u32:2},
@@ -158,7 +158,7 @@ struct ShiftBufferStorageState<BUFFER_WIDTH: u32, LENGTH_WIDTH: u32> {
     status: ShiftBufferStatus,
 }
 
-proc ShiftBufferStorage<DATA_WIDTH: u32, LENGTH_WIDTH: u32> {
+pub proc ShiftBufferStorage<DATA_WIDTH: u32, LENGTH_WIDTH: u32> {
     type Buffer = bits[DATA_WIDTH * u32:3];
     type BufferLength = bits[LENGTH_WIDTH + u32:2];
     type Data = bits[DATA_WIDTH];

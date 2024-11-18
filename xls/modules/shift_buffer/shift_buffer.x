@@ -62,8 +62,15 @@ pub proc ShiftBufferAligner<
 
     input_r: chan<Input> in;
     inter_s: chan<Inter> out;
+    flush_r: chan<()> in;
 
-    config(input_r: chan<Input> in, inter_s: chan<Inter> out) { (input_r, inter_s) }
+    config(
+        input_r: chan<Input> in,
+        inter_s: chan<Inter> out,
+        flush_r: chan<()> in
+    ) {
+        (input_r, inter_s, flush_r)
+    }
 
     init {zero!<State>()}
 
@@ -71,14 +78,22 @@ pub proc ShiftBufferAligner<
         // FIXME: Remove when https://github.com/google/xls/issues/1368 is resolved
         type Inter = ShiftBufferPacket<DATA_WIDTH_X2, LENGTH_WIDTH>;
 
-        let (tok, data) = recv(join(), input_r);
-        let tok = send(tok, inter_s, Inter {
+        let tok = join();
+
+        let (tok0, data) = recv(tok, input_r);
+        let tok0 = send(tok0, inter_s, Inter {
             length: data.length,
             data: math::logshiftl(data.data as DataX2, state.ptr),
             last: data.last
         });
 
-        State {ptr: (state.ptr + data.length) % (DATA_WIDTH as Length) }
+        let (tok, (), flush) = recv_non_blocking(tok, flush_r, ());
+
+        if flush {
+            zero!<State>()
+        } else {
+            State {ptr: (state.ptr + data.length) % (DATA_WIDTH as Length) }
+        }
     }
 }
 
@@ -98,14 +113,16 @@ proc ShiftBufferAlignerTest {
 
     input_s: chan<Input> out;
     inter_r: chan<Inter> in;
+    flush_s: chan<()> out;
 
     config(terminator: chan<bool> out) {
         let (input_s, input_r) = chan<Input>("input");
         let (inter_s, inter_r) = chan<Inter>("inter");
+        let (flush_s, flush_r) = chan<()>("flush");
 
-        spawn ShiftBufferAligner<ALIGNER_TEST_DATA_WIDTH>(input_r, inter_s);
+        spawn ShiftBufferAligner<ALIGNER_TEST_DATA_WIDTH>(input_r, inter_s, flush_r);
 
-        (terminator, input_s, inter_r)
+        (terminator, input_s, inter_r, flush_s)
     }
 
     init {  }
@@ -170,11 +187,15 @@ pub proc ShiftBufferStorage<DATA_WIDTH: u32, LENGTH_WIDTH: u32> {
     ctrl: chan<Ctrl<LENGTH_WIDTH>> in;
     inter: chan<Inter<{DATA_WIDTH * u32:2}, LENGTH_WIDTH>> in;
     output: chan<Output<DATA_WIDTH, LENGTH_WIDTH>> out;
+    flush: chan<()> in;
 
-    config(ctrl: chan<Ctrl<LENGTH_WIDTH>> in,
-           inter: chan<Inter<{DATA_WIDTH * u32:2}, LENGTH_WIDTH>> in,
-           output: chan<Output<DATA_WIDTH, LENGTH_WIDTH>> out) {
-        (ctrl, inter, output)
+    config(
+        ctrl: chan<Ctrl<LENGTH_WIDTH>> in,
+        inter: chan<Inter<{DATA_WIDTH * u32:2}, LENGTH_WIDTH>> in,
+        output: chan<Output<DATA_WIDTH, LENGTH_WIDTH>> out,
+        flush: chan<()> in,
+    ) {
+        (ctrl, inter, output, flush)
     }
 
     init {
@@ -194,142 +215,121 @@ pub proc ShiftBufferStorage<DATA_WIDTH: u32, LENGTH_WIDTH: u32> {
 
         const MAX_BUFFER_CNT = (DATA_WIDTH * u32:3) as BufferLength;
 
-        let status = if (state.last && state.cmd_valid && state.cmd.length as BufferLength > state.buffer_cnt || state.status == OutputStatus::ERROR) {
-            OutputStatus::ERROR
+        let shift_buffer_right = state.read_ptr >= (DATA_WIDTH as BufferLength);
+        trace_fmt!("shift_buffer_right: {:#x}", shift_buffer_right);
+        let shift_data_left =
+            state.write_ptr >= (DATA_WIDTH as BufferLength) && !shift_buffer_right;
+        trace_fmt!("shift_data_left: {:#x}", shift_data_left);
+        let recv_new_input = !state.last && state.write_ptr < (DATA_WIDTH * u32:2) as BufferLength;
+        trace_fmt!("recv_new_input: {:#x}", recv_new_input);
+        let has_enough_data = (state.cmd.length as BufferLength <= state.buffer_cnt);
+        let send_response = state.cmd_valid && (has_enough_data || state.last);
+        trace_fmt!("send_response: {:#x}", send_response);
+        let recv_new_cmd = !state.cmd_valid || send_response;
+        trace_fmt!("recv_new_cmd: {:#x}", recv_new_cmd);
+
+        let tok = join();
+
+        // handle flushing
+        let (tok_flush, (), flush_valid) = recv_non_blocking(tok, flush, ());
+
+        // Shift buffer if required
+        let (new_buffer, new_read_ptr, new_write_ptr) = fixme::fast_if_tuple_3(shift_buffer_right,
+            {
+                (state.buffer >> DATA_WIDTH,
+                state.read_ptr - DATA_WIDTH as BufferLength,
+                state.write_ptr - DATA_WIDTH as BufferLength)
+            }, {
+                (state.buffer,
+                state.read_ptr,
+                state.write_ptr)
+            }
+        );
+
+        if (shift_buffer_right) {
+            trace_fmt!("Shifted data");
+            trace_fmt!("new_buffer: {:#x}", new_buffer);
+            trace_fmt!("new_read_ptr: {}", new_read_ptr);
+            trace_fmt!("new_write_ptr: {}", new_write_ptr);
+        } else { () };
+
+        // Handle incoming writes
+        let (tok_input, wdata, wdata_valid) = recv_if_non_blocking(tok, inter, recv_new_input, zero!<Inter>());
+
+        let (new_buffer, new_write_ptr, new_last) = fixme::fast_if_tuple_3(wdata_valid,
+            {
+                // Shift data if required
+                let new_data = fixme::fast_if(shift_data_left,
+                    {
+                        wdata.data as Buffer << DATA_WIDTH
+                    }, {
+                        wdata.data as Buffer
+                    }
+                );
+                let new_buffer = new_buffer | new_data;
+                let new_write_ptr = new_write_ptr + wdata.length as BufferLength;
+                let new_last = wdata.last;
+
+                (new_buffer, new_write_ptr, new_last)
+            }, {
+                (new_buffer, new_write_ptr, state.last)
+            }
+        );
+
+        if (wdata_valid) {
+            trace_fmt!("Received aligned data {:#x}", wdata);
+            trace_fmt!("new_buffer: {:#x}", new_buffer);
+            trace_fmt!("new_write_ptr: {}", new_write_ptr);
+            trace_fmt!("new_last: {:#x}", new_last);
+        } else { () };
+
+        // Handle incoming reads
+        let (tok_ctrl, new_cmd, new_cmd_valid) =
+            recv_if_non_blocking(tok, ctrl, recv_new_cmd, state.cmd);
+
+        if (new_cmd_valid) {
+            trace_fmt!("Received new cmd: {}", new_cmd);
+        } else {()};
+        let new_cmd_valid = if recv_new_cmd { new_cmd_valid } else { state.cmd_valid };
+        // Handle current read
+
+        let (rdata, new_read_ptr) = if send_response {
+            let new_read_ptr = new_read_ptr + state.cmd.length as BufferLength;
+            let rdata = Output {
+                payload: OutputPayload {
+                    length: state.cmd.length,
+                    data: math::mask(math::logshiftr(state.buffer, state.read_ptr) as Data, state.cmd.length),
+                    last: state.last && state.cmd.length as BufferLength == state.buffer_cnt,
+                },
+                status: OutputStatus::OK,
+            };
+
+            trace_fmt!("rdata: {:#x}", rdata);
+            trace_fmt!("new_read_ptr: {}", new_read_ptr);
+
+            (rdata, new_read_ptr)
         } else {
-            OutputStatus::OK
+            (Output { payload: zero!<OutputPayload>(), status: OutputStatus::OK }, new_read_ptr)
         };
-        let new_state = match state.status {
-            OutputStatus::OK => {
-                let shift_buffer_right = state.read_ptr >= (DATA_WIDTH as BufferLength);
-                trace_fmt!("shift_buffer_right: {:#x}", shift_buffer_right);
-                let shift_data_left =
-                    state.write_ptr >= (DATA_WIDTH as BufferLength) && !shift_buffer_right;
-                trace_fmt!("shift_data_left: {:#x}", shift_data_left);
-                let recv_new_input = !state.last && state.write_ptr < (DATA_WIDTH * u32:2) as BufferLength;
-                trace_fmt!("recv_new_input: {:#x}", recv_new_input);
-                let recv_new_data = (state.cmd.length as BufferLength <= state.buffer_cnt);
-                let send_response = state.cmd_valid && recv_new_data || (state.last && state.cmd_valid);
-                trace_fmt!("send_response: {:#x}", send_response);
-                let recv_new_cmd = !state.cmd_valid || send_response && (status != OutputStatus::ERROR);
-                trace_fmt!("recv_new_cmd: {:#x}", recv_new_cmd);
 
-                let tok = join();
+        let tok = join(tok_input, tok_ctrl);
+        send_if(tok, output, send_response, rdata);
+        if (send_response) {
+            trace_fmt!("Sent out rdata: {:#x}", rdata);
+        } else {()};
 
-                // Shift buffer if required
-                let (new_buffer, new_read_ptr, new_write_ptr) = fixme::fast_if_tuple_3(shift_buffer_right,
-                    {
-                        (state.buffer >> DATA_WIDTH,
-                        state.read_ptr - DATA_WIDTH as BufferLength,
-                        state.write_ptr - DATA_WIDTH as BufferLength)
-                    }, {
-                        (state.buffer,
-                        state.read_ptr,
-                        state.write_ptr)
-                    }
-                );
+        let new_buffer_cnt = new_write_ptr - new_read_ptr;
+        let new_last = new_last && new_buffer_cnt != BufferLength:0;
 
-                if (shift_buffer_right) {
-                    trace_fmt!("Shifted data");
-                    trace_fmt!("new_buffer: {:#x}", new_buffer);
-                    trace_fmt!("new_read_ptr: {}", new_read_ptr);
-                    trace_fmt!("new_write_ptr: {}", new_write_ptr);
-                } else { () };
-
-                // Handle incoming writes
-                let (tok_input, wdata, wdata_valid) = recv_if_non_blocking(tok, inter, recv_new_input, zero!<Inter>());
-
-                let (new_buffer, new_write_ptr, new_last) = fixme::fast_if_tuple_3(wdata_valid,
-                    {
-                        // Shift data if required
-                        let new_data = fixme::fast_if(shift_data_left,
-                            {
-                                wdata.data as Buffer << DATA_WIDTH
-                            }, {
-                                wdata.data as Buffer
-                            }
-                        );
-                        let new_buffer = new_buffer | new_data;
-                        let new_write_ptr = new_write_ptr + wdata.length as BufferLength;
-                        let new_last = wdata.last;
-
-                        (new_buffer, new_write_ptr, new_last)
-                    }, {
-                        (new_buffer, new_write_ptr, state.last)
-                    }
-                );
-
-                if (wdata_valid) {
-                    trace_fmt!("Received aligned data {:#x}", wdata);
-                    trace_fmt!("new_buffer: {:#x}", new_buffer);
-                    trace_fmt!("new_write_ptr: {}", new_write_ptr);
-                    trace_fmt!("new_last: {:#x}", new_last);
-                } else { () };
-
-                // Handle incoming reads
-                let (tok_ctrl, new_cmd, new_cmd_valid) =
-                    recv_if_non_blocking(tok, ctrl, recv_new_cmd, state.cmd);
-
-                if (new_cmd_valid) {
-                    trace_fmt!("Received new cmd: {}", new_cmd);
-                } else {()};
-                let new_cmd_valid = if recv_new_cmd { new_cmd_valid } else { state.cmd_valid };
-
-                // Handle current read
-                let (rdata, new_read_ptr) = if send_response {
-                    let new_read_ptr = new_read_ptr + state.cmd.length as BufferLength;
-                    let rdata = if (status == OutputStatus::ERROR) {
-                        Output {
-                            payload: OutputPayload {
-                                length: DataLength:0,
-                                data: Data:0,
-                                last: false,
-                            },
-                            status: status
-                        }
-                    } else {
-                        Output {
-                            payload: OutputPayload {
-                                length: state.cmd.length,
-                                data: math::mask(math::logshiftr(state.buffer, state.read_ptr) as Data, state.cmd.length),
-                                last: state.last && state.cmd.length as BufferLength == state.buffer_cnt,
-                            },
-                            status: OutputStatus::OK,
-                        }
-                    };
-
-                    trace_fmt!("rdata: {:#x}", rdata);
-                    trace_fmt!("new_read_ptr: {}", new_read_ptr);
-
-                    (rdata, new_read_ptr)
-                } else {
-                    (Output { payload: zero!<OutputPayload>(), status: status }, new_read_ptr)
-                };
-
-                let tok = join(tok_input, tok_ctrl);
-                send_if(tok, output, send_response, rdata);
-                if (send_response) {
-                    trace_fmt!("Sent out rdata: {:#x}", rdata);
-                } else {()};
-
-                let new_buffer_cnt = new_write_ptr - new_read_ptr;
-                let new_last = new_last && new_buffer_cnt != BufferLength:0;
-
-                let new_state = State {
-                    buffer: new_buffer,
-                    buffer_cnt: new_buffer_cnt,
-                    read_ptr: new_read_ptr,
-                    write_ptr: new_write_ptr,
-                    last: new_last,
-                    cmd: new_cmd,
-                    cmd_valid: new_cmd_valid,
-                    status: rdata.status
-                };
-                new_state
-            },
-            OutputStatus::ERROR =>
-                State {status: status, ..state},
-            _ => state
+        let new_state = State {
+            buffer: new_buffer,
+            buffer_cnt: new_buffer_cnt,
+            read_ptr: new_read_ptr,
+            write_ptr: new_write_ptr,
+            last: new_last,
+            cmd: new_cmd,
+            cmd_valid: new_cmd_valid,
+            status: rdata.status
         };
 
         new_state
@@ -356,15 +356,17 @@ proc ShiftBufferStorageTest {
     ctrl_s: chan<Ctrl> out;
     inter_s: chan<Inter> out;
     output_r: chan<Output> in;
+    flush_s: chan<()> out;
 
     config(terminator: chan<bool> out) {
         let (ctrl_s, ctrl_r) = chan<Ctrl>("ctrl");
         let (inter_s, inter_r) = chan<Inter>("inter");
         let (output_s, output_r) = chan<Output>("output");
+        let (flush_s, flush_r) = chan<()>("flush");
 
-        spawn ShiftBufferStorage<STORAGE_TEST_DATA_WIDTH, STORAGE_TEST_LENGTH_WIDTH>(ctrl_r, inter_r, output_s);
+        spawn ShiftBufferStorage<STORAGE_TEST_DATA_WIDTH, STORAGE_TEST_LENGTH_WIDTH>(ctrl_r, inter_r, output_s, flush_r);
 
-        (terminator, ctrl_s, inter_s, output_r)
+        (terminator, ctrl_s, inter_s, output_r, flush_s)
     }
 
     init {  }
@@ -480,6 +482,25 @@ proc ShiftBufferStorageTest {
     }
 }
 
+proc CopyFlush {
+    flush_r: chan<()> in;
+    flush1_s: chan<()> out;
+    flush2_s: chan<()> out;
+    
+    config(flush_r: chan<()> in, flush1_s: chan<()> out, flush2_s: chan<()> out) {
+        (flush_r, flush1_s, flush2_s)
+    }
+
+    init { }
+
+    next(_: ()) {
+        let tok = join();
+        let (tok, ()) = recv(tok, flush_r);
+        send(tok, flush1_s, ());
+        send(tok, flush2_s, ());
+    }
+}
+
 pub proc ShiftBuffer<DATA_WIDTH: u32, LENGTH_WIDTH: u32> {
     type Input = ShiftBufferPacket;
     type Ctrl = ShiftBufferCtrl;
@@ -487,11 +508,14 @@ pub proc ShiftBuffer<DATA_WIDTH: u32, LENGTH_WIDTH: u32> {
     type Output = ShiftBufferOutput;
 
     config(ctrl: chan<Ctrl<LENGTH_WIDTH>> in, input: chan<Input<DATA_WIDTH, LENGTH_WIDTH>> in,
-           output: chan<Output<DATA_WIDTH, LENGTH_WIDTH>> out) {
+           output: chan<Output<DATA_WIDTH, LENGTH_WIDTH>> out, flush: chan<()> in) {
+        let (flush1_s, flush1_r) = chan<(), u32:1>("flush1");
+        let (flush2_s, flush2_r) = chan<(), u32:1>("flush2");
         let (inter_out, inter_in) =
             chan<ShiftBufferPacket<{DATA_WIDTH * u32:2}, LENGTH_WIDTH>, u32:1>("inter");
-        spawn ShiftBufferAligner<DATA_WIDTH, LENGTH_WIDTH>(input, inter_out);
-        spawn ShiftBufferStorage<DATA_WIDTH, LENGTH_WIDTH>(ctrl, inter_in, output);
+        spawn ShiftBufferAligner<DATA_WIDTH, LENGTH_WIDTH>(input, inter_out, flush1_r);
+        spawn ShiftBufferStorage<DATA_WIDTH, LENGTH_WIDTH>(ctrl, inter_in, output, flush2_r);
+        spawn CopyFlush(flush, flush1_s, flush2_s);
         ()
     }
 
@@ -513,15 +537,17 @@ proc ShiftBufferTest {
     input_s: chan<Input<TEST_DATA_WIDTH, TEST_LENGTH_WIDTH>> out;
     ctrl_s: chan<Ctrl<TEST_LENGTH_WIDTH>> out;
     data_r: chan<Output<TEST_DATA_WIDTH, TEST_LENGTH_WIDTH>> in;
+    flush_s: chan<()> out;
 
     config(terminator: chan<bool> out) {
         let (input_s, input_r) = chan<Input<TEST_DATA_WIDTH, TEST_LENGTH_WIDTH>, u32:1>("input");
         let (ctrl_s, ctrl_r) = chan<Ctrl<TEST_LENGTH_WIDTH>, u32:1>("ctrl");
         let (data_s, data_r) = chan<Output<TEST_DATA_WIDTH, TEST_LENGTH_WIDTH>, u32:1>("data");
+        let (flush_s, flush_r) = chan<()>("flush");
 
-        spawn ShiftBuffer<TEST_DATA_WIDTH, TEST_LENGTH_WIDTH>(ctrl_r, input_r, data_s);
+        spawn ShiftBuffer<TEST_DATA_WIDTH, TEST_LENGTH_WIDTH>(ctrl_r, input_r, data_s, flush_r);
 
-        (terminator, input_s, ctrl_s, data_r)
+        (terminator, input_s, ctrl_s, data_r, flush_s)
     }
 
     init {  }

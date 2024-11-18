@@ -26,14 +26,16 @@ proc ShiftBufferInst {
     input_r: chan<Input<TEST_DATA_WIDTH, TEST_LENGTH_WIDTH>> in;
     ctrl_r: chan<Ctrl<TEST_LENGTH_WIDTH>> in;
     output_s: chan<Output<TEST_DATA_WIDTH, TEST_LENGTH_WIDTH>> out;
+    flush_r: chan<()> in;
 
     config(input_r: chan<Input<TEST_DATA_WIDTH, TEST_LENGTH_WIDTH>> in,
            ctrl_r: chan<Ctrl<TEST_LENGTH_WIDTH>> in,
-           output_s: chan<Output<TEST_DATA_WIDTH, TEST_LENGTH_WIDTH>> out) {
+           output_s: chan<Output<TEST_DATA_WIDTH, TEST_LENGTH_WIDTH>> out,
+           flush_r: chan<()> in) {
 
-        spawn shift_buffer::ShiftBuffer<TEST_DATA_WIDTH, TEST_LENGTH_WIDTH>(ctrl_r, input_r, output_s);
+        spawn shift_buffer::ShiftBuffer<TEST_DATA_WIDTH, TEST_LENGTH_WIDTH>(ctrl_r, input_r, output_s, flush_r);
 
-        (input_r, ctrl_r, output_s)
+        (input_r, ctrl_r, output_s, flush_r)
     }
 
     init {  }
@@ -45,8 +47,8 @@ proc ShiftBufferAlignerInst {
     type Input = shift_buffer::ShiftBufferPacket<TEST_DATA_WIDTH, TEST_LENGTH_WIDTH>;
     type Inter = shift_buffer::ShiftBufferPacket<TEST_DATA_WIDTH_X2, TEST_LENGTH_WIDTH>;
 
-    config(input: chan<Input> in, inter: chan<Inter> out) {
-        spawn shift_buffer::ShiftBufferAligner<TEST_DATA_WIDTH, TEST_LENGTH_WIDTH>(input, inter);
+    config(input: chan<Input> in, inter: chan<Inter> out, flush: chan<()> in) {
+        spawn shift_buffer::ShiftBufferAligner<TEST_DATA_WIDTH, TEST_LENGTH_WIDTH>(input, inter, flush);
     }
 
     init {  }
@@ -59,8 +61,8 @@ proc ShiftBufferStorageInst {
     type Inter = shift_buffer::ShiftBufferPacket<TEST_DATA_WIDTH_X2, TEST_LENGTH_WIDTH>;
     type Output = shift_buffer::ShiftBufferOutput<TEST_DATA_WIDTH, TEST_LENGTH_WIDTH>;
 
-    config(ctrl: chan<Ctrl> in, inter: chan<Inter> in, output: chan<Output> out) {
-        spawn shift_buffer::ShiftBufferStorage<TEST_DATA_WIDTH, TEST_LENGTH_WIDTH>(ctrl, inter, output);
+    config(ctrl: chan<Ctrl> in, inter: chan<Inter> in, output: chan<Output> out, flush: chan<()> in) {
+        spawn shift_buffer::ShiftBufferStorage<TEST_DATA_WIDTH, TEST_LENGTH_WIDTH>(ctrl, inter, output, flush);
     }
 
     init {  }

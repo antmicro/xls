@@ -220,10 +220,10 @@ pub proc ShiftBufferStorage<DATA_WIDTH: u32, LENGTH_WIDTH: u32> {
         let shift_data_left =
             state.write_ptr >= (DATA_WIDTH as BufferLength) && !shift_buffer_right;
         trace_fmt!("shift_data_left: {:#x}", shift_data_left);
-        let recv_new_input = !state.last && state.write_ptr < (DATA_WIDTH * u32:2) as BufferLength;
+        let recv_new_input = state.write_ptr < (DATA_WIDTH * u32:2) as BufferLength;
         trace_fmt!("recv_new_input: {:#x}", recv_new_input);
         let has_enough_data = (state.cmd.length as BufferLength <= state.buffer_cnt);
-        let send_response = state.cmd_valid && (has_enough_data || state.last);
+        let send_response = state.cmd_valid && has_enough_data;
         trace_fmt!("send_response: {:#x}", send_response);
         let recv_new_cmd = !state.cmd_valid || send_response;
         trace_fmt!("recv_new_cmd: {:#x}", recv_new_cmd);
@@ -398,18 +398,12 @@ proc ShiftBufferStorageTest {
 
         // Consecutive small packet last propagation
         // Account for leftover 0xEEFF from the previous packet
-        let tok = send(tok, inter_s, Inter { data: DataX2: 0x1122_0000, length: Length: 16, last: true});
+        let tok = send(tok, inter_s, Inter { data: DataX2: 0x1122_0000, length: Length: 16, last: false});
         // Should operate on flushed buffer
-        let tok = send(tok, inter_s, Inter { data: DataX2: 0x3344_0000_0000, length: Length: 16, last: true});
+        let tok = send(tok, inter_s, Inter { data: DataX2: 0x3344_0000_0000, length: Length: 16, last: false});
 
         // Multiple input packets with last propagation at the last packet
         // Input packets additionally span across 2 shift buffer aligner shift domains
-        let tok = send(tok, inter_s, Inter { data: DataX2: 0x7788_0000_0000_0000, length: Length: 16, last: false});
-        let tok = send(tok, inter_s, Inter { data: DataX2: 0x5566, length: Length: 16, last: true});
-
-        // Test flushing buffer before reading next input data packets
-        let tok = send(tok, inter_s, Inter { data: DataX2: 0x3344_0000, length: Length: 16, last: false});
-        let tok = send(tok, inter_s, Inter { data: DataX2: 0x1122_0000_0000, length: Length: 16, last: true});
         let tok = send(tok, inter_s, Inter { data: DataX2: 0x7788_0000_0000_0000, length: Length: 16, last: false});
         let tok = send(tok, inter_s, Inter { data: DataX2: 0x5566, length: Length: 16, last: false});
 
@@ -458,25 +452,40 @@ proc ShiftBufferStorageTest {
         // Consecutive small packet last propagation
         let tok = send(tok, ctrl_s, Ctrl { length: Length:16});
         let (tok, data) = recv(tok, output_r);
-        assert_eq(data, Output { payload: OutputPayload { data: Data: 0x1122, length: Length: 16, last: true}, status: OutputStatus::OK});
+        assert_eq(data, Output { payload: OutputPayload { data: Data: 0x1122, length: Length: 16, last: false}, status: OutputStatus::OK});
         let tok = send(tok, ctrl_s, Ctrl { length: Length:16});
         let (tok, data) = recv(tok, output_r);
-        assert_eq(data, Output { payload: OutputPayload { data: Data: 0x3344, length: Length: 16, last: true}, status: OutputStatus::OK});
+        assert_eq(data, Output { payload: OutputPayload { data: Data: 0x3344, length: Length: 16, last: false}, status: OutputStatus::OK});
 
         // Multiple input packets with last propagation at the last packet
         let tok = send(tok, ctrl_s, Ctrl { length: Length:32});
         let (tok, data) = recv(tok, output_r);
-        assert_eq(data, Output { payload: OutputPayload { data: Data: 0x5566_7788, length: Length: 32, last: true}, status: OutputStatus::OK});
+        assert_eq(data, Output { payload: OutputPayload { data: Data: 0x5566_7788, length: Length: 32, last: false}, status: OutputStatus::OK});
 
-        // Test error handling when attempting to read more data than available in the buffer with last set
-        // This triggers error that will cause the buffer to send out a single output packet with
-        // the ERROR status. Resuming the operation requires resetting the proc.
+        // Test attempting to read more data than available in the buffer
+        // This should wait indefinitely, we test this by checking that we can't
+        // receive data over the next consecutive 100 iterations
         let tok = send(tok, ctrl_s, Ctrl { length: Length:64});
+        for (_, tok): (u32, token) in u32:1..u32:100 {
+            let (tok, _, data_valid) = recv_non_blocking(tok, output_r, zero!<Output>());
+            assert_eq(data_valid, false);
+            tok
+        }(tok);
+
+        // Refill the buffer with more data - not enough to reply to the earlier request for 64b
+        let tok = send(tok, inter_s, Inter { data: DataX2: 0xDEAD_BEEF_0000, length: Length: 32, last: false});
+        // Check that we can't receive still
+        for (_, tok): (u32, token) in u32:1..u32:100 {
+            let (tok, _, data_valid) = recv_non_blocking(tok, output_r, zero!<Output>());
+            assert_eq(data_valid, false);
+            tok
+        }(tok);
+
+        // Refill buffer with enough data
+        let tok = send(tok, inter_s, Inter { data: DataX2: 0xF00B_A4BA_0000_0000_0000, length: Length: 32, last: false});
+        // Now we should be able to receive a response for 64b request
         let (tok, data) = recv(tok, output_r);
-        assert_eq(data, Output { payload: OutputPayload { data: Data: 0x0, length: Length: 0, last: false}, status: OutputStatus::ERROR});
-        // This will spin on recv infinitely due to an error from the previous case
-        //let tok = send(tok, ctrl_s, Ctrl { length: Length:32});
-        //let (tok, data) = recv(tok, output_r);
+        assert_eq(data, Output { payload: OutputPayload { data: Data: 0xF00BA4BA_DEADBEEF, length: Length: 64, last: false}, status: OutputStatus::OK});
 
         send(tok, terminator, true);
     }
@@ -556,7 +565,7 @@ proc ShiftBufferTest {
         type Data = bits[TEST_DATA_WIDTH];
         type Length = bits[TEST_LENGTH_WIDTH];
         type Input = ShiftBufferPacket;
-        type Output = ShiftBufferOutput;
+        type Output = ShiftBufferOutput<TEST_DATA_WIDTH, TEST_LENGTH_WIDTH>;
         type OutputPayload = ShiftBufferPacket;
         type OutputStatus = ShiftBufferStatus;
         type Ctrl = ShiftBufferCtrl;
@@ -591,18 +600,12 @@ proc ShiftBufferTest {
 
         // Consecutive small packet last propagation
         // Account for leftover 0xEEFF from the previous packet
-        let tok = send(tok, input_s, Input { data: Data: 0x1122, length: Length: 16, last: true});
+        let tok = send(tok, input_s, Input { data: Data: 0x1122, length: Length: 16, last: false});
         // Should operate on flushed buffer
-        let tok = send(tok, input_s, Input { data: Data: 0x3344, length: Length: 16, last: true});
+        let tok = send(tok, input_s, Input { data: Data: 0x3344, length: Length: 16, last: false});
 
         // Multiple input packets with last propagation at the last packet
         // Input packets additionally span across 2 shift buffer aligner shift domains
-        let tok = send(tok, input_s, Input { data: Data: 0x7788, length: Length: 16, last: false});
-        let tok = send(tok, input_s, Input { data: Data: 0x5566, length: Length: 16, last: true});
-
-        // Test flushing buffer before reading next input data packets
-        let tok = send(tok, input_s, Input { data: Data: 0x3344, length: Length: 16, last: false});
-        let tok = send(tok, input_s, Input { data: Data: 0x1122, length: Length: 16, last: true});
         let tok = send(tok, input_s, Input { data: Data: 0x7788, length: Length: 16, last: false});
         let tok = send(tok, input_s, Input { data: Data: 0x5566, length: Length: 16, last: false});
 
@@ -670,15 +673,40 @@ proc ShiftBufferTest {
         // Consecutive small packet last propagation
         let tok = send(tok, ctrl_s, Ctrl { length: Length:16});
         let (tok, data) = recv(tok, data_r);
-        assert_eq(data, Output { payload: OutputPayload { data: Data: 0x1122, length: Length: 16, last: true}, status: OutputStatus::OK});
+        assert_eq(data, Output { payload: OutputPayload { data: Data: 0x1122, length: Length: 16, last: false}, status: OutputStatus::OK});
         let tok = send(tok, ctrl_s, Ctrl { length: Length:16});
         let (tok, data) = recv(tok, data_r);
-        assert_eq(data, Output { payload: OutputPayload { data: Data: 0x3344, length: Length: 16, last: true}, status: OutputStatus::OK});
+        assert_eq(data, Output { payload: OutputPayload { data: Data: 0x3344, length: Length: 16, last: false}, status: OutputStatus::OK});
 
         // Multiple input packets with last propagation at the last packet
         let tok = send(tok, ctrl_s, Ctrl { length: Length:32});
         let (tok, data) = recv(tok, data_r);
-        assert_eq(data, Output { payload: OutputPayload { data: Data: 0x5566_7788, length: Length: 32, last: true}, status: OutputStatus::OK});
+        assert_eq(data, Output { payload: OutputPayload { data: Data: 0x5566_7788, length: Length: 32, last: false}, status: OutputStatus::OK});
+
+        // Test attempting to read more data than available in the buffer
+        // This should wait indefinitely, we test this by checking that we can't
+        // receive data over the next consecutive 100 iterations
+        let tok = send(tok, ctrl_s, Ctrl { length: Length:64});
+        for (_, tok): (u32, token) in u32:1..u32:100 {
+            let (tok, _, data_valid) = recv_non_blocking(tok, data_r, zero!<Output>());
+            assert_eq(data_valid, false);
+            tok
+        }(tok);
+
+        // Refill the buffer with more data - not enough to reply to the earlier request for 64b
+        let tok = send(tok, input_s, Input { data: Data: 0xDEAD_BEEF, length: Length: 32, last: false});
+        // Check that we can't receive still
+        for (_, tok): (u32, token) in u32:1..u32:100 {
+            let (tok, _, data_valid) = recv_non_blocking(tok, data_r, zero!<Output>());
+            assert_eq(data_valid, false);
+            tok
+        }(tok);
+
+        // Refill buffer with enough data
+        let tok = send(tok, input_s, Input { data: Data: 0xF00B_A4BA, length: Length: 32, last: false});
+        // Now we should be able to receive a response for 64b request
+        let (tok, data) = recv(tok, data_r);
+        assert_eq(data, Output { payload: OutputPayload { data: Data: 0xF00BA4BA_DEADBEEF, length: Length: 64, last: false}, status: OutputStatus::OK});
 
         send(tok, terminator, true);
     }

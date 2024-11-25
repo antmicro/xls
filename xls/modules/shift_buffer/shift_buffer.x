@@ -167,7 +167,7 @@ struct ShiftBufferStorageState<BUFFER_WIDTH: u32, LENGTH_WIDTH: u32> {
 
 pub proc ShiftBufferStorage<DATA_WIDTH: u32, LENGTH_WIDTH: u32> {
     type Buffer = bits[DATA_WIDTH * u32:3];
-    type BufferLength = bits[LENGTH_WIDTH + u32:2];
+    type BufferLength = bits[LENGTH_WIDTH + u32:2]; // TODO: where does this "+ u32:2" come from? shouldn't it be number_of_bits_required_to_represent(DATA_WIDTH * u32:3)?
     type Data = bits[DATA_WIDTH];
     type DataLength = bits[LENGTH_WIDTH];
     type State = ShiftBufferStorageState;
@@ -494,7 +494,7 @@ pub proc ShiftBuffer<DATA_WIDTH: u32, LENGTH_WIDTH: u32> {
 }
 
 const TEST_DATA_WIDTH = u32:64;
-const TEST_LENGTH_WIDTH = std::clog2(TEST_DATA_WIDTH) + u32:1;
+const TEST_LENGTH_WIDTH = std::clog2(TEST_DATA_WIDTH) + u32:1; // TODO: other places in the code use length_width(TEST_DATA_WIDTH) which is clog2(TEST_DATA_WIDTH + 1) instead, why clog2(TEST_DATA_WIDTH) + 1 here?
 
 #[test_proc]
 proc ShiftBufferTest {

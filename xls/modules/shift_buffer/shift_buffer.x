@@ -62,14 +62,12 @@ pub proc ShiftBufferAligner<
 
     input_r: chan<Input> in;
     inter_s: chan<Inter> out;
-    flush_r: chan<()> in;
 
     config(
         input_r: chan<Input> in,
         inter_s: chan<Inter> out,
-        flush_r: chan<()> in
     ) {
-        (input_r, inter_s, flush_r)
+        (input_r, inter_s)
     }
 
     init {zero!<State>()}
@@ -87,13 +85,7 @@ pub proc ShiftBufferAligner<
             last: data.last
         });
 
-        let (tok, (), flush) = recv_non_blocking(tok, flush_r, ());
-
-        if flush {
-            zero!<State>()
-        } else {
-            State {ptr: (state.ptr + data.length) % (DATA_WIDTH as Length) }
-        }
+        State {ptr: (state.ptr + data.length) % (DATA_WIDTH as Length) }
     }
 }
 
@@ -113,16 +105,14 @@ proc ShiftBufferAlignerTest {
 
     input_s: chan<Input> out;
     inter_r: chan<Inter> in;
-    flush_s: chan<()> out;
 
     config(terminator: chan<bool> out) {
         let (input_s, input_r) = chan<Input>("input");
         let (inter_s, inter_r) = chan<Inter>("inter");
-        let (flush_s, flush_r) = chan<()>("flush");
 
-        spawn ShiftBufferAligner<ALIGNER_TEST_DATA_WIDTH>(input_r, inter_s, flush_r);
+        spawn ShiftBufferAligner<ALIGNER_TEST_DATA_WIDTH>(input_r, inter_s);
 
-        (terminator, input_s, inter_r, flush_s)
+        (terminator, input_s, inter_r)
     }
 
     init {  }
@@ -187,15 +177,13 @@ pub proc ShiftBufferStorage<DATA_WIDTH: u32, LENGTH_WIDTH: u32> {
     ctrl: chan<Ctrl<LENGTH_WIDTH>> in;
     inter: chan<Inter<{DATA_WIDTH * u32:2}, LENGTH_WIDTH>> in;
     output: chan<Output<DATA_WIDTH, LENGTH_WIDTH>> out;
-    flush: chan<()> in;
 
     config(
         ctrl: chan<Ctrl<LENGTH_WIDTH>> in,
         inter: chan<Inter<{DATA_WIDTH * u32:2}, LENGTH_WIDTH>> in,
         output: chan<Output<DATA_WIDTH, LENGTH_WIDTH>> out,
-        flush: chan<()> in,
     ) {
-        (ctrl, inter, output, flush)
+        (ctrl, inter, output)
     }
 
     init {
@@ -229,9 +217,6 @@ pub proc ShiftBufferStorage<DATA_WIDTH: u32, LENGTH_WIDTH: u32> {
         trace_fmt!("recv_new_cmd: {:#x}", recv_new_cmd);
 
         let tok = join();
-
-        // handle flushing
-        let (tok_flush, (), flush_valid) = recv_non_blocking(tok, flush, ());
 
         // Shift buffer if required
         let (new_buffer, new_read_ptr, new_write_ptr) = fixme::fast_if_tuple_3(shift_buffer_right,
@@ -356,17 +341,15 @@ proc ShiftBufferStorageTest {
     ctrl_s: chan<Ctrl> out;
     inter_s: chan<Inter> out;
     output_r: chan<Output> in;
-    flush_s: chan<()> out;
 
     config(terminator: chan<bool> out) {
         let (ctrl_s, ctrl_r) = chan<Ctrl>("ctrl");
         let (inter_s, inter_r) = chan<Inter>("inter");
         let (output_s, output_r) = chan<Output>("output");
-        let (flush_s, flush_r) = chan<()>("flush");
 
-        spawn ShiftBufferStorage<STORAGE_TEST_DATA_WIDTH, STORAGE_TEST_LENGTH_WIDTH>(ctrl_r, inter_r, output_s, flush_r);
+        spawn ShiftBufferStorage<STORAGE_TEST_DATA_WIDTH, STORAGE_TEST_LENGTH_WIDTH>(ctrl_r, inter_r, output_s);
 
-        (terminator, ctrl_s, inter_s, output_r, flush_s)
+        (terminator, ctrl_s, inter_s, output_r)
     }
 
     init {  }
@@ -491,25 +474,6 @@ proc ShiftBufferStorageTest {
     }
 }
 
-proc CopyFlush {
-    flush_r: chan<()> in;
-    flush1_s: chan<()> out;
-    flush2_s: chan<()> out;
-    
-    config(flush_r: chan<()> in, flush1_s: chan<()> out, flush2_s: chan<()> out) {
-        (flush_r, flush1_s, flush2_s)
-    }
-
-    init { }
-
-    next(_: ()) {
-        let tok = join();
-        let (tok, ()) = recv(tok, flush_r);
-        send(tok, flush1_s, ());
-        send(tok, flush2_s, ());
-    }
-}
-
 pub proc ShiftBuffer<DATA_WIDTH: u32, LENGTH_WIDTH: u32> {
     type Input = ShiftBufferPacket;
     type Ctrl = ShiftBufferCtrl;
@@ -517,15 +481,11 @@ pub proc ShiftBuffer<DATA_WIDTH: u32, LENGTH_WIDTH: u32> {
     type Output = ShiftBufferOutput;
 
     config(ctrl: chan<Ctrl<LENGTH_WIDTH>> in, input: chan<Input<DATA_WIDTH, LENGTH_WIDTH>> in,
-           output: chan<Output<DATA_WIDTH, LENGTH_WIDTH>> out, flush: chan<()> in) {
-        let (flush1_s, flush1_r) = chan<(), u32:1>("flush1");
-        let (flush2_s, flush2_r) = chan<(), u32:1>("flush2");
+           output: chan<Output<DATA_WIDTH, LENGTH_WIDTH>> out) {
         let (inter_out, inter_in) =
             chan<ShiftBufferPacket<{DATA_WIDTH * u32:2}, LENGTH_WIDTH>, u32:1>("inter");
-        spawn ShiftBufferAligner<DATA_WIDTH, LENGTH_WIDTH>(input, inter_out, flush1_r);
-        spawn ShiftBufferStorage<DATA_WIDTH, LENGTH_WIDTH>(ctrl, inter_in, output, flush2_r);
-        spawn CopyFlush(flush, flush1_s, flush2_s);
-        ()
+        spawn ShiftBufferAligner<DATA_WIDTH, LENGTH_WIDTH>(input, inter_out);
+        spawn ShiftBufferStorage<DATA_WIDTH, LENGTH_WIDTH>(ctrl, inter_in, output);
     }
 
     init {  }
@@ -546,17 +506,15 @@ proc ShiftBufferTest {
     input_s: chan<Input<TEST_DATA_WIDTH, TEST_LENGTH_WIDTH>> out;
     ctrl_s: chan<Ctrl<TEST_LENGTH_WIDTH>> out;
     data_r: chan<Output<TEST_DATA_WIDTH, TEST_LENGTH_WIDTH>> in;
-    flush_s: chan<()> out;
 
     config(terminator: chan<bool> out) {
         let (input_s, input_r) = chan<Input<TEST_DATA_WIDTH, TEST_LENGTH_WIDTH>, u32:1>("input");
         let (ctrl_s, ctrl_r) = chan<Ctrl<TEST_LENGTH_WIDTH>, u32:1>("ctrl");
         let (data_s, data_r) = chan<Output<TEST_DATA_WIDTH, TEST_LENGTH_WIDTH>, u32:1>("data");
-        let (flush_s, flush_r) = chan<()>("flush");
 
-        spawn ShiftBuffer<TEST_DATA_WIDTH, TEST_LENGTH_WIDTH>(ctrl_r, input_r, data_s, flush_r);
+        spawn ShiftBuffer<TEST_DATA_WIDTH, TEST_LENGTH_WIDTH>(ctrl_r, input_r, data_s);
 
-        (terminator, input_s, ctrl_s, data_r, flush_s)
+        (terminator, input_s, ctrl_s, data_r)
     }
 
     init {  }

@@ -60,19 +60,6 @@ xls_dslx_test(
 )
 
 xls_dslx_library(
-    name = "math_dslx",
-    srcs = [
-        "math.x",
-    ],
-)
-
-xls_dslx_test(
-    name = "math_dslx_test",
-    library = ":math_dslx",
-    tags = ["manual"],
-)
-
-xls_dslx_library(
     name = "buffer_dslx",
     srcs = [
         "buffer.x",

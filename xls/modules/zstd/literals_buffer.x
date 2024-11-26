@@ -43,7 +43,6 @@ type RamWrRespHandlerResp = parallel_rams::RamWrRespHandlerResp;
 
 // Constants calculated from RAM parameters
 pub const RAM_NUM = parallel_rams::RAM_NUM;
-const RAM_NUM_WIDTH = parallel_rams::RAM_NUM_WIDTH;
 pub const RAM_DATA_WIDTH = common::SYMBOL_WIDTH + u32:1; // the +1 is used to store "last" flag
 pub const RAM_WORD_PARTITION_SIZE = RAM_DATA_WIDTH;
 pub const RAM_NUM_PARTITIONS = ram::num_partitions(RAM_WORD_PARTITION_SIZE, RAM_DATA_WIDTH);
@@ -55,6 +54,14 @@ type LiteralsWithLast = uN[RAM_DATA_WIDTH * RAM_NUM];
 const TEST_HISTORY_BUFFER_SIZE_KB = u32:1;
 const TEST_RAM_SIZE = parallel_rams::ram_size(TEST_HISTORY_BUFFER_SIZE_KB);
 const TEST_RAM_ADDR_WIDTH = parallel_rams::ram_addr_width(TEST_HISTORY_BUFFER_SIZE_KB);
+
+const TEST_SYMBOL_WIDTH = u32:8;
+const TEST_RAM_DATA_WIDTH = TEST_SYMBOL_WIDTH + u32:1;
+const TEST_RAM_NUM = u32:8;
+const TEST_RAM_NUM_WIDTH = std::clog2(TEST_RAM_NUM);
+const TEST_RAM_WORD_PARTITION_SIZE = TEST_RAM_DATA_WIDTH;
+const TEST_RAM_NUM_PARTITIONS = ram::num_partitions(TEST_RAM_WORD_PARTITION_SIZE, TEST_RAM_DATA_WIDTH);
+const TEST_INIT_HB_PTR_ADDR = u32:127;
 const TEST_RAM_INITIALIZED = true;
 const TEST_RAM_SIMULTANEOUS_READ_WRITE_BEHAVIOR = ram::SimultaneousReadWriteBehavior::READ_BEFORE_WRITE;
 
@@ -77,14 +84,14 @@ struct LiteralsBufferMuxState {
     huff_literals_data: LiteralsDataWithSync,
 }
 
-struct LiteralsBufferWriterState<RAM_ADDR_WIDTH: u32> {
+struct LiteralsBufferWriterState<RAM_ADDR_WIDTH: u32, RAM_NUM_WIDTH: u32> {
     // History Buffer handling
     hyp_ptr: HistoryBufferPtr<RAM_ADDR_WIDTH>,
     hb_len: uN[RAM_ADDR_WIDTH + RAM_NUM_WIDTH],
     literals_in_ram: uN[RAM_ADDR_WIDTH + RAM_NUM_WIDTH],
 }
 
-struct LiteralsBufferReaderState<RAM_ADDR_WIDTH: u32> {
+struct LiteralsBufferReaderState<RAM_ADDR_WIDTH: u32, RAM_NUM_WIDTH: u32> {
     // History Buffer handling
     hyp_ptr: HistoryBufferPtr<RAM_ADDR_WIDTH>,
     hb_len: uN[RAM_ADDR_WIDTH + RAM_NUM_WIDTH],
@@ -93,11 +100,11 @@ struct LiteralsBufferReaderState<RAM_ADDR_WIDTH: u32> {
     left_to_read: u32,
 }
 
-struct LiteralsBufferWriterToReaderSync<RAM_ADDR_WIDTH: u32> {
+struct LiteralsBufferWriterToReaderSync {
     literals_written: LitLength,
 }
 
-struct LiteralsBufferReaderToWriterSync<RAM_ADDR_WIDTH: u32> {
+struct LiteralsBufferReaderToWriterSync {
     literals_read: LitLength,
 }
 
@@ -107,12 +114,12 @@ struct LiteralsBufferReaderToWriterSync<RAM_ADDR_WIDTH: u32> {
 proc PacketDecoder<RAM_ADDR_WIDTH: u32> {
     literals_in_r: chan<SequenceExecutorPacket<RAM_DATA_WIDTH>> in;
     literals_out_s: chan<SequenceExecutorPacket<common::SYMBOL_WIDTH>> out;
-    buffer_sync_s: chan<LiteralsBufferReaderToWriterSync<RAM_ADDR_WIDTH>> out;
+    buffer_sync_s: chan<LiteralsBufferReaderToWriterSync> out;
 
     config(
         literals_in_r: chan<SequenceExecutorPacket<RAM_DATA_WIDTH>> in,
         literals_out_s: chan<SequenceExecutorPacket<common::SYMBOL_WIDTH>> out,
-        buffer_sync_s: chan<LiteralsBufferReaderToWriterSync<RAM_ADDR_WIDTH>> out,
+        buffer_sync_s: chan<LiteralsBufferReaderToWriterSync> out,
     ) {
         (literals_in_r, literals_out_s, buffer_sync_s)
     }
@@ -171,7 +178,7 @@ proc PacketDecoder<RAM_ADDR_WIDTH: u32> {
         });
 
         // Send sync data to buffer writer
-        let tok = send(tok, buffer_sync_s, LiteralsBufferReaderToWriterSync<RAM_ADDR_WIDTH> {
+        let tok = send(tok, buffer_sync_s, LiteralsBufferReaderToWriterSync {
             literals_read: literals.length as LitLength,
         });
     }
@@ -262,12 +269,12 @@ proc PacketDecoder_test {
 
     literals_in_s: chan<SequenceExecutorPacket<RAM_DATA_WIDTH>> out;
     literals_out_r: chan<SequenceExecutorPacket<common::SYMBOL_WIDTH>> in;
-    buffer_sync_r: chan<LiteralsBufferReaderToWriterSync<TEST_RAM_ADDR_WIDTH>> in;
+    buffer_sync_r: chan<LiteralsBufferReaderToWriterSync> in;
 
     config(terminator: chan<bool> out) {
         let (literals_in_s, literals_in_r) = chan<SequenceExecutorPacket<RAM_DATA_WIDTH>>("literals_in");
         let (literals_out_s, literals_out_r) = chan<SequenceExecutorPacket<common::SYMBOL_WIDTH>>("literals_out");
-        let (buffer_sync_s, buffer_sync_r) = chan<LiteralsBufferReaderToWriterSync<TEST_RAM_ADDR_WIDTH>>("buffer_sync");
+        let (buffer_sync_s, buffer_sync_r) = chan<LiteralsBufferReaderToWriterSync>("buffer_sync");
 
         spawn PacketDecoder<TEST_RAM_ADDR_WIDTH>(literals_in_r, literals_out_s, buffer_sync_s);
 
@@ -390,18 +397,20 @@ proc LiteralsBufferMux {
 // Proc responsible for writing received literals to RAMs
 proc LiteralsBufferWriter<
     HISTORY_BUFFER_SIZE_KB: u32,
-    RAM_SIZE: u32 = {parallel_rams::ram_size(HISTORY_BUFFER_SIZE_KB)},
-    RAM_ADDR_WIDTH: u32 = {parallel_rams::ram_addr_width(HISTORY_BUFFER_SIZE_KB)},
-    INIT_HB_PTR_ADDR: u32 = {u32:0},
-    INIT_HB_PTR_RAM: u32 = {u32:0},
-    INIT_HB_LENGTH: u32 = {u32:0},
-    RAM_SIZE_TOTAL: u32 = {RAM_SIZE * RAM_NUM}
+    RAM_SIZE: u32,
+    RAM_ADDR_WIDTH: u32,
+    RAM_DATA_WIDTH: u32,
+    RAM_WORD_PARTITION_SIZE: u32,
+    RAM_NUM_PARTITIONS: u32,
+    RAM_NUM_WIDTH: u32,
+    INIT_HB_PTR_ADDR: u32,
+    INIT_HB_PTR_RAM: u32,
+    INIT_HB_LENGTH: u32,
+    RAM_SIZE_TOTAL: u32,
 > {
-    type HistoryBufferLength = uN[RAM_ADDR_WIDTH + std::clog2(RAM_NUM)];
+    type HistoryBufferLength = uN[RAM_ADDR_WIDTH + RAM_NUM_WIDTH];
     type RamAddr = bits[RAM_ADDR_WIDTH];
-    type ReadReq = ram::ReadReq<RAM_ADDR_WIDTH, RAM_NUM_PARTITIONS>;
-    type ReadResp = ram::ReadResp<RAM_DATA_WIDTH>;
-    type State = LiteralsBufferWriterState<RAM_ADDR_WIDTH>;
+    type State = LiteralsBufferWriterState<RAM_ADDR_WIDTH, RAM_NUM_WIDTH>;
     type WriteReq = ram::WriteReq<RAM_ADDR_WIDTH, RAM_DATA_WIDTH, RAM_NUM_PARTITIONS>;
     type WriteResp = ram::WriteResp;
 
@@ -469,16 +478,20 @@ proc LiteralsBufferWriter<
         State {
             hyp_ptr: INIT_HB_PTR,
             hb_len: INIT_HB_LENGTH as uN[RAM_ADDR_WIDTH + RAM_NUM_WIDTH],
-            ..zero!<State>()
+            literals_in_ram: uN[RAM_ADDR_WIDTH + RAM_NUM_WIDTH]:0,
         }
     }
     next (state: State) {
-        let tok0 = join();
-        // TODO: Remove this workaround when fixed: https://github.com/google/xls/issues/1368
+        type HistoryBufferLength = uN[RAM_ADDR_WIDTH + RAM_NUM_WIDTH];
+        type RamAddr = bits[RAM_ADDR_WIDTH];
+        type State = LiteralsBufferWriterState<RAM_ADDR_WIDTH, RAM_NUM_WIDTH>;
         type WriteReq = ram::WriteReq<RAM_ADDR_WIDTH, RAM_DATA_WIDTH, RAM_NUM_PARTITIONS>;
+        type WriteResp = ram::WriteResp;
 
         const ZERO_WRITE_REQS = WriteReq[RAM_NUM]:[zero!<WriteReq>(), ...];
         const RAM_REQ_MASK_NONE = bits[RAM_NUM_PARTITIONS]:0;
+
+        let tok0 = join();
 
         // read from sync
         let (_, sync_data, sync_data_valid) = recv_non_blocking(tok0, buffer_sync_r, zero!<LiteralsBufferReaderToWriterSync>());
@@ -573,7 +586,7 @@ proc LiteralsBufferWriter<
         // send sync
         let tok3 = join(tok3_0, tok3_1);
 
-        let sync_data = LiteralsBufferWriterToReaderSync<RAM_ADDR_WIDTH> {
+        let sync_data = LiteralsBufferWriterToReaderSync {
             literals_written: comp_data.length,
         };
         let tok4 = send_if(tok3, buffer_sync_s, comp_data_valid, sync_data);
@@ -586,11 +599,80 @@ proc LiteralsBufferWriter<
     }
 }
 
+const INST_HISTORY_BUFFER_SIZE_KB = u32:64;
+const INST_SYMBOL_WIDTH = u32:8;
+const INST_RAM_DATA_WIDTH = INST_SYMBOL_WIDTH + u32:1;
+const INST_RAM_NUM = u32:8;
+const INST_RAM_NUM_WIDTH = std::clog2(INST_RAM_NUM);
+const INST_RAM_SIZE = (INST_HISTORY_BUFFER_SIZE_KB * u32:1024 * u32:8) / INST_RAM_DATA_WIDTH / INST_RAM_NUM;
+const INST_RAM_ADDR_WIDTH = std::clog2(INST_RAM_SIZE);
+const INST_RAM_WORD_PARTITION_SIZE = INST_RAM_DATA_WIDTH;
+const INST_RAM_NUM_PARTITIONS = ram::num_partitions(INST_RAM_WORD_PARTITION_SIZE, INST_RAM_DATA_WIDTH);
+const INST_INIT_HB_PTR_ADDR = u32:0;
+const INST_INIT_HB_PTR_RAM = u32:0;
+const INST_INIT_HB_LENGTH = u32:0;
+const INST_RAM_SIZE_TOTAL = INST_RAM_SIZE * INST_RAM_NUM;
+
+pub proc LiteralsBufferWriterInst {
+    type ReadReq = ram::ReadReq<INST_RAM_ADDR_WIDTH, INST_RAM_NUM_PARTITIONS>;
+    type ReadResp = ram::ReadResp<INST_RAM_DATA_WIDTH>;
+    type WriteReq = ram::WriteReq<INST_RAM_ADDR_WIDTH, INST_RAM_DATA_WIDTH, INST_RAM_NUM_PARTITIONS>;
+    type WriteResp = ram::WriteResp;
+
+    init { }
+
+    config (
+        literals_r: chan<LiteralsData> in,
+        buffer_sync_r: chan<LiteralsBufferReaderToWriterSync> in,
+        buffer_sync_s: chan<LiteralsBufferWriterToReaderSync> out,
+        wr_req_m0_s: chan<WriteReq> out,
+        wr_req_m1_s: chan<WriteReq> out,
+        wr_req_m2_s: chan<WriteReq> out,
+        wr_req_m3_s: chan<WriteReq> out,
+        wr_req_m4_s: chan<WriteReq> out,
+        wr_req_m5_s: chan<WriteReq> out,
+        wr_req_m6_s: chan<WriteReq> out,
+        wr_req_m7_s: chan<WriteReq> out,
+        wr_resp_m0_r: chan<WriteResp> in,
+        wr_resp_m1_r: chan<WriteResp> in,
+        wr_resp_m2_r: chan<WriteResp> in,
+        wr_resp_m3_r: chan<WriteResp> in,
+        wr_resp_m4_r: chan<WriteResp> in,
+        wr_resp_m5_r: chan<WriteResp> in,
+        wr_resp_m6_r: chan<WriteResp> in,
+        wr_resp_m7_r: chan<WriteResp> in
+    ) {
+        spawn LiteralsBufferWriter<
+            INST_HISTORY_BUFFER_SIZE_KB,
+            INST_RAM_SIZE,
+            INST_RAM_ADDR_WIDTH,
+            INST_RAM_DATA_WIDTH,
+            INST_RAM_WORD_PARTITION_SIZE,
+            INST_RAM_NUM_PARTITIONS,
+            INST_RAM_NUM_WIDTH,
+            INST_INIT_HB_PTR_ADDR,
+            INST_INIT_HB_PTR_RAM,
+            INST_INIT_HB_LENGTH,
+            INST_RAM_SIZE_TOTAL
+        > (
+            literals_r,
+            buffer_sync_r, buffer_sync_s,
+            wr_req_m0_s, wr_req_m1_s, wr_req_m2_s, wr_req_m3_s,
+            wr_req_m4_s, wr_req_m5_s, wr_req_m6_s, wr_req_m7_s,
+            wr_resp_m0_r, wr_resp_m1_r, wr_resp_m2_r, wr_resp_m3_r,
+            wr_resp_m4_r, wr_resp_m5_r, wr_resp_m6_r, wr_resp_m7_r,
+        );
+    }
+
+    next (state: ()) { }
+}
+
 // Proc responsible for reading requestes literals from RAMs
 proc LiteralsBufferReader<
     HISTORY_BUFFER_SIZE_KB: u32,
     RAM_SIZE: u32 = {parallel_rams::ram_size(HISTORY_BUFFER_SIZE_KB)},
     RAM_ADDR_WIDTH: u32 = {parallel_rams::ram_addr_width(HISTORY_BUFFER_SIZE_KB)},
+    RAM_NUM_WIDTH: u32 = {parallel_rams::RAM_NUM_WIDTH},
     INIT_HB_PTR_ADDR: u32 = {u32:0},
     INIT_HB_PTR_RAM: u32 = {u32:0},
     INIT_HB_LENGTH: u32 = {u32:0},
@@ -600,8 +682,7 @@ proc LiteralsBufferReader<
     type RamAddr = bits[RAM_ADDR_WIDTH];
     type ReadReq = ram::ReadReq<RAM_ADDR_WIDTH, RAM_NUM_PARTITIONS>;
     type ReadResp = ram::ReadResp<RAM_DATA_WIDTH>;
-    type State = LiteralsBufferReaderState<RAM_ADDR_WIDTH>;
-    type WriteReq = ram::WriteReq<RAM_ADDR_WIDTH, RAM_DATA_WIDTH, RAM_NUM_PARTITIONS>;
+    type State = LiteralsBufferReaderState<RAM_ADDR_WIDTH, RAM_NUM_WIDTH>;
     type WriteResp = ram::WriteResp;
 
     literals_buf_ctrl_r: chan<LiteralsBufferCtrl> in;
@@ -666,6 +747,7 @@ proc LiteralsBufferReader<
     }
 
     init {
+        type State = LiteralsBufferReaderState<RAM_ADDR_WIDTH, RAM_NUM_WIDTH>;
         let INIT_HB_PTR = HistoryBufferPtr {
             number: INIT_HB_PTR_RAM as RamNumber, addr: INIT_HB_PTR_ADDR as RamAddr
         };
@@ -681,6 +763,7 @@ proc LiteralsBufferReader<
         let tok0 = join();
         // TODO: Remove this workaround when fixed: https://github.com/google/xls/issues/1368
         type ReadReq = ram::ReadReq<RAM_ADDR_WIDTH, RAM_NUM_PARTITIONS>;
+        type State = LiteralsBufferReaderState<RAM_ADDR_WIDTH, RAM_NUM_WIDTH>;
 
         const ZERO_READ_REQS = ReadReq[RAM_NUM]:[zero!<ReadReq>(), ...];
         const RAM_REQ_MASK_NONE = bits[RAM_NUM_PARTITIONS]:0;
@@ -806,6 +889,10 @@ pub proc LiteralsBuffer<
     HISTORY_BUFFER_SIZE_KB: u32,
     RAM_SIZE: u32 = {parallel_rams::ram_size(HISTORY_BUFFER_SIZE_KB)},
     RAM_ADDR_WIDTH: u32 = {parallel_rams::ram_addr_width(HISTORY_BUFFER_SIZE_KB)},
+    RAM_DATA_WIDTH: u32,
+    RAM_WORD_PARTITION_SIZE: u32,
+    RAM_NUM_PARTITIONS: u32,
+    RAM_NUM_WIDTH: u32,
     INIT_HB_PTR_ADDR: u32 = {u32:0},
     INIT_HB_PTR_RAM: u32 = {u32:0},
     INIT_HB_LENGTH: u32 = {u32:0},
@@ -857,8 +944,8 @@ pub proc LiteralsBuffer<
         wr_resp_m6_r: chan<WriteResp> in,
         wr_resp_m7_r: chan<WriteResp> in
     ) {
-        type SyncWriterToReader = LiteralsBufferWriterToReaderSync<RAM_ADDR_WIDTH>;
-        type SyncReaderToWriter = LiteralsBufferReaderToWriterSync<RAM_ADDR_WIDTH>;
+        type SyncWriterToReader = LiteralsBufferWriterToReaderSync;
+        type SyncReaderToWriter = LiteralsBufferReaderToWriterSync;
 
         let (buffer_sync_writer_to_reader_s, buffer_sync_writer_to_reader_r) = chan<SyncWriterToReader, u32:1>("buffer_sync_writer_to_reader");
         let (buffer_sync_reader_to_writer_s, buffer_sync_reader_to_writer_r) = chan<SyncReaderToWriter, u32:1>("buffer_sync_reader_to_writer");
@@ -870,7 +957,7 @@ pub proc LiteralsBuffer<
         );
 
         spawn LiteralsBufferWriter<
-            HISTORY_BUFFER_SIZE_KB, RAM_SIZE, RAM_ADDR_WIDTH, INIT_HB_PTR_ADDR, INIT_HB_PTR_RAM, INIT_HB_LENGTH, RAM_SIZE_TOTAL
+            HISTORY_BUFFER_SIZE_KB, RAM_SIZE, RAM_ADDR_WIDTH, RAM_DATA_WIDTH, RAM_WORD_PARTITION_SIZE, RAM_NUM_PARTITIONS, RAM_NUM_WIDTH, INIT_HB_PTR_ADDR, INIT_HB_PTR_RAM, INIT_HB_LENGTH, RAM_SIZE_TOTAL
         > (
             sync_literals_r,
             buffer_sync_reader_to_writer_r, buffer_sync_writer_to_reader_s,
@@ -881,7 +968,7 @@ pub proc LiteralsBuffer<
         );
 
         spawn LiteralsBufferReader<
-            HISTORY_BUFFER_SIZE_KB, RAM_SIZE, RAM_ADDR_WIDTH, INIT_HB_PTR_ADDR, INIT_HB_PTR_RAM, INIT_HB_LENGTH, RAM_SIZE_TOTAL
+            HISTORY_BUFFER_SIZE_KB, RAM_SIZE, RAM_ADDR_WIDTH, RAM_NUM_WIDTH, INIT_HB_PTR_ADDR, INIT_HB_PTR_RAM, INIT_HB_LENGTH, RAM_SIZE_TOTAL
         > (
             literals_buf_ctrl_r, literals_s,
             buffer_sync_writer_to_reader_r, buffer_sync_reader_to_writer_s,
@@ -895,14 +982,11 @@ pub proc LiteralsBuffer<
     next (state: ()) { }
 }
 
-const ZSTD_HISTORY_BUFFER_SIZE_KB: u32 = u32:64;
-const ZSTD_RAM_ADDR_WIDTH = parallel_rams::ram_addr_width(ZSTD_HISTORY_BUFFER_SIZE_KB);
-
 pub proc LiteralsBufferInst {
-    type ReadReq = ram::ReadReq<ZSTD_RAM_ADDR_WIDTH, RAM_NUM_PARTITIONS>;
-    type ReadResp = ram::ReadResp<RAM_DATA_WIDTH>;
-    type WriteReq = ram::WriteReq<ZSTD_RAM_ADDR_WIDTH, RAM_DATA_WIDTH, RAM_NUM_PARTITIONS>;
-    type WriteResp = ram::WriteResp;
+    type InstReadReq = ram::ReadReq<INST_RAM_ADDR_WIDTH, INST_RAM_NUM_PARTITIONS>;
+    type InstReadResp = ram::ReadResp<INST_RAM_DATA_WIDTH>;
+    type InstWriteReq = ram::WriteReq<INST_RAM_ADDR_WIDTH, INST_RAM_DATA_WIDTH, INST_RAM_NUM_PARTITIONS>;
+    type InstWriteResp = ram::WriteResp;
 
     init { }
 
@@ -911,41 +995,53 @@ pub proc LiteralsBufferInst {
         rle_literals_r: chan<LiteralsDataWithSync> in,
         huff_literals_r: chan<LiteralsDataWithSync> in,
         literals_buf_ctrl_r: chan<LiteralsBufferCtrl> in,
-        literals_s: chan<SequenceExecutorPacket<common::SYMBOL_WIDTH>> out,
-        rd_req_m0_s: chan<ReadReq> out,
-        rd_req_m1_s: chan<ReadReq> out,
-        rd_req_m2_s: chan<ReadReq> out,
-        rd_req_m3_s: chan<ReadReq> out,
-        rd_req_m4_s: chan<ReadReq> out,
-        rd_req_m5_s: chan<ReadReq> out,
-        rd_req_m6_s: chan<ReadReq> out,
-        rd_req_m7_s: chan<ReadReq> out,
-        rd_resp_m0_r: chan<ReadResp> in,
-        rd_resp_m1_r: chan<ReadResp> in,
-        rd_resp_m2_r: chan<ReadResp> in,
-        rd_resp_m3_r: chan<ReadResp> in,
-        rd_resp_m4_r: chan<ReadResp> in,
-        rd_resp_m5_r: chan<ReadResp> in,
-        rd_resp_m6_r: chan<ReadResp> in,
-        rd_resp_m7_r: chan<ReadResp> in,
-        wr_req_m0_s: chan<WriteReq> out,
-        wr_req_m1_s: chan<WriteReq> out,
-        wr_req_m2_s: chan<WriteReq> out,
-        wr_req_m3_s: chan<WriteReq> out,
-        wr_req_m4_s: chan<WriteReq> out,
-        wr_req_m5_s: chan<WriteReq> out,
-        wr_req_m6_s: chan<WriteReq> out,
-        wr_req_m7_s: chan<WriteReq> out,
-        wr_resp_m0_r: chan<WriteResp> in,
-        wr_resp_m1_r: chan<WriteResp> in,
-        wr_resp_m2_r: chan<WriteResp> in,
-        wr_resp_m3_r: chan<WriteResp> in,
-        wr_resp_m4_r: chan<WriteResp> in,
-        wr_resp_m5_r: chan<WriteResp> in,
-        wr_resp_m6_r: chan<WriteResp> in,
-        wr_resp_m7_r: chan<WriteResp> in
+        literals_s: chan<SequenceExecutorPacket<INST_SYMBOL_WIDTH>> out,
+        rd_req_m0_s: chan<InstReadReq> out,
+        rd_req_m1_s: chan<InstReadReq> out,
+        rd_req_m2_s: chan<InstReadReq> out,
+        rd_req_m3_s: chan<InstReadReq> out,
+        rd_req_m4_s: chan<InstReadReq> out,
+        rd_req_m5_s: chan<InstReadReq> out,
+        rd_req_m6_s: chan<InstReadReq> out,
+        rd_req_m7_s: chan<InstReadReq> out,
+        rd_resp_m0_r: chan<InstReadResp> in,
+        rd_resp_m1_r: chan<InstReadResp> in,
+        rd_resp_m2_r: chan<InstReadResp> in,
+        rd_resp_m3_r: chan<InstReadResp> in,
+        rd_resp_m4_r: chan<InstReadResp> in,
+        rd_resp_m5_r: chan<InstReadResp> in,
+        rd_resp_m6_r: chan<InstReadResp> in,
+        rd_resp_m7_r: chan<InstReadResp> in,
+        wr_req_m0_s: chan<InstWriteReq> out,
+        wr_req_m1_s: chan<InstWriteReq> out,
+        wr_req_m2_s: chan<InstWriteReq> out,
+        wr_req_m3_s: chan<InstWriteReq> out,
+        wr_req_m4_s: chan<InstWriteReq> out,
+        wr_req_m5_s: chan<InstWriteReq> out,
+        wr_req_m6_s: chan<InstWriteReq> out,
+        wr_req_m7_s: chan<InstWriteReq> out,
+        wr_resp_m0_r: chan<InstWriteResp> in,
+        wr_resp_m1_r: chan<InstWriteResp> in,
+        wr_resp_m2_r: chan<InstWriteResp> in,
+        wr_resp_m3_r: chan<InstWriteResp> in,
+        wr_resp_m4_r: chan<InstWriteResp> in,
+        wr_resp_m5_r: chan<InstWriteResp> in,
+        wr_resp_m6_r: chan<InstWriteResp> in,
+        wr_resp_m7_r: chan<InstWriteResp> in
     ) {
-        spawn LiteralsBuffer<ZSTD_HISTORY_BUFFER_SIZE_KB> (
+        spawn LiteralsBuffer<
+            INST_HISTORY_BUFFER_SIZE_KB,
+            INST_RAM_SIZE,
+            INST_RAM_ADDR_WIDTH,
+            INST_RAM_DATA_WIDTH,
+            INST_RAM_WORD_PARTITION_SIZE,
+            INST_RAM_NUM_PARTITIONS,
+            INST_RAM_NUM_WIDTH,
+            INST_INIT_HB_PTR_ADDR,
+            INST_INIT_HB_PTR_RAM,
+            INST_INIT_HB_LENGTH,
+            INST_RAM_SIZE_TOTAL
+        > (
             raw_literals_r, rle_literals_r, huff_literals_r,
             literals_buf_ctrl_r, literals_s,
             rd_req_m0_s, rd_req_m1_s, rd_req_m2_s, rd_req_m3_s,
@@ -1075,13 +1171,15 @@ proc LiteralsBuffer_test {
         let (ram_wr_req_s,  ram_wr_req_r) = chan<TestWriteReq>[RAM_NUM]("ram_wr_req");
         let (ram_wr_resp_s, ram_wr_resp_r) = chan<TestWriteResp>[RAM_NUM]("ram_wr_resp");
 
-        let INIT_HB_PTR_ADDR = u32:127;
-
         spawn LiteralsBuffer<
             TEST_HISTORY_BUFFER_SIZE_KB,
             TEST_RAM_SIZE,
             TEST_RAM_ADDR_WIDTH,
-            INIT_HB_PTR_ADDR,
+            TEST_RAM_DATA_WIDTH,
+            TEST_RAM_WORD_PARTITION_SIZE,
+            TEST_RAM_NUM_PARTITIONS,
+            TEST_RAM_NUM_WIDTH,
+            TEST_INIT_HB_PTR_ADDR
         > (
             raw_literals_r, rle_literals_r, huff_literals_r,
             literals_buf_ctrl_r, literals_s,

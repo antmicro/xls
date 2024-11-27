@@ -93,59 +93,41 @@ struct SequenceExecutorState<RAM_ADDR_WIDTH: u32> {
     seq_cnt: bool,
 }
 
-fn decode_literal_packet(packet: SequenceExecutorPacket) -> ZstdDecodedPacket {
-    ZstdDecodedPacket {
-        data: packet.content, length: (packet.length << u32:3) as BlockPacketLength, last: packet.last
-    }
-}
-
-#[test]
-fn test_decode_literal_packet() {
-    let content = CopyOrMatchContent:0xAA00_BB11_CC22_DD33;
-    let length = CopyOrMatchLength:8;
-    let last = false;
-
-    assert_eq(
-        decode_literal_packet(
-            SequenceExecutorPacket {
-                msg_type: SequenceExecutorMessageType::LITERAL,
-                length, content, last
-            }),
-        ZstdDecodedPacket {
-            length: length as BlockPacketLength << u32:3,
-            data: content, last
-        })
-}
-
-
-fn convert_output_packet<ADDR_W: u32, DATA_W: u32>(packet: ZstdDecodedPacket) -> mem_writer::MemWriterDataPacket<DATA_W, ADDR_W> {
+fn decode_literal_packet<ADDR_W: u32, DATA_W: u32>(packet: SequenceExecutorPacket) -> mem_writer::MemWriterDataPacket<DATA_W, ADDR_W> {
     type MemWriterDataPacket  = mem_writer::MemWriterDataPacket<DATA_W, ADDR_W>;
     MemWriterDataPacket {
-        data: packet.data as uN[DATA_W],
-        length: std::div_pow2(packet.length, u32:8) as uN[ADDR_W],
+        data: packet.content as uN[DATA_W],
+        length: packet.length as uN[ADDR_W],
         last: packet.last
     }
 }
 
 #[test]
-fn test_convert_output_packet() {
+fn test_decode_literal_packet() {
     const DATA_W = u32:64;
     const ADDR_W = u32:16;
 
     type MemWriterDataPacket  = mem_writer::MemWriterDataPacket<DATA_W, ADDR_W>;
 
-    let packet = ZstdDecodedPacket {
-        data: CopyOrMatchContent:0xAA00BB11CC22DD33,
-        length: BlockPacketLength:64,
-        last: false
-    };
-    let expected = MemWriterDataPacket {
-        data: uN[DATA_W]:0xAA00BB11CC22DD33,
-        length: uN[ADDR_W]:8,
-        last: false
-    };
+    let content = CopyOrMatchContent:0xAA00_BB11_CC22_DD33;
+    let length = CopyOrMatchLength:8;
+    let last = false;
 
-    assert_eq(convert_output_packet<ADDR_W, DATA_W>(packet), expected)
+    assert_eq(
+        decode_literal_packet<ADDR_W, DATA_W>(
+            SequenceExecutorPacket {
+                msg_type: SequenceExecutorMessageType::LITERAL,
+                length,
+                content,
+                last
+            }
+        ),
+        MemWriterDataPacket {
+            data: uN[DATA_W]:0xAA00BB11CC22DD33,
+            length: uN[ADDR_W]:8,
+            last: false
+        }
+    )
 }
 
 pub fn handle_repeated_offset_for_sequences<RAM_DATA_WIDTH: u32 = {u32:8}>
@@ -509,7 +491,7 @@ pub proc SequenceExecutor<HISTORY_BUFFER_SIZE_KB: u32,
         let tok2_9 = send_if(tok1, ram_comp_input_s, do_write, wr_resp_handler_data);
 
         let do_write_output = do_write || (packet.last && packet.msg_type == SequenceExecutorMessageType::LITERAL);
-        let output_mem_wr_data_in = convert_output_packet<AXI_ADDR_W, AXI_DATA_W>(decode_literal_packet(packet));
+        let output_mem_wr_data_in = decode_literal_packet<AXI_ADDR_W, AXI_DATA_W>(packet);
         if do_write_output { trace_fmt!("Sending output MemWriter data: {:#x}", output_mem_wr_data_in); } else {  };
         let tok2_10_1 = send_if(tok1, output_mem_wr_data_in_s, do_write_output, output_mem_wr_data_in);
 
@@ -803,8 +785,7 @@ proc SequenceExecutorLiteralsTest {
             if (LITERAL_TEST_INPUT_DATA[i].msg_type != SequenceExecutorMessageType::LITERAL ||
                 LITERAL_TEST_INPUT_DATA[i].length != CopyOrMatchLength:0 ||
                 LITERAL_TEST_INPUT_DATA[i].last) {
-                let expected = decode_literal_packet(LITERAL_TEST_INPUT_DATA[i]);
-                let expected_mem_writer_data = convert_output_packet<TEST_ADDR_W, TEST_DATA_W>(expected);
+                let expected_mem_writer_data = decode_literal_packet<TEST_ADDR_W, TEST_DATA_W>(LITERAL_TEST_INPUT_DATA[i]);
                 let (tok, recv_mem_writer_data) = recv(tok, output_mem_wr_data_in_r);
                 assert_eq(expected_mem_writer_data, recv_mem_writer_data);
             } else {}
@@ -1062,8 +1043,7 @@ proc SequenceExecutorSequenceTest {
             if (LITERAL_TEST_INPUT_DATA[i].msg_type != SequenceExecutorMessageType::LITERAL ||
                 LITERAL_TEST_INPUT_DATA[i].length != CopyOrMatchLength:0 ||
                 LITERAL_TEST_INPUT_DATA[i].last) {
-                let expected = decode_literal_packet(LITERAL_TEST_INPUT_DATA[i]);
-                let expected_mem_writer_data = convert_output_packet<TEST_ADDR_W, TEST_DATA_W>(expected);
+                let expected_mem_writer_data = decode_literal_packet<TEST_ADDR_W, TEST_DATA_W>(LITERAL_TEST_INPUT_DATA[i]);
                 let (tok, recv_mem_writer_data) = recv(tok, output_mem_wr_data_in_r);
                 assert_eq(expected_mem_writer_data, recv_mem_writer_data);
             } else {}

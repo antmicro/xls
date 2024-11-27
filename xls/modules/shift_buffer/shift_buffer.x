@@ -449,7 +449,7 @@ proc ShiftBufferStorageTest {
         // This should wait indefinitely, we test this by checking that we can't
         // receive data over the next consecutive 100 iterations
         let tok = send(tok, ctrl_s, Ctrl { length: Length:64});
-        for (_, tok): (u32, token) in u32:1..u32:100 {
+        let tok = for (_, tok): (u32, token) in u32:1..u32:100 {
             let (tok, _, data_valid) = recv_non_blocking(tok, output_r, zero!<Output>());
             assert_eq(data_valid, false);
             tok
@@ -458,7 +458,7 @@ proc ShiftBufferStorageTest {
         // Refill the buffer with more data - not enough to reply to the earlier request for 64b
         let tok = send(tok, inter_s, Inter { data: DataX2: 0xDEAD_BEEF_0000, length: Length: 32, last: false});
         // Check that we can't receive still
-        for (_, tok): (u32, token) in u32:1..u32:100 {
+        let tok = for (_, tok): (u32, token) in u32:1..u32:100 {
             let (tok, _, data_valid) = recv_non_blocking(tok, output_r, zero!<Output>());
             assert_eq(data_valid, false);
             tok
@@ -645,7 +645,7 @@ proc ShiftBufferTest {
         // This should wait indefinitely, we test this by checking that we can't
         // receive data over the next consecutive 100 iterations
         let tok = send(tok, ctrl_s, Ctrl { length: Length:64});
-        for (_, tok): (u32, token) in u32:1..u32:100 {
+        let tok = for (_, tok): (u32, token) in u32:1..u32:100 {
             let (tok, _, data_valid) = recv_non_blocking(tok, data_r, zero!<Output>());
             assert_eq(data_valid, false);
             tok
@@ -654,7 +654,7 @@ proc ShiftBufferTest {
         // Refill the buffer with more data - not enough to reply to the earlier request for 64b
         let tok = send(tok, input_s, Input { data: Data: 0xDEAD_BEEF, length: Length: 32, last: false});
         // Check that we can't receive still
-        for (_, tok): (u32, token) in u32:1..u32:100 {
+        let tok = for (_, tok): (u32, token) in u32:1..u32:100 {
             let (tok, _, data_valid) = recv_non_blocking(tok, data_r, zero!<Output>());
             assert_eq(data_valid, false);
             tok

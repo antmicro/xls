@@ -149,9 +149,9 @@ fn test_convert_output_packet() {
 }
 
 pub fn handle_repeated_offset_for_sequences<RAM_DATA_WIDTH: u32 = {u32:8}>
-    (seq: SequenceExecutorPacket<RAM_DATA_WIDTH>, repeat_offsets: Offset[3], repeat_req: bool)
-    -> (SequenceExecutorPacket<RAM_DATA_WIDTH>, Offset[3]) {
-    type Packet = SequenceExecutorPacket<RAM_DATA_WIDTH>;
+    (seq: SequenceExecutorPacket, repeat_offsets: Offset[3], repeat_req: bool)
+    -> (SequenceExecutorPacket, Offset[3]) {
+    type Packet = SequenceExecutorPacket;
     type Content = uN[RAM_DATA_WIDTH * u32:8];
     let modified_repeat_offsets = if repeat_req {
         Offset[3]:[repeat_offsets[1], repeat_offsets[2], repeat_offsets[0] - Offset:1]
@@ -395,7 +395,7 @@ pub proc SequenceExecutor<HISTORY_BUFFER_SIZE_KB: u32,
                     write_reqs, ZERO_READ_REQS, RamReadStart:0, RamReadLen:0,
                     State {
                         status: Status::LITERAL_WRITE,
-                        packet: zero!<SequenceExecutorPacket>(),
+                        packet: zero!<Packet>(),
                         packet_valid: false,
                         hyp_ptr: new_hyp_ptr,
                         real_ptr,

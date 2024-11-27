@@ -32,11 +32,16 @@ enum RefillError: u1 {
 }
 
 struct RefillerState<ADDR_W: u32, BUFFER_W_CLOG2: u32> {
-    curr_addr: uN[ADDR_W],                      // next memory address to request data from
-    fsm: RefillerFsm,                           // FSM state
-    buffer_occupancy_bits: uN[BUFFER_W_CLOG2],  // amount of bits that are currently in the ShiftBuffer +
-                                                // amount of bits that will enter ShiftBuffer once all
-                                                // pending memory requests are served
+    curr_addr: uN[ADDR_W],                       // next memory address to request data from
+    fsm: RefillerFsm,                            // FSM state
+    buffer_occupancy: uN[BUFFER_W_CLOG2],        // amount of bits that are currently in the ShiftBuffer +
+                                                 // amount of bits that will enter ShiftBuffer once all
+                                                 // pending memory requests are served
+    future_buffer_occupancy: uN[BUFFER_W_CLOG2], // amount of bits that are currently in the ShiftBuffer +
+                                                 // amount of bits that will enter ShiftBuffer once all
+                                                 // pending memory requests are served -
+                                                 // amount of bits that will leave ShiftBuffer once alll
+                                                 // control requests are served
 }
 
 
@@ -44,8 +49,8 @@ pub proc RefillingShiftBuffer<
     DATA_W: u32, ADDR_W: u32,
     LENGTH_W: u32 = {shift_buffer::length_width(DATA_W)}, 
     DATA_W_DIV8: u32 = {DATA_W / u32:8},
-    BUFFER_W: u32 = {DATA_W * u32:3},             // TODO: fix implementation detail of ShiftBuffer leaking here
-    BUFFER_W_CLOG2: u32 = {std::clog2(BUFFER_W)},
+    BUFFER_W: u32 = {DATA_W * u32:2},             // TODO: fix implementation detail of ShiftBuffer leaking here
+    BUFFER_W_CLOG2: u32 = {std::clog2(BUFFER_W) + u32:1},
 >{
     type MemReaderReq = mem_reader::MemReaderReq<ADDR_W>;
     type MemReaderResp = mem_reader::MemReaderResp<DATA_W, ADDR_W>;
@@ -104,10 +109,10 @@ pub proc RefillingShiftBuffer<
         let (_, (), stop_flush_valid) = recv_if_non_blocking(tok, stop_flush_req_r, state.fsm == Fsm::REFILLING, ());
 
         // flush logic
-        let flushing_end = state.buffer_occupancy_bits == BufferSize:0;
+        let flushing_end = state.buffer_occupancy == BufferSize:0;
         let flushing = state.fsm == Fsm::FLUSHING;
         // flush at most DATA_W bits in a given next() evaluation
-        let flush_amount_bits = std::umin(DATA_W as BufferSize, state.buffer_occupancy_bits); 
+        let flush_amount_bits = std::umin(DATA_W as BufferSize, state.future_buffer_occupancy);
 
         // snooping logic for the ShiftBuffer control channel
         // recv and immediately send out control packets heading for ShiftBuffer,
@@ -121,7 +126,7 @@ pub proc RefillingShiftBuffer<
         } else {
             zero!<SBCtrl>()
         };
-        let do_send_ctrl = flushing || snoop_ctrl_valid;
+        let do_send_ctrl = (flushing && flush_amount_bits > BufferSize:0) || snoop_ctrl_valid;
         send_if(tok, snoop_ctrl_s, do_send_ctrl, ctrl_packet);
         if do_send_ctrl {
             trace_fmt!("Forwarded snooped control packet: {:#x}", ctrl_packet);
@@ -139,7 +144,7 @@ pub proc RefillingShiftBuffer<
 
         // refilling logic
         const REFILL_SIZE = DATA_W_DIV8 as uN[ADDR_W];
-        let buf_has_enough_space = state.buffer_occupancy_bits <= (DATA_W * u32:2) as BufferSize;    // TODO: fix implementation detail of ShiftBuffer leaking here
+        let buf_has_enough_space = state.future_buffer_occupancy <= DATA_W as BufferSize;    // TODO: fix implementation detail of ShiftBuffer leaking here
         let do_refill_cycle = state.fsm == Fsm::REFILLING && buf_has_enough_space;
         // send request to memory for more data under the assumption
         // that there's enough space in the ShiftBuffer to fit it
@@ -182,20 +187,27 @@ pub proc RefillingShiftBuffer<
 
         // length of additional data that will be inserted into the ShiftBuffer *in the future*
         // once all pending memory requests are served
-        let input_bits = if (do_refill_cycle) {
+        let future_input_bits = if (do_refill_cycle) {
             DATA_W as uN[LENGTH_W]
+        } else {
+            uN[LENGTH_W]:0
+        };
+        let input_bits = if (do_buffer_refill) {
+            reader_resp_len_bits
         } else {
             uN[LENGTH_W]:0
         };
         // length of data that was snooped on the ShiftBuffer control
         // note: default value of snoop_ctrl.length from its recv_if_non_blocking is 0
-        let output_bits = snoop_ctrl.length;
+        let future_output_bits = ctrl_packet.length;
+        let output_bits = snoop_data.payload.length;
         // calculate the difference in the amount of bits inserted/taken out
-        let next_buffer_occupancy_bits = state.buffer_occupancy_bits + (input_bits as u8) - (output_bits as u8); 
-        
-        // equivalent to the following implication: state.fsm == Fsm::IDLE => next_buffer_occupancy_bits == 0
+        let next_buffer_occupancy = state.buffer_occupancy + (future_input_bits as BufferSize) - (output_bits as BufferSize); 
+        let next_future_buffer_occupancy = state.future_buffer_occupancy + (future_input_bits as BufferSize) - (future_output_bits as BufferSize);
+
+        // equivalent to the following implication: state.fsm == Fsm::IDLE => next_buffer_occupancy == 0
         // TODO: consider that this won't be true in most cases when going from REFILLING to IDLE state due to error
-        // assert!(!(state.fsm == Fsm::IDLE) || next_buffer_occupancy_bits == uN[DATA_W]:0);        
+        // assert!(!(state.fsm == Fsm::IDLE) || next_buffer_occupancy == uN[DATA_W]:0);        
 
         // FSM
         let next_state = match (state.fsm) {
@@ -247,7 +259,8 @@ pub proc RefillingShiftBuffer<
 
         // combine next FSM state with buffer occupancy data
         State {
-            buffer_occupancy_bits: next_buffer_occupancy_bits,
+            buffer_occupancy: next_buffer_occupancy,
+            future_buffer_occupancy: next_future_buffer_occupancy,
             ..next_state
         }
     }
@@ -257,7 +270,7 @@ const TEST_DATA_W = u32:64;
 const TEST_ADDR_W = u32:32;
 const TEST_LENGTH_W = shift_buffer::length_width(TEST_DATA_W);
 const TEST_DATA_W_DIV8 = TEST_DATA_W / u32:8;
-const TEST_BUFFER_W = TEST_DATA_W * u32:3;             // TODO: fix implementation detail of ShiftBuffer leaking here
+const TEST_BUFFER_W = TEST_DATA_W * u32:2;             // TODO: fix implementation detail of ShiftBuffer leaking here
 const TEST_BUFFER_W_CLOG2 = std::clog2(TEST_BUFFER_W);
 
 #[test_proc]
@@ -309,7 +322,7 @@ proc RefillingShiftBufferTest {
         const REFILL_SIZE = TEST_DATA_W_DIV8 as uN[TEST_ADDR_W];
         let tok = send(tok, start_req_s, StartReq { start_addr: uN[TEST_ADDR_W]:0xDEAD_0008 });
         
-        // proc should ask for data 3 times (size of the internal ShiftBuffer)
+        // proc should ask for data 2 times (2/3 of the size of the internal ShiftBuffer)
         let (tok, req) = recv(tok, reader_req_r);
         assert_eq(req, MemReaderReq {
             addr: uN[TEST_ADDR_W]:0xDEAD_0008,
@@ -329,17 +342,6 @@ proc RefillingShiftBufferTest {
         let tok = send(tok, reader_resp_s, MemReaderResp {
             status: MemReaderStatus::OKAY,
             data: uN[TEST_DATA_W]:0xFEDCBA98_76543210,
-            length: REFILL_SIZE,
-            last: false,
-        });
-        let (tok, req) = recv(tok, reader_req_r);
-        assert_eq(req, MemReaderReq {
-            addr: uN[TEST_ADDR_W]:0xDEAD_0018,
-            length: REFILL_SIZE,
-        });
-        let tok = send(tok, reader_resp_s, MemReaderResp {
-            status: MemReaderStatus::OKAY,
-            data: uN[TEST_DATA_W]:0x11223344_55667788,
             length: REFILL_SIZE,
             last: false,
         });
@@ -380,25 +382,12 @@ proc RefillingShiftBufferTest {
         });
         let (tok, req) = recv(tok, reader_req_r);
         assert_eq(req, MemReaderReq {
-            addr: uN[TEST_ADDR_W]:0xDEAD_0020,
+            addr: uN[TEST_ADDR_W]:0xDEAD_0018,
             length: REFILL_SIZE,
         });
         // don't respond to the request yet
 
-        // almost empty the buffer manually
-        let tok = send(tok, buffer_ctrl_s, SBCtrl {
-            length: uN[TEST_LENGTH_W]:64
-        });
-        let (tok, resp) = recv(tok, buffer_data_out_r);
-        assert_eq(resp, SBOutput {
-            status: SBStatus::OK,
-            payload: SBPacket {
-                data: uN[TEST_DATA_W]:0xFEDCBA98_76543210,
-                length: uN[TEST_LENGTH_W]:64,
-                last: false,
-            }
-        });
-
+        // we have 64 bits in the buffer at this point - almost empty it manually
         let tok = send(tok, buffer_ctrl_s, SBCtrl {
             length: uN[TEST_LENGTH_W]:60
         });
@@ -406,7 +395,7 @@ proc RefillingShiftBufferTest {
         assert_eq(resp, SBOutput {
             status: SBStatus::OK,
             payload: SBPacket {
-                data: uN[TEST_DATA_W]:0x1223344_55667788,
+                data: uN[TEST_DATA_W]:0xEDCBA98_76543210,
                 length: uN[TEST_LENGTH_W]:60,
                 last: false,
             }
@@ -426,7 +415,7 @@ proc RefillingShiftBufferTest {
         // serve earlier memory request
         let tok = send(tok, reader_resp_s, MemReaderResp {
             status: MemReaderStatus::OKAY,
-            data: uN[TEST_DATA_W]:0x02481357_8ACE9BDF,
+            data: uN[TEST_DATA_W]:0x02481357_8ACE9BD0,
             length: REFILL_SIZE,
             last: false,
         });
@@ -435,17 +424,17 @@ proc RefillingShiftBufferTest {
         assert_eq(resp, SBOutput {
             status: SBStatus::OK,
             payload: SBPacket {
-                data: uN[TEST_DATA_W]:0xDF1,
+                data: uN[TEST_DATA_W]:0xD0F,
                 length: uN[TEST_LENGTH_W]:12,
                 last: false,
             }
         });
 
-        // buffer now contains 56 bytes - proc should have sent 2 more
-        // memory requests by this point - serve them
+        // buffer now contains 56 bits - proc should have sent 1 more
+        // memory requests by this point - serve it
         let (tok, req) = recv(tok, reader_req_r);
         assert_eq(req, MemReaderReq {
-            addr: uN[TEST_ADDR_W]:0xDEAD_0028,
+            addr: uN[TEST_ADDR_W]:0xDEAD_0020,
             length: REFILL_SIZE,
         });
         let tok = send(tok, reader_resp_s, MemReaderResp {
@@ -454,17 +443,13 @@ proc RefillingShiftBufferTest {
             length: REFILL_SIZE,
             last: false,
         });
-        let (tok, req) = recv(tok, reader_req_r);
-        assert_eq(req, MemReaderReq {
-            addr: uN[TEST_ADDR_W]:0xDEAD_0030,
-            length: REFILL_SIZE,
-        });
-        let tok = send(tok, reader_resp_s, MemReaderResp {
-            status: MemReaderStatus::OKAY,
-            data: uN[TEST_DATA_W]:0xABABABAB_CDCDCDCD,
-            length: REFILL_SIZE,
-            last: false,
-        });
+
+        // make sure proc is not requesting more data that we can insert into the buffer
+        let tok = for (_, tok): (u32, token) in u32:1..u32:100 {
+            let (tok, _, req_valid) = recv_non_blocking(tok, reader_req_r, zero!<MemReaderReq>());
+            assert_eq(req_valid, false);
+            tok
+        }(tok);
 
         // try flushing
         let tok = send(tok, stop_flush_req_s, ());
@@ -486,46 +471,67 @@ proc RefillingShiftBufferTest {
             addr: uN[TEST_ADDR_W]:0x1000_11F0,
             length: REFILL_SIZE,
         });
-        // let tok = send(tok, reader_resp_s, MemReaderResp {
-        //     status: MemReaderStatus::OKAY,
-        //     data: uN[TEST_DATA_W]:0xFEFDFCFB_FAF9F8F7,
-        //     length: REFILL_SIZE,
-        //     last: false,
-        // });
+        let tok = send(tok, reader_resp_s, MemReaderResp {
+            status: MemReaderStatus::OKAY,
+            data: uN[TEST_DATA_W]:0xFEFDFCFB_FAF9F8F7,
+            length: REFILL_SIZE,
+            last: false,
+        });
 
-        // // we should be able to receive data from the buffer at this point
-        // let (tok, resp) = recv(tok, buffer_data_out_r);
-        // assert_eq(resp, SBOutput {
-        //     status: SBStatus::OK,
-        //     payload: SBPacket {
-        //         data: uN[TEST_DATA_W]:0xF,
-        //         length: uN[TEST_LENGTH_W]:4,
-        //         last: false,
-        //     }
-        // });
+        // old request for 4 bits was flushed as well so we need to issue a new one
+        let tok = send(tok, buffer_ctrl_s, SBCtrl {
+            length: uN[TEST_LENGTH_W]:4
+        });
+        // we should be able to receive data from the buffer at this point
+        let (tok, resp) = recv(tok, buffer_data_out_r);
+        assert_eq(resp, SBOutput {
+            status: SBStatus::OK,
+            payload: SBPacket {
+                data: uN[TEST_DATA_W]:0x7,
+                length: uN[TEST_LENGTH_W]:4,
+                last: false,
+            }
+        });
     
-        // let (tok, req) = recv(tok, reader_req_r);
-        // assert_eq(req, MemReaderReq {
-        //     addr: uN[TEST_ADDR_W]:0x1000_11F8,
-        //     length: REFILL_SIZE,
-        // });
-        // let tok = send(tok, reader_resp_s, MemReaderResp {
-        //     status: MemReaderStatus::OKAY,
-        //     data: uN[TEST_DATA_W]:0xABBA_BAAB_AABB_BBAA,
-        //     length: REFILL_SIZE,
-        //     last: false,
-        // });
-        // let (tok, req) = recv(tok, reader_req_r);
-        // assert_eq(req, MemReaderReq {
-        //     addr: uN[TEST_ADDR_W]:0x1000_1200,
-        //     length: REFILL_SIZE,
-        // });
-        // let tok = send(tok, reader_resp_s, MemReaderResp {
-        //     status: MemReaderStatus::OKAY,
-        //     data: uN[TEST_DATA_W]:0xDF81C39D_186A0B94,
-        //     length: REFILL_SIZE,
-        //     last: false,
-        // });
+        // refill with even more data
+        let (tok, req) = recv(tok, reader_req_r);
+        assert_eq(req, MemReaderReq {
+            addr: uN[TEST_ADDR_W]:0x1000_11F8,
+            length: REFILL_SIZE,
+        });
+        let tok = send(tok, reader_resp_s, MemReaderResp {
+            status: MemReaderStatus::OKAY,
+            data: uN[TEST_DATA_W]:0xABBA_BAAB_AABB_BBAA,
+            length: REFILL_SIZE,
+            last: false,
+        });
+
+        let tok = send(tok, buffer_ctrl_s, SBCtrl {
+            length: uN[TEST_LENGTH_W]:64
+        });
+        let tok = send(tok, buffer_ctrl_s, SBCtrl {
+            length: uN[TEST_LENGTH_W]:60
+        });
+
+        // receive all of the new data and verify that it's new data
+        let (tok, resp) = recv(tok, buffer_data_out_r);
+        assert_eq(resp, SBOutput {
+            status: SBStatus::OK,
+            payload: SBPacket {
+                data: uN[TEST_DATA_W]:0xAFEFDFCF_BFAF9F8F,
+                length: uN[TEST_LENGTH_W]:64,
+                last: false,
+            }
+        });
+        let (tok, resp) = recv(tok, buffer_data_out_r);
+        assert_eq(resp, SBOutput {
+            status: SBStatus::OK,
+            payload: SBPacket {
+                data: uN[TEST_DATA_W]:0xABBA_BAAB_AABB_BBA,
+                length: uN[TEST_LENGTH_W]:60,
+                last: false,
+            }
+        });
 
         send(tok, terminator, true);
     }

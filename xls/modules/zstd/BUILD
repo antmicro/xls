@@ -1118,38 +1118,67 @@ xls_dslx_test(
 )
 
 xls_dslx_verilog(
-    name = "refilling_shift_buffer_verilog",
-    codegen_args = common_codegen_args | {
-        "module_name": "RefillingShiftBuffer",
-        "clock_period_ps": "1000",
-        "pipeline_stages": "2",
-        "worst_case_throughput": "2",
+    name = "refilling_shift_buffer_internal_verilog",
+    codegen_args = common_codegen_args,
+    dslx_top = "RefillingShiftBufferInternalInst",
+    library = ":refilling_shift_buffer_dslx",
+    tags = ["manual"],
+    verilog_file = "refilling_shift_buffer_internal.v",
+)
+
+xls_benchmark_ir(
+    name = "refilling_shift_buffer_internal_opt_ir_benchmark",
+    src = ":refilling_shift_buffer_internal_verilog.opt.ir",
+    benchmark_ir_args = {
+        "top": "__refilling_shift_buffer__RefillingShiftBufferInternalInst__RefillingShiftBufferInternal_0__32_128_8_64_8_7_next",
+        "pipeline_stages": "10",
     },
+    tags = ["manual"],
+)
+
+xls_dslx_verilog(
+    name = "refilling_shift_buffer_verilog",
+    codegen_args = common_codegen_args,
     dslx_top = "RefillingShiftBufferInst",
     library = ":refilling_shift_buffer_dslx",
     tags = ["manual"],
     verilog_file = "refilling_shift_buffer.v",
-    opt_ir_args = {
-        "inline_procs": "true",
-        "top": "__refilling_shift_buffer__RefillingShiftBufferInst__RefillingShiftBuffer_0__32_64_8_7_next",
-    },
 )
 
-xls_benchmark_ir(
-    name = "refilling_shift_buffer_opt_ir_benchmark",
-    src = ":refilling_shift_buffer_verilog.opt.ir",
-    codegen_args = common_codegen_args | {
-        "module_name": "RefillingShiftBuffer",
-        "clock_period_ps": "1000",
-        "pipeline_stages": "2",
-        "worst_case_throughput": "2",
-    },
-
-    benchmark_ir_args = {
-        "top": "__refilling_shift_buffer__RefillingShiftBufferInst__RefillingShiftBuffer_0__32_64_8_7_next",
-        "pipeline_stages": "10",
-    },
+verilog_library(
+    name = "refilling_shift_buffer_internal_verilog_lib",
+    srcs = [
+        ":refilling_shift_buffer_internal.v",
+    ],
     tags = ["manual"],
+)
+
+synthesize_rtl(
+    name = "refilling_shift_buffer_internal_synth_asap7",
+    standard_cells = "@org_theopenroadproject_asap7sc7p5t_28//:asap7-sc7p5t_rev28_rvt",
+    tags = ["manual"],
+    top_module = "RefillingShiftBufferInternal",
+    deps = [
+        ":refilling_shift_buffer_internal_verilog_lib",
+    ],
+)
+
+benchmark_synth(
+    name = "refilling_shift_buffer_internal_benchmark_synth",
+    synth_target = ":refilling_shift_buffer_internal_synth_asap7",
+    tags = ["manual"],
+)
+
+place_and_route(
+    name = "refilling_shift_buffer_internal_place_and_route",
+    clock_period = CLOCK_PERIOD_PS,
+    core_padding_microns = 2,
+    min_pin_distance = "0.4",
+    placement_density = "0.30",
+    stop_after_step = "global_routing",
+    synthesized_rtl = ":refilling_shift_buffer_internal_synth_asap7",
+    tags = ["manual"],
+    target_die_utilization_percentage = "10",
 )
 
 xls_dslx_library(

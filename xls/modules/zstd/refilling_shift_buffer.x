@@ -45,7 +45,7 @@ struct RefillerState<ADDR_W: u32, BUFFER_W_CLOG2: u32> {
 }
 
 
-pub proc RefillingShiftBuffer<
+pub proc RefillingShiftBufferInternal<
     DATA_W: u32, ADDR_W: u32,
     LENGTH_W: u32 = {shift_buffer::length_width(DATA_W)}, 
     DATA_W_DIV8: u32 = {DATA_W / u32:8},
@@ -82,15 +82,10 @@ pub proc RefillingShiftBuffer<
         error_s: chan<RefillError> out,
         buffer_ctrl_r: chan<SBCtrl> in,
         buffer_data_out_s: chan<SBOutput> out,
+        snoop_ctrl_s: chan<SBCtrl> out,
+        buffer_data_in_s: chan<SBPacket> out,
+        snoop_data_out_r: chan<SBOutput> in,
     ) {
-        let (buffer_data_in_s, buffer_data_in_r) = chan<SBPacket>("buffer_data_in");
-        let (snoop_data_out_s, snoop_data_out_r) = chan<SBOutput>("snoop_data_out_s");
-        let (snoop_ctrl_s, snoop_ctrl_r) = chan<SBCtrl>("snoop_ctrl");
-
-        spawn shift_buffer::ShiftBuffer<DATA_W, LENGTH_W>(
-            snoop_ctrl_r, buffer_data_in_r, snoop_data_out_s
-        );
-
         (reader_req_s, reader_resp_r, start_req_r, stop_flush_req_r, error_s,
         buffer_data_in_s, buffer_data_out_s, buffer_ctrl_r, snoop_data_out_r, snoop_ctrl_s)
     }
@@ -265,6 +260,54 @@ pub proc RefillingShiftBuffer<
         }
     }
 }
+
+pub proc RefillingShiftBuffer<
+    DATA_W: u32,
+    ADDR_W: u32,
+    LENGTH_W: u32 = {shift_buffer::length_width(DATA_W)},
+> {
+    type MemReaderReq = mem_reader::MemReaderReq<ADDR_W>;
+    type MemReaderResp = mem_reader::MemReaderResp<DATA_W, ADDR_W>;
+    type StartReq = RefillStart<ADDR_W>;
+    type SBPacket = shift_buffer::ShiftBufferPacket<DATA_W, LENGTH_W>;
+    type SBOutput = shift_buffer::ShiftBufferOutput<DATA_W, LENGTH_W>;
+    type SBCtrl = shift_buffer::ShiftBufferCtrl<LENGTH_W>;
+
+    config(
+        reader_req_s: chan<MemReaderReq> out,
+        reader_resp_r: chan<MemReaderResp> in,
+        start_req_r: chan<StartReq> in,
+        stop_flush_req_r: chan<()> in,
+        error_s: chan<RefillError> out,
+        buffer_ctrl_r: chan<SBCtrl> in,
+        buffer_data_out_s: chan<SBOutput> out,
+    ) {
+        let (buffer_data_in_s, buffer_data_in_r) = chan<SBPacket>("buffer_data_in");
+        let (snoop_data_out_s, snoop_data_out_r) = chan<SBOutput>("snoop_data_out_s");
+        let (snoop_ctrl_s, snoop_ctrl_r) = chan<SBCtrl>("snoop_ctrl");
+
+        spawn shift_buffer::ShiftBuffer<DATA_W, LENGTH_W>(
+            snoop_ctrl_r, buffer_data_in_r, snoop_data_out_s
+        );
+        spawn RefillingShiftBufferInternal<DATA_W, ADDR_W>(
+            reader_req_s,
+            reader_resp_r,
+            start_req_r,
+            stop_flush_req_r,
+            error_s,
+            buffer_ctrl_r,
+            buffer_data_out_s,
+            snoop_ctrl_s,
+            buffer_data_in_s,
+            snoop_data_out_r,
+        );
+    }
+
+    init {}
+
+    next(_: ()) {}
+}
+
 
 const TEST_DATA_W = u32:64;
 const TEST_ADDR_W = u32:32;
@@ -537,7 +580,7 @@ proc RefillingShiftBufferTest {
     }
 }
 
-proc RefillingShiftBufferInst {
+proc RefillingShiftBufferInternalInst {
     type MemReaderReq = mem_reader::MemReaderReq<TEST_ADDR_W>;
     type MemReaderResp = mem_reader::MemReaderResp<TEST_DATA_W, TEST_ADDR_W>;
     type MemReaderStatus = mem_reader::MemReaderStatus;
@@ -555,6 +598,9 @@ proc RefillingShiftBufferInst {
     error_s: chan<RefillError> out;
     buffer_ctrl_r: chan<SBCtrl> in;
     buffer_data_out_s: chan<SBOutput> out;
+    snoop_ctrl_s: chan<SBCtrl> out;
+    buffer_data_in_s: chan<SBPacket> out;
+    snoop_data_out_r: chan<SBOutput> in;
     
     config(
         reader_req_s: chan<MemReaderReq> out,
@@ -564,15 +610,20 @@ proc RefillingShiftBufferInst {
         error_s: chan<RefillError> out,
         buffer_ctrl_r: chan<SBCtrl> in,
         buffer_data_out_s: chan<SBOutput> out,
+        snoop_ctrl_s: chan<SBCtrl> out,
+        buffer_data_in_s: chan<SBPacket> out,
+        snoop_data_out_r: chan<SBOutput> in,
     ) {
-        spawn RefillingShiftBuffer<TEST_DATA_W, TEST_ADDR_W>(
+        spawn RefillingShiftBufferInternal<TEST_DATA_W, TEST_ADDR_W>(
             reader_req_s, reader_resp_r, start_req_r, stop_flush_req_r,
-            error_s, buffer_ctrl_r, buffer_data_out_s,
+            error_s, buffer_ctrl_r, buffer_data_out_s, snoop_ctrl_s,
+            buffer_data_in_s, snoop_data_out_r,
         );
 
         (
             reader_req_s, reader_resp_r, start_req_r, stop_flush_req_r,
-            error_s, buffer_ctrl_r, buffer_data_out_s,
+            error_s, buffer_ctrl_r, buffer_data_out_s, snoop_ctrl_s,
+            buffer_data_in_s, snoop_data_out_r
         )
     }
 

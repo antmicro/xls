@@ -37,11 +37,12 @@ struct RefillerState<ADDR_W: u32, BUFFER_W_CLOG2: u32> {
     buffer_occupancy: uN[BUFFER_W_CLOG2],        // amount of bits that are currently in the ShiftBuffer +
                                                  // amount of bits that will enter ShiftBuffer once all
                                                  // pending memory requests are served
-    future_buffer_occupancy: uN[BUFFER_W_CLOG2], // amount of bits that are currently in the ShiftBuffer +
+    future_buffer_occupancy: sN[BUFFER_W_CLOG2 + u32:1], // amount of bits that are currently in the ShiftBuffer +
                                                  // amount of bits that will enter ShiftBuffer once all
                                                  // pending memory requests are served -
                                                  // amount of bits that will leave ShiftBuffer once alll
                                                  // control requests are served
+    axi_error: bool,                             // whether or not last memory read resulted in AXI error
 }
 
 
@@ -111,9 +112,50 @@ pub proc RefillingShiftBufferInternal<
 
         // snooping logic for the ShiftBuffer control channel
         // recv and immediately send out control packets heading for ShiftBuffer,
-        // unless we're flushing, then don't recv them but instead send our packets
-        // for taking out data from the shiftbuffer (that will then be discarded)
-        let (_, snoop_ctrl, snoop_ctrl_valid) = recv_if_non_blocking(tok, buffer_ctrl_r, !flushing, zero!<SBCtrl>());
+        // unless we're flushing or its not possible to serve such request anyway
+        // as the buffer doesn't have enough data to serve to previous request.
+        // This is to prevent unbounded amount of control packets from accumulating
+        // on buffer_ctrl_r and thus potentially breaking flushing mechanism as it
+        // relies on being able to 
+
+        // breaking scenario:
+        // our DATA_W is 32 bits
+        // we have 33 bits in the buffer, so there's no memory request in flight
+        // cycle 1:
+        // we take out 32 bits (serving some previous request)
+        // and request for 32 bits arrives at the buffer at the same time
+        // and flush and stop request arrives at the same time
+        // cycle 2:
+        // state.future_buffer_occupancy became -31 and state.fsm became FLUSHING
+        // but no new data will arrive because we won't send another memory request
+        // in flushing state
+        //
+        // Potential solutions
+        // 1. add a "command override" channel to shiftbuffer to force clearing the request
+        // pros:
+        // - simple?
+        // cons:
+        // - needs modifying shiftbuffer
+        // - retains ugly negative future_buffer_occupancy
+        // 2. buffer commands in refiller
+        // pros:
+        // - doesn't touch shiftbuffer
+        // - avoids having to deal with negative values of future_buffer_occupancy
+        // - consistency: on flush we can retain the buffered command instead of having to throw it
+        //   away, and forward it once flushing is completed
+        // cons:
+        // - more complicated
+        // - potential larger delay? - in normal operating conditions the message should be
+        //   just passed-through, we could base condition for passthrough on future_buffer_occupancy
+        //   to make sure that it will be always served, but insert it ahead of time to prevent delays
+        // 3. add preflushing state where we still send requests to memory to make
+        //    future_buffer_occupancy go above 0
+        // 4. make condition for refilling from memory take into account next-state variable instead of
+        //    the one from state - might worsen timings and doesn't work when user asks for e.g. 63 bits
+        let do_recv_ctrl = !flushing && state.future_buffer_occupancy > sN[BUFFER_W_CLOG2 + u32:1]:0;
+        let (_, snoop_ctrl, snoop_ctrl_valid) = recv_if_non_blocking(tok, buffer_ctrl_r, do_recv_ctrl, zero!<SBCtrl>());
+        // If we're flushing send our packets for taking out data from the shiftbuffer
+        // (that will then be discarded)
         let ctrl_packet = if (flushing) {
             SBCtrl {length: flush_amount_bits as uN[LENGTH_W]}
         } else if (snoop_ctrl_valid) {
@@ -124,7 +166,7 @@ pub proc RefillingShiftBufferInternal<
         let do_send_ctrl = (flushing && flush_amount_bits > BufferSize:0) || snoop_ctrl_valid;
         send_if(tok, snoop_ctrl_s, do_send_ctrl, ctrl_packet);
         if do_send_ctrl {
-            trace_fmt!("Forwarded snooped control packet: {:#x}", ctrl_packet);
+            trace_fmt!("Sent snooped/injected control packet: {:#x}", ctrl_packet);
         } else {};
 
         // snooping logic for keeping track how many bits in ShiftBuffer are occupied
@@ -139,12 +181,17 @@ pub proc RefillingShiftBufferInternal<
 
         // refilling logic
         const REFILL_SIZE = DATA_W_DIV8 as uN[ADDR_W];
-        let buf_has_enough_space = state.future_buffer_occupancy <= DATA_W as BufferSize;    // TODO: fix implementation detail of ShiftBuffer leaking here
-        let do_refill_cycle = state.fsm == Fsm::REFILLING && buf_has_enough_space;
+        // we eagerly request data based on the *future* capacity of the buffer,
+        // this might stall us (and in turn MemReader and potentially the whole bus)
+        // if the proc sending control requests isn't receiving the data on
+        // the output channel fast enough, but this is true of any proc that
+        // uses MemReader but we don't consider this an issue
+        let buf_will_have_enough_space = state.future_buffer_occupancy <= DATA_W as BufferSize;    // TODO: fix implementation detail of ShiftBuffer leaking here
+        let do_refill_cycle = state.fsm == Fsm::REFILLING && buf_will_have_enough_space;
         // send request to memory for more data under the assumption
         // that there's enough space in the ShiftBuffer to fit it
         send_if(tok, reader_req_s, do_refill_cycle, MemReaderReq {
-            addr: state.curr_addr,
+        addr: state.curr_addr,
             length: REFILL_SIZE,
         });
         // receive data from memory
@@ -164,7 +211,8 @@ pub proc RefillingShiftBufferInternal<
             length: reader_resp_len_bits,
             last: false
         };
-        // this send will never block since part of the condition `do_buffer_refill` is `buf_has_enough_space`
+        // this send might block, but should always succeed eventually,
+        // since part of the condition `do_buffer_refill` is `buf_will_have_enough_space`
         send_if(tok, buffer_data_in_s, do_buffer_refill, data_packet);
         if (do_buffer_refill) {
             trace_fmt!("Sent data to the shiftbuffer: {:#x}", data_packet);
@@ -197,8 +245,12 @@ pub proc RefillingShiftBufferInternal<
         let future_output_bits = ctrl_packet.length;
         let output_bits = snoop_data.payload.length;
         // calculate the difference in the amount of bits inserted/taken out
+        // this will never underflow as we subtract only when data has already left the buffer,
+        // so the amount of data is: current bits in the buffer + future bits in the buffer that
+        // will be inserted once inflight memory requests are served, which must be non-negative
         let next_buffer_occupancy = state.buffer_occupancy + (future_input_bits as BufferSize) - (output_bits as BufferSize); 
         let next_future_buffer_occupancy = state.future_buffer_occupancy + (future_input_bits as BufferSize) - (future_output_bits as BufferSize);
+        //let next_axi_error = state.axi_error || (do_error_resp && next_future_buffer_occupancy 
 
         // equivalent to the following implication: state.fsm == Fsm::IDLE => next_buffer_occupancy == 0
         // TODO: consider that this won't be true in most cases when going from REFILLING to IDLE state due to error

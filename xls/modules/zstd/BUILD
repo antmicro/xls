@@ -1119,7 +1119,9 @@ xls_dslx_test(
 
 xls_dslx_verilog(
     name = "refilling_shift_buffer_internal_verilog",
-    codegen_args = common_codegen_args,
+    codegen_args = common_codegen_args | {
+        "module_name": "RefillingShiftBufferInternalInst"
+    },
     dslx_top = "RefillingShiftBufferInternalInst",
     library = ":refilling_shift_buffer_dslx",
     tags = ["manual"],
@@ -1157,7 +1159,7 @@ synthesize_rtl(
     name = "refilling_shift_buffer_internal_synth_asap7",
     standard_cells = "@org_theopenroadproject_asap7sc7p5t_28//:asap7-sc7p5t_rev28_rvt",
     tags = ["manual"],
-    top_module = "RefillingShiftBufferInternal",
+    top_module = "RefillingShiftBufferInternalInst",
     deps = [
         ":refilling_shift_buffer_internal_verilog_lib",
     ],

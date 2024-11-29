@@ -44,7 +44,7 @@ struct RefillerState<ADDR_W: u32, LENGTH_W: u32, BUFFER_W_CLOG2: u32> {
 }
 
 
-pub proc RefillingShiftBufferInternal<
+proc RefillingShiftBufferInternal<
     DATA_W: u32, ADDR_W: u32,
     LENGTH_W: u32 = {shift_buffer::length_width(DATA_W)}, 
     DATA_W_DIV8: u32 = {DATA_W / u32:8},
@@ -72,6 +72,7 @@ pub proc RefillingShiftBufferInternal<
     buffer_ctrl_r: chan<SBCtrl> in;
     snoop_data_out_r: chan<SBOutput> in; 
     snoop_ctrl_s: chan<SBCtrl> out;
+    flushing_done_s: chan<()> out;
 
     config(
         reader_req_s: chan<MemReaderReq> out,
@@ -84,9 +85,11 @@ pub proc RefillingShiftBufferInternal<
         snoop_ctrl_s: chan<SBCtrl> out,
         buffer_data_in_s: chan<SBPacket> out,
         snoop_data_out_r: chan<SBOutput> in,
+        flushing_done_s: chan<()> out,
     ) {
         (reader_req_s, reader_resp_r, start_req_r, stop_flush_req_r, error_s,
-        buffer_data_in_s, buffer_data_out_s, buffer_ctrl_r, snoop_data_out_r, snoop_ctrl_s)
+        buffer_data_in_s, buffer_data_out_s, buffer_ctrl_r, snoop_data_out_r,
+        snoop_ctrl_s, flushing_done_s)
     }
 
     init {
@@ -100,6 +103,7 @@ pub proc RefillingShiftBufferInternal<
 
         // public interface - receive start/stop&flush requests
         let (_, start_req, start_valid) = recv_if_non_blocking(tok, start_req_r, state.fsm == Fsm::IDLE, zero!<StartReq>());
+        // TODO: permit flushing from IDLE state (to facilitate flushing after an error occurred)
         let (_, (), stop_flush_valid) = recv_if_non_blocking(tok, stop_flush_req_r, state.fsm == Fsm::REFILLING, ());
 
         // flush logic
@@ -107,6 +111,7 @@ pub proc RefillingShiftBufferInternal<
         let flushing = state.fsm == Fsm::FLUSHING;
         // flush at most DATA_W bits in a given next() evaluation
         let flush_amount_bits = std::umin(DATA_W as BufferSize, state.bits_to_flush);
+        send_if(tok, flushing_done_s, flushing && flushing_end, ());
 
         // snooping logic for the ShiftBuffer control channel
         // recv and immediately send out control packets heading for ShiftBuffer,
@@ -201,7 +206,8 @@ pub proc RefillingShiftBufferInternal<
 
         // error handling
         let axi_resp_error = reader_resp_valid && reader_resp.status == MemReaderStatus::ERROR;
-        let next_bits_to_axi_error = if (axi_resp_error) {
+        let first_axi_error = axi_resp_error && !state.axi_error;
+        let next_bits_to_axi_error = if (first_axi_error) {
             state.bits_to_axi_error - snoop_ctrl.length as BufferSize
         } else {
             next_buffer_occupancy - DATA_W as BufferSize
@@ -239,7 +245,7 @@ pub proc RefillingShiftBufferInternal<
                     }
                 } else if (do_send_error) {
                     State {
-                        fsm: Fsm::IDLE,
+                        fsm: Fsm::IDLE,  // TODO: if we want the user to clean up, we should stay in refilling state
                         ..state
                     }
                 } else if (do_refill_cycle) {
@@ -296,6 +302,7 @@ pub proc RefillingShiftBuffer<
         error_s: chan<RefillError> out,
         buffer_ctrl_r: chan<SBCtrl> in,
         buffer_data_out_s: chan<SBOutput> out,
+        flushing_done_s: chan<()> out,
     ) {
         let (buffer_data_in_s, buffer_data_in_r) = chan<SBPacket>("buffer_data_in");
         let (snoop_data_out_s, snoop_data_out_r) = chan<SBOutput>("snoop_data_out_s");
@@ -315,6 +322,7 @@ pub proc RefillingShiftBuffer<
             snoop_ctrl_s,
             buffer_data_in_s,
             snoop_data_out_r,
+            flushing_done_s,
         );
     }
 
@@ -351,6 +359,7 @@ proc RefillingShiftBufferTest {
     error_r: chan<RefillError> in;
     buffer_ctrl_s: chan<SBCtrl> out;
     buffer_data_out_r: chan<SBOutput> in;
+    flushing_done_r: chan<()> in;
     
     config(terminator: chan<bool> out) {
         let (reader_req_s, reader_req_r) = chan<MemReaderReq>("reader_req");
@@ -360,15 +369,17 @@ proc RefillingShiftBufferTest {
         let (error_s, error_r) = chan<RefillError>("error");
         let (buffer_ctrl_s, buffer_ctrl_r) = chan<SBCtrl>("buffer_ctrl");
         let (buffer_data_out_s, buffer_data_out_r) = chan<SBOutput>("buffer_data_out");
+        let (flushing_done_s, flushing_done_r) = chan<()>("flushing_done");
 
         spawn RefillingShiftBuffer<TEST_DATA_W, TEST_ADDR_W>(
             reader_req_s, reader_resp_r, start_req_r, stop_flush_req_r,
-            error_s, buffer_ctrl_r, buffer_data_out_s,
+            error_s, buffer_ctrl_r, buffer_data_out_s, flushing_done_s,
         );
 
         (
             terminator, reader_req_r, reader_resp_s, start_req_s,
-            stop_flush_req_s, error_r, buffer_ctrl_s, buffer_data_out_r
+            stop_flush_req_s, error_r, buffer_ctrl_s, buffer_data_out_r,
+            flushing_done_r,
         )
     }
 
@@ -606,6 +617,7 @@ proc RefillingShiftBufferInternalInst {
     snoop_ctrl_s: chan<SBCtrl> out;
     buffer_data_in_s: chan<SBPacket> out;
     snoop_data_out_r: chan<SBOutput> in;
+    flushing_done_s: chan<()> out;
     
     config(
         reader_req_s: chan<MemReaderReq> out,
@@ -618,17 +630,18 @@ proc RefillingShiftBufferInternalInst {
         snoop_ctrl_s: chan<SBCtrl> out,
         buffer_data_in_s: chan<SBPacket> out,
         snoop_data_out_r: chan<SBOutput> in,
+        flushing_done_s: chan<()> out,
     ) {
         spawn RefillingShiftBufferInternal<TEST_DATA_W, TEST_ADDR_W>(
             reader_req_s, reader_resp_r, start_req_r, stop_flush_req_r,
             error_s, buffer_ctrl_r, buffer_data_out_s, snoop_ctrl_s,
-            buffer_data_in_s, snoop_data_out_r,
+            buffer_data_in_s, snoop_data_out_r, flushing_done_s,
         );
 
         (
             reader_req_s, reader_resp_r, start_req_r, stop_flush_req_r,
             error_s, buffer_ctrl_r, buffer_data_out_s, snoop_ctrl_s,
-            buffer_data_in_s, snoop_data_out_r
+            buffer_data_in_s, snoop_data_out_r, flushing_done_s,
         )
     }
 

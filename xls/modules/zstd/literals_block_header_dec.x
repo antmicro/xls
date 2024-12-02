@@ -194,6 +194,7 @@ pub proc LiteralsHeaderDecoder<AXI_DATA_W: u32, AXI_ADDR_W: u32> {
             length: uN[AXI_ADDR_W]:5,
         });
         // TODO: handle multiple receives on mem_rd_resp_r when AXI_DATA_W < 40
+        const_assert!(AXI_DATA_W >= u32:64);
         let (tok, raw) = recv(tok, mem_rd_resp_r);
         let (header, length) = parse_literals_header(raw.data[:40]);
         send(tok, resp_s, Resp {

@@ -112,6 +112,9 @@ proc RefillingShiftBufferInternal<
         let flush_amount_bits = std::umin(DATA_W as BufferSize, state.bits_to_flush);
         // send "flushing done" notification once we complete it
         send_if(tok, flushing_done_s, flushing && flushing_end, ());
+        if (flushing && flushing_end) {
+            trace_fmt!("Sent done on the flushing done channel");
+        } else {};
 
         // snooping logic for the ShiftBuffer control channel
         // recv and immediately send out control packets heading for ShiftBuffer,
@@ -153,10 +156,14 @@ proc RefillingShiftBufferInternal<
         let do_refill_cycle = state.fsm == Fsm::REFILLING && buf_has_enough_space;
         // send request to memory for more data under the assumption
         // that there's enough space in the ShiftBuffer to fit it
-        send_if(tok, reader_req_s, do_refill_cycle, MemReaderReq {
-        addr: state.curr_addr,
+        let mem_req = MemReaderReq {
+            addr: state.curr_addr,
             length: REFILL_SIZE,
-        });
+        };
+        send_if(tok, reader_req_s, do_refill_cycle, mem_req);
+        if (do_refill_cycle) {
+            trace_fmt!("Sent request for data to memory: {:#x}", mem_req);
+        } else {};
         // receive data from memory
         let (_, reader_resp, reader_resp_valid) = recv_non_blocking(tok, reader_resp_r, zero!<MemReaderResp>());
         if reader_resp_valid {
@@ -217,6 +224,8 @@ proc RefillingShiftBufferInternal<
                 // keep track of amount of bits to reach offending data (from ERROR memory response)
                 state.bits_to_axi_error - (snoop_ctrl.length as BufferSize)
             }
+        } else if (flushing_end) {
+            BufferSize:0
         } else {
             // keep track of current amount of bits in the buffer 
             state.bits_to_axi_error + input_bits - output_bits
@@ -225,6 +234,9 @@ proc RefillingShiftBufferInternal<
         let reads_error_bits = snoop_ctrl_valid && state.bits_to_axi_error < snoop_ctrl.length as BufferSize;
         let do_send_error = axi_error && reads_error_bits;
         send_if(tok, error_s, do_send_error, RefillError::AXI_ERROR);
+        if (do_send_error) {
+            trace_fmt!("Sent error on the error channel");
+        } else {};
 
         let next_axi_error = axi_error && state.fsm == Fsm::REFILLING;
 
@@ -526,6 +538,7 @@ proc RefillingShiftBufferTest {
 
         // try flushing
         let tok = send(tok, stop_flush_req_s, ());
+        let (tok, ()) = recv(tok, flushing_done_r);
 
         // start from a new address and refill buffer with more data
         let tok = send(tok, start_req_s, StartReq { start_addr: u32: 0x1000_11F0 });
@@ -618,8 +631,125 @@ proc RefillingShiftBufferTest {
         });
         let (tok, resp) = recv(tok, error_r);
         assert_eq(resp, RefillError::AXI_ERROR);
-         
-         
+
+        // to comply with the usage protocol of refiller we need to recv response
+        let (tok, resp) = recv(tok, buffer_data_out_r);
+        // don't assume anything about the response except that the lenght must be 1
+        assert_eq(resp.payload.length, uN[TEST_LENGTH_W]:1);
+        
+        // send some more data, can be OK status this time
+        let (tok, req) = recv(tok, reader_req_r);
+        assert_eq(req, MemReaderReq {
+            addr: uN[TEST_ADDR_W]:0x1000_1208,
+            length: REFILL_SIZE,
+        });
+        let tok = send(tok, reader_resp_s, MemReaderResp {
+            status: MemReaderStatus::OKAY,
+            data: uN[TEST_DATA_W]:0xDEADBEEF_FEEBDAED,
+            length: uN[TEST_ADDR_W]:0x40,
+            last: false,
+        });
+
+        // check that we get another error after trying to read from the buffer once more
+        let tok = send(tok, buffer_ctrl_s, SBCtrl {
+            length: uN[TEST_LENGTH_W]:64
+        });
+        let (tok, resp) = recv(tok, buffer_data_out_r);
+        // again don't assume anything about the response other data length
+        assert_eq(resp.payload.length, uN[TEST_LENGTH_W]:64);
+        let (tok, resp) = recv(tok, error_r);
+        assert_eq(resp, RefillError::AXI_ERROR);
+
+        // to comply with the usage protocol of refiller we must flush it after
+        // receiving the error to permit further operation in non-error state
+        let tok = send(tok, stop_flush_req_s, ());
+        
+        // test that flushing works even if response from memory arrives after
+        // flushing is requested
+        let (tok, req) = recv(tok, reader_req_r);
+        assert_eq(req, MemReaderReq {
+            addr: uN[TEST_ADDR_W]:0x1000_1210,
+            length: REFILL_SIZE,
+        });
+        let tok = send(tok, reader_resp_s, MemReaderResp {
+            status: MemReaderStatus::OKAY,
+            data: uN[TEST_DATA_W]:0xFFFF_EEEE_DDDD_CCCC,
+            length: uN[TEST_ADDR_W]:0x40,
+            last: false,
+        });
+
+        let (tok, ()) = recv(tok, flushing_done_r);
+
+        // test that we can restart refilling after flushing from an error state
+        let tok = send(tok, start_req_s, StartReq {
+            start_addr: uN[TEST_ADDR_W]:0xABCD_0000
+        });
+
+        // respond to memory request
+        let (tok, req) = recv(tok, reader_req_r);
+        assert_eq(req, MemReaderReq {
+            addr: uN[TEST_ADDR_W]:0xABCD_0000,
+            length: REFILL_SIZE,
+        });
+        let tok = send(tok, reader_resp_s, MemReaderResp {
+            status: MemReaderStatus::OKAY,
+            data: uN[TEST_DATA_W]:0x4444_3333_2222_1111,
+            length: uN[TEST_ADDR_W]:0x40,
+            last: false,
+        });
+
+        // ask for some data
+        let tok = send(tok, buffer_ctrl_s, SBCtrl {
+            length: uN[TEST_LENGTH_W]:8
+        });
+        let (tok, resp) = recv(tok, buffer_data_out_r);
+        assert_eq(resp, SBOutput {
+            status: SBStatus::OK,
+            payload: SBPacket {
+                data: uN[TEST_DATA_W]:0x11,
+                length: uN[TEST_LENGTH_W]:8,
+                last: false,
+            }
+        });
+
+        // respond to second memory request
+        let (tok, req) = recv(tok, reader_req_r);
+        assert_eq(req, MemReaderReq {
+            addr: uN[TEST_ADDR_W]:0xABCD_0008,
+            length: REFILL_SIZE,
+        });
+        // taint this response
+        let tok = send(tok, reader_resp_s, MemReaderResp {
+            status: MemReaderStatus::ERROR,
+            data: uN[TEST_DATA_W]:0x8888_7777_6666_5555,
+            length: uN[TEST_ADDR_W]:0x40,
+            last: false,
+        });
+
+        // ask for data that won't trigger an error
+        let tok = send(tok, buffer_ctrl_s, SBCtrl {
+            length: uN[TEST_LENGTH_W]:48
+        });
+        let (tok, resp) = recv(tok, buffer_data_out_r);
+        assert_eq(resp, SBOutput {
+            status: SBStatus::OK,
+            payload: SBPacket {
+                data: uN[TEST_DATA_W]:0x44_3333_2222_11,
+                length: uN[TEST_LENGTH_W]:48,
+                last: false,
+            }
+        });
+        
+        // now ask for data that *will* trigger an error
+        // we have 72 bits in the buffer, 8 untainted and 64 tainted 
+        let tok = send(tok, buffer_ctrl_s, SBCtrl {
+            length: uN[TEST_LENGTH_W]: 9
+        });
+        let (tok, resp) = recv(tok, buffer_data_out_r);
+        assert_eq(resp.payload.length, uN[TEST_LENGTH_W]:9);
+        let (tok, resp) = recv(tok, error_r);
+        assert_eq(resp, RefillError::AXI_ERROR);
+
         send(tok, terminator, true);
     }
 }

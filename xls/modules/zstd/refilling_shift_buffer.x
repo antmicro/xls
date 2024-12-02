@@ -12,6 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// This file contains proc responsible for automatically refilling ShiftBuffer
+// with data from memory from some starting address, consecutive data from
+// increasing addresses
+
+
 import std;
 import xls.modules.shift_buffer.shift_buffer;
 import xls.modules.zstd.memory.mem_reader;
@@ -32,15 +37,16 @@ enum RefillError: u1 {
 }
 
 struct RefillerState<ADDR_W: u32, LENGTH_W: u32, BUFFER_W_CLOG2: u32> {
-    curr_addr: uN[ADDR_W],                       // next memory address to request data from
-    fsm: RefillerFsm,                            // FSM state
-    future_buf_occupancy: uN[BUFFER_W_CLOG2],        // amount of bits that are currently in the ShiftBuffer +
-                                                 // amount of bits that will enter ShiftBuffer once all
-                                                 // pending memory requests are served
-    axi_error: bool,                             // whether or not at least one memory read resulted in AXI error
-    bits_to_axi_error: uN[BUFFER_W_CLOG2],       // amount of bits that we need to consume from the
-                                                 // ShiftBuffer to trigger the AXI error
-    bits_to_flush: uN[BUFFER_W_CLOG2],           // amount of bits left to flush during flushing state
+    curr_addr: uN[ADDR_W],                      // next memory address to request data from
+    fsm: RefillerFsm,                           // FSM state
+    future_buf_occupancy: uN[BUFFER_W_CLOG2],   // amount of bits that are currently in the ShiftBuffer +
+                                                // amount of bits that will enter ShiftBuffer once all
+                                                // pending memory requests are served
+    axi_error: bool,                            // whether or not at least one memory read resulted in AXI error -
+                                                // - this bit is sticky and can be cleared only by flushing
+    bits_to_axi_error: uN[BUFFER_W_CLOG2],      // amount of bits that we need to consume from the
+                                                // ShiftBuffer to trigger an AXI error
+    bits_to_flush: uN[BUFFER_W_CLOG2],          // amount of bits left to flush during flushing state
 }
 
 
@@ -101,7 +107,7 @@ proc RefillingShiftBufferInternal<
 
         trace_fmt!("Current refiller state: {:#x}", state);
 
-        // public interface - receive start/stop&flush requests
+        // receive start and stop&flush requests
         let (_, start_req, start_valid) = recv_if_non_blocking(tok, start_req_r, state.fsm == Fsm::IDLE, zero!<StartReq>());
         let (_, (), stop_flush_valid) = recv_if_non_blocking(tok, stop_flush_req_r, state.fsm == Fsm::REFILLING, ());
 
@@ -149,11 +155,11 @@ proc RefillingShiftBufferInternal<
         const REFILL_SIZE = DATA_W_DIV8 as uN[ADDR_W];
         // we eagerly request data based on the *future* capacity of the buffer,
         // this might stall us (and in turn MemReader and potentially the whole bus)
-        // if the proc sending control requests isn't receiving the data on
-        // the output channel fast enough, but this is true of any proc that
-        // uses MemReader but we don't consider this an issue
-        let buf_has_enough_space = state.future_buf_occupancy <= DATA_W as BufferSize;    // TODO: fix implementation detail of ShiftBuffer leaking here
-        let do_refill_cycle = state.fsm == Fsm::REFILLING && buf_has_enough_space;
+        // on send to buffer_data_in_s if the proc sending control requests isn't
+        // receiving the data on the output channel fast enough, but this is true
+        // of any proc that uses MemReader and we don't consider this an issue
+        let buf_will_have_enough_space = state.future_buf_occupancy <= DATA_W as BufferSize;    // TODO: fix implementation detail of ShiftBuffer leaking here
+        let do_refill_cycle = state.fsm == Fsm::REFILLING && buf_will_have_enough_space;
         // send request to memory for more data under the assumption
         // that there's enough space in the ShiftBuffer to fit it
         let mem_req = MemReaderReq {
@@ -170,8 +176,8 @@ proc RefillingShiftBufferInternal<
             trace_fmt!("Received data from memory: {:#x}", reader_resp);
         } else {};
         // always send some data regardless of the reader_resp.status to allow for all requests
-        // to complete since there must be no requests pending during flushing
-        // which needs to happen after an error
+        // to complete (possibly with invalid data) since the response channel queue must be empty for
+        // flushing to work correctly
         let do_buffer_refill = reader_resp_valid;
         let reader_resp_len_bits = DATA_W as uN[LENGTH_W];
         let data_packet = SBPacket {
@@ -179,7 +185,9 @@ proc RefillingShiftBufferInternal<
             length: reader_resp_len_bits,
             last: false
         };
-        // this send will always succeed since part of the condition `do_buffer_refill` is `buf_has_enough_space`
+        // this send might stall only if proc that receives responses isn't reading from the
+        // ShiftBuffer fast enough, apart from that since part of the condition `do_buffer_refill`
+        // is `buf_will_have_enough_space` it should not block
         send_if(tok, buffer_data_in_s, do_buffer_refill, data_packet);
         if (do_buffer_refill) {
             trace_fmt!("Sent data to the ShiftBuffer: {:#x}", data_packet);
@@ -194,7 +202,7 @@ proc RefillingShiftBufferInternal<
         };
         // actual amount of bits inserted into the ShiftBuffer in this next() evaluation
         let input_bits = if (do_buffer_refill) {
-            reader_resp_len_bits as BufferSize
+            DATA_W as BufferSize
         } else {
             BufferSize:0
         };
@@ -207,6 +215,7 @@ proc RefillingShiftBufferInternal<
         // larger than its current occupancy) 
         let next_future_buf_occupancy = state.future_buf_occupancy + future_input_bits - output_bits; 
 
+        // keep track of the amount of remaining bits to flush
         let next_bits_to_flush = if (flushing) {
             state.bits_to_flush - flush_amount_bits
         } else {
@@ -225,6 +234,7 @@ proc RefillingShiftBufferInternal<
                 state.bits_to_axi_error - (snoop_ctrl.length as BufferSize)
             }
         } else if (flushing_end) {
+            // reset the counter after a flush since its state will be invalid after that
             BufferSize:0
         } else {
             // keep track of current amount of bits in the buffer 
@@ -237,11 +247,6 @@ proc RefillingShiftBufferInternal<
         if (do_send_error) {
             trace_fmt!("Sent error on the error channel");
         } else {};
-
-        let next_axi_error = axi_error && state.fsm == Fsm::REFILLING;
-
-        // equivalent to the following implication: state.fsm == Fsm::IDLE => next_future_buf_occupancy == 0
-        assert!(!(state.fsm == Fsm::IDLE) || state.future_buf_occupancy == BufferSize:0, "future_buf_occupancy was not 0 in IDLE state");        
 
         // FSM
         let next_state = match (state.fsm) {
@@ -277,7 +282,6 @@ proc RefillingShiftBufferInternal<
                 if (flushing_end) {
                     State {
                         fsm: Fsm::IDLE,
-                        axi_error: false,
                         ..state
                     }
                 } else {
@@ -287,16 +291,64 @@ proc RefillingShiftBufferInternal<
             _ => fail!("refilling_shift_buffer_fsm_unreachable", zero!<State>())
         };
 
+        let next_axi_error = axi_error && next_state.fsm == Fsm::REFILLING;
+
         // combine next FSM state with buffer occupancy data
-        State {
+        let next_state = State {
             future_buf_occupancy: next_future_buf_occupancy,
             bits_to_axi_error: next_bits_to_axi_error,
             bits_to_flush: next_bits_to_flush,
             axi_error: next_axi_error,
             ..next_state
-        }
+        };
+
+        // check some invariants
+        // asserts are equivalent to implications in a preceding comment
+        // state.fsm == Fsm::IDLE -> next_future_buf_occupancy == 0
+        assert!(!(state.fsm == Fsm::IDLE) || state.future_buf_occupancy == BufferSize:0, "future_buf_occupancy was not 0 in IDLE state");
+        // state.fsm == Fsm::IDLE -> state.bits_to_axi_error == BufferSize:0
+        assert!(!(state.fsm == Fsm::IDLE) || state.bits_to_axi_error == BufferSize:0, "bits_to_axi_error was not 0 in IDLE state");
+        // state.fsm == Fsm::IDLE -> state.bits_to_flush == BufferSize:0
+        assert!(!(state.fsm == Fsm::IDLE) || state.bits_to_flush == BufferSize:0, "bits_to_flush was not 0 in IDLE state");
+
+        // state.fsm == Fsm::REFILLING -> state.future_buf_occupancy >= state.bits_to_axi_error
+        assert!(!(state.fsm == Fsm::REFILLING) || state.future_buf_occupancy >= state.bits_to_axi_error, "future_buf_occupancy >= bits_to_axi_error in REFILLING state");
+        // state.fsm == Fsm::REFILLING -> state.future_buf_occupancy >= state.bits_to_flush
+        assert!(!(state.fsm == Fsm::REFILLING) || state.future_buf_occupancy >= state.bits_to_flush, "future_buf_occupancy >= bits_to_flush in REFILLING state");
+        // state.fsm == Fsm::REFILLING -> state.bits_to_flush >= state.bits_to_axi_error
+        assert!(!(state.fsm == Fsm::REFILLING) || state.bits_to_flush >= state.bits_to_axi_error, "bits_to_flush >= bits_to_axi_error in REFILLING state");
+
+        // state.fsm != Fsm::REFILLING -> state.axi_error == false
+        assert!(!(state.fsm != Fsm::REFILLING) || state.axi_error == false, "axi_error was true in a state other than REFILLING");
+        // axi_error -> state.bits_to_axi_error >= next_bits_to_axi_error
+        assert!(!axi_error || state.bits_to_axi_error >= next_bits_to_axi_error, "state.bits_to_axi_error increased during axi_error");
+        // flushing -> state.bits_to_flush >= next_bits_to_flush
+        assert!(!flushing || state.bits_to_flush >= next_bits_to_flush, "state.bits_to_flush increased during flushing");
+        
+        next_state
     }
 }
+
+// Main proc for RefillingShiftBuffer
+//
+// Typical usage pattern is as follows:
+// 1. Send start request with starting address where the refilling is supposed
+//    to start from on start_req channel
+// 2. Send requests for up to DATA_W bits on buffer_ctrl channel
+// 3. Receive responses on buffer_data_out channel
+// 4. Once you're done, send a request on stop_flush_req channel
+//    and wait for confirmation on flushing_done channel
+// 
+// In case of errors the following communication pattern is required:
+// 1. You MUST receive notification on the error channel
+//    (best to do that non-blocking)
+// 2. You MAY send more requests and receive responses but an error notification
+//    will be sent for each additional response
+// 3. Once you're done, send a request on stop_flush_req channel
+//    and wait for confirmation on flushing_done channel
+//
+// In all cases, you MUST receive all responses from the buffer_data_out
+// channel before sending a request on stop_flush_req channel
 
 pub proc RefillingShiftBuffer<
     DATA_W: u32,

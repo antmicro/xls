@@ -33,7 +33,7 @@ pub proc HuffmanLiteralsDecoder<AXI_DATA_W: u32, AXI_ADDR_W: u32, AXI_ID_W: u32,
     type ReadResp = ram::ReadResp<RAM_ACCESS_WIDTH>;
 
     type HuffmanAxiReaderCtrl = axi_reader::HuffmanAxiReaderCtrl<AXI_ADDR_W>;
-    
+
     type PrescanInternalReadReq    = ram::ReadReq<RAM_ADDR_WIDTH, u32:1>;
     type PrescanInternalReadResp   = ram::ReadResp<{prescan::WeightPreScanMetaDataSize()}>;
     type PrescanInternalWriteReq   = ram::WriteReq<RAM_ADDR_WIDTH, {prescan::WeightPreScanMetaDataSize()}, u32:1>;
@@ -203,7 +203,16 @@ const TEST_CTRL_0 = TestCtrl {
 };
 
 const TEST_DATA_LEN_0 = u32:64;
-const TEST_DATA_0 = uN[TEST_DATA_LEN_0]:0b1_010_100_110_1_010_100_100_001000_1_010_110_1_010_100000_010_101000_1_1_110_010_1_100;
+const TEST_DATA_0 = (
+    u8:0b1_001_010_1 ++
+    u8:0b01_010_1_01 ++
+    u8:0b0100_001_0 ++
+    u8:0b11_010_1_00 ++
+    u8:0b001_010_1_0 ++
+    u8:0b01_010_000 ++
+    u8:0b11_1_1_0001 ++
+    u8:0b001_1_010_0
+);
 
 // code         symbol  length  weight
 // 0b1          0x47    1       9
@@ -272,7 +281,12 @@ const TEST_CTRL_1 = TestCtrl {
 };
 
 const TEST_DATA_LEN_1 = u32:32;
-const TEST_DATA_1 = uN[TEST_DATA_LEN_0]:0b010_1_010000000_000000000_1_1_1_1_110_100;
+const TEST_DATA_1 = (
+    u8:0b0010_1_010 ++
+    u8:0b000_0_000 ++
+    u8:0b1_1_000000 ++
+    u8:0b001_011_1_1
+);
 
 const TEST_DECODED_LITERALS_1 = common::LiteralsData[2]:[
     common::LiteralsData {
@@ -287,6 +301,57 @@ const TEST_DECODED_LITERALS_1 = common::LiteralsData[2]:[
     },
 ];
 
+// Data for test case #2
+// Source: Example from RFC 8878, 4.2.2. Huffman-Coded Streams
+// https://datatracker.ietf.org/doc/html/rfc8878#huffman_coded_streams
+// Weights taken from Table 25
+// Bitstream fixed to encode literal sequence "0145"
+// See https://www.rfc-editor.org/errata/eid8195
+
+const TEST_CTRL_2 = TestCtrl {
+    base_addr: uN[TEST_AXI_ADDR_W]:0x0,
+    len: uN[TEST_AXI_ADDR_W]:0x2,
+    new_config: true
+};
+
+const TEST_DATA_LEN_2 = u32:16;
+const TEST_DATA_2 = u64:0b00000001_00001101;
+
+// code         symbol  length  weight
+// N/A          0x03    0       0
+// 0b0000       0x04    4       1
+// 0b0001       0x05    4       1
+// 0b001        0x02    3       2
+// 0b01         0x01    2       3
+// 0b1          0x00    1       4
+
+const TEST_WEIGHT_MEMORY_2 = TestRamEntry[32]:[
+    //             x0 x1 x2 x3 x4 x5 x6 x7                 x8 x9 xA xB xC xD xE xF
+    TestRamEntry:0x_4__3__2__0__1__1__0__0, TestRamEntry:0x_0__0__0__0__0__0__0__0, // 0x0x
+    TestRamEntry:0x_0__0__0__0__0__0__0__0, TestRamEntry:0x_0__0__0__0__0__0__0__0, // 0x1x
+    TestRamEntry:0x_0__0__0__0__0__0__0__0, TestRamEntry:0x_0__0__0__0__0__0__0__0, // 0x2x
+    TestRamEntry:0x_0__0__0__0__0__0__0__0, TestRamEntry:0x_0__0__0__0__0__0__0__0, // 0x3x
+    TestRamEntry:0x_0__0__0__0__0__0__0__0, TestRamEntry:0x_0__0__0__0__0__0__0__0, // 0x4x
+    TestRamEntry:0x_0__0__0__0__0__0__0__0, TestRamEntry:0x_0__0__0__0__0__0__0__0, // 0x5x
+    TestRamEntry:0x_0__0__0__0__0__0__0__0, TestRamEntry:0x_0__0__0__0__0__0__0__0, // 0x6x
+    TestRamEntry:0x_0__0__0__0__0__0__0__0, TestRamEntry:0x_0__0__0__0__0__0__0__0, // 0x7x
+    TestRamEntry:0x_0__0__0__0__0__0__0__0, TestRamEntry:0x_0__0__0__0__0__0__0__0, // 0x8x
+    TestRamEntry:0x_0__0__0__0__0__0__0__0, TestRamEntry:0x_0__0__0__0__0__0__0__0, // 0x9x
+    TestRamEntry:0x_0__0__0__0__0__0__0__0, TestRamEntry:0x_0__0__0__0__0__0__0__0, // 0xAx
+    TestRamEntry:0x_0__0__0__0__0__0__0__0, TestRamEntry:0x_0__0__0__0__0__0__0__0, // 0xBx
+    TestRamEntry:0x_0__0__0__0__0__0__0__0, TestRamEntry:0x_0__0__0__0__0__0__0__0, // 0xCx
+    TestRamEntry:0x_0__0__0__0__0__0__0__0, TestRamEntry:0x_0__0__0__0__0__0__0__0, // 0xDx
+    TestRamEntry:0x_0__0__0__0__0__0__0__0, TestRamEntry:0x_0__0__0__0__0__0__0__0, // 0xEx
+    TestRamEntry:0x_0__0__0__0__0__0__0__0, TestRamEntry:0x_0__0__0__0__0__0__0__0, // 0xFx
+];
+
+const TEST_DECODED_LITERALS_2 = common::LiteralsData[1]:[
+    common::LiteralsData {
+        data: common::LitData:0x0504_0100,
+        length: common::LitLength:4,
+        last: true,
+    },
+];
 #[test_proc]
 proc HuffmanLiteralsDecoder_test {
     terminator: chan<bool> out;
@@ -306,7 +371,7 @@ proc HuffmanLiteralsDecoder_test {
         let (ram_read_req_s, ram_read_req_r) = chan<TestReadReq>("ram_read_req");
         let (ram_read_resp_s, ram_read_resp_r) = chan<TestReadResp>("ram_read_resp");
         let (weights_pow_sum_loopback_s, weights_pow_sum_loopback_r) = chan<uN[hcommon::MAX_WEIGHT + u32:2]>("weights_pow_sum_loopback");
-    
+
         spawn HuffmanLiteralsDecoder<TEST_AXI_DATA_W, TEST_AXI_ADDR_W, TEST_AXI_ID_W, TEST_RAM_ADDR_WIDTH, TEST_RAM_ACCESS_WIDTH>(
             ctrl_r, decoded_literals_s,
             axi_ar_s, axi_r_r,
@@ -327,8 +392,7 @@ proc HuffmanLiteralsDecoder_test {
     next (state: ()) {
         let tok = join();
 
-        // test case #0
-
+        trace_fmt!("Test Case #1");
         // send ctrl
         let tok = send(tok, ctrl_s, TEST_CTRL_0);
         trace_fmt!("Sent #1 ctrl {:#x}", TEST_CTRL_0);
@@ -384,12 +448,11 @@ proc HuffmanLiteralsDecoder_test {
             tok
         }(tok);
 
-        // test case #1
-
+        trace_fmt!("Test Case #2");
         // send ctrl
         let tok = send(tok, ctrl_s, TEST_CTRL_1);
-        trace_fmt!("Sent #1 ctrl {:#x}", TEST_CTRL_1);
-        
+        trace_fmt!("Sent #2 ctrl {:#x}", TEST_CTRL_1);
+
         // receive Axi requests and send responses
         trace_fmt!("Sending data from AXI");
         const AXI_READS_NUM  = (TEST_DATA_LEN_1 + u32:7) / u32:8;
@@ -417,6 +480,62 @@ proc HuffmanLiteralsDecoder_test {
 
         // receive decoded literals
         let tok = for ((i, test_decoded_literals), tok):((u32, common::LiteralsData), token) in enumerate(TEST_DECODED_LITERALS_1) {
+            let (tok, decoded_literals) = recv(tok, decoded_literals_r);
+            trace_fmt!("Received #{} decoded literals {:#x}", i + u32:1, decoded_literals);
+            assert_eq(test_decoded_literals, decoded_literals);
+            tok
+        }(tok);
+
+        trace_fmt!("Test Case #3");
+        // send ctrl
+        let tok = send(tok, ctrl_s, TEST_CTRL_2);
+        trace_fmt!("Sent #3 ctrl {:#x}", TEST_CTRL_2);
+
+        // receive RAM read requests and send responses
+        trace_fmt!("Sending weight memory content");
+        let tok = for (_, tok): (u32, token) in range(u32:0, u32:2) {
+            for (i, tok):(u32, token) in range(u32:0, array_size(TEST_WEIGHT_MEMORY_2)) {
+                let (tok, ram_read_req) = recv(tok, ram_read_req_r);
+                trace_fmt!("Received #{} ReadReq {:#x}", i + u32:1, ram_read_req);
+
+                let read_resp = TestReadResp {
+                    data: TEST_WEIGHT_MEMORY_2[ram_read_req.addr] as u32,
+                };
+
+                let tok = send(tok, ram_read_resp_s, read_resp);
+                trace_fmt!("Sent #{} ReadResp {:#x}", i + u32:1, read_resp);
+
+                tok
+            }(tok)
+        }(tok);
+
+        // receive Axi requests and send responses
+        trace_fmt!("Sending data from AXI");
+        const AXI_READS_NUM  = (TEST_DATA_LEN_2 + u32:7) / u32:8;
+        let tok = for (i, tok):(u32, token) in range(u32:0, AXI_READS_NUM) {
+            let expected_axi_ar = TestAxiAr {
+                addr: TEST_CTRL_2.base_addr + (AXI_READS_NUM - u32:1 - i) as uN[TEST_AXI_ADDR_W],
+                ..zero!<TestAxiAr>()
+            };
+            let (tok, axi_ar) = recv(tok, axi_ar_r);
+            trace_fmt!("Received #{} AxiAr {:#x}", i + u32:1, axi_ar);
+            assert_eq(expected_axi_ar, axi_ar);
+
+            let axi_r = TestAxiR {
+                id: axi_ar.id,
+                data: (TEST_DATA_2 >> (u32:8 * i)) as u32,
+                resp: axi::AxiReadResp::OKAY,
+                last: i == (AXI_READS_NUM - u32:1),
+            };
+
+            let tok = send(tok, axi_r_s, axi_r);
+            trace_fmt!("Sent #{} AxiR {:#x}", i + u32:1, axi_r);
+
+            tok
+        }(tok);
+
+        // receive decoded literals
+        let tok = for ((i, test_decoded_literals), tok):((u32, common::LiteralsData), token) in enumerate(TEST_DECODED_LITERALS_2) {
             let (tok, decoded_literals) = recv(tok, decoded_literals_r);
             trace_fmt!("Received #{} decoded literals {:#x}", i + u32:1, decoded_literals);
             assert_eq(test_decoded_literals, decoded_literals);

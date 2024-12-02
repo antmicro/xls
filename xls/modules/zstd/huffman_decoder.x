@@ -643,7 +643,7 @@ proc HuffmanDecoder_test {
     type Data = huffman_data_preprocessor::HuffmanDataPreprocessorData;
 
     terminator_s: chan<bool> out;
-    
+
     start_s: chan<Start> out;
     codes_s: chan<Codes> out;
     data_s: chan<Data> out;
@@ -714,7 +714,7 @@ proc HuffmanDecoder_test {
             } else {
                 tok
             };
- 
+
             tok
         }(tok);
 

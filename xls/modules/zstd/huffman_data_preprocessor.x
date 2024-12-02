@@ -131,7 +131,7 @@ pub proc HuffmanDataPreprocessor {
             };
             State {
                 fsm: fsm,
-                data: state.data | ((data.data as Data) << state.data_len),
+                data: state.data | ((rev(data.data) as Data) << state.data_len),
                 data_len: state.data_len + CodeLen:8,
                 ..state
             }
@@ -255,28 +255,40 @@ const TEST_CONFIG = Config[2]:[
 const TEST_DATA = huffman_axi_reader::HuffmanAxiReaderData[12]:[
     // #1
     huffman_axi_reader::HuffmanAxiReaderData {
-        data: u8:0b11001010,
+        data: u8:0b01010000,
         last: false,
     },
     huffman_axi_reader::HuffmanAxiReaderData {
-        data: u8:0b10000010,
+        data: u8:0b01011011,
         last: false,
     },
     huffman_axi_reader::HuffmanAxiReaderData {
-        data: u8:0b11011010,
+        data: u8:0b01000001,
         last: false,
     },
     huffman_axi_reader::HuffmanAxiReaderData {
-        data: u8:0b00001010,
+        data: u8:0b01010011,
         last: true,
     },
     // #2
     huffman_axi_reader::HuffmanAxiReaderData {
-        data: u8:0b10101001,
+        data: u8:0b00110100,
         last: false,
     },
     huffman_axi_reader::HuffmanAxiReaderData {
-        data: u8:0b10101010,
+        data: u8:0b11110001,
+        last: false,
+    },
+    huffman_axi_reader::HuffmanAxiReaderData {
+        data: u8:0b01010000,
+        last: false,
+    },
+    huffman_axi_reader::HuffmanAxiReaderData {
+        data: u8:0b00101010,
+        last: false,
+    },
+    huffman_axi_reader::HuffmanAxiReaderData {
+        data: u8:0b11010100,
         last: false,
     },
     huffman_axi_reader::HuffmanAxiReaderData {
@@ -284,23 +296,11 @@ const TEST_DATA = huffman_axi_reader::HuffmanAxiReaderData[12]:[
         last: false,
     },
     huffman_axi_reader::HuffmanAxiReaderData {
-        data: u8:0b00101011,
+        data: u8:0b01010101,
         last: false,
     },
     huffman_axi_reader::HuffmanAxiReaderData {
-        data: u8:0b01010100,
-        last: false,
-    },
-    huffman_axi_reader::HuffmanAxiReaderData {
-        data: u8:0b00001010,
-        last: false,
-    },
-    huffman_axi_reader::HuffmanAxiReaderData {
-        data: u8:0b10001111,
-        last: false,
-    },
-    huffman_axi_reader::HuffmanAxiReaderData {
-        data: u8:0b00101100,
+        data: u8:0b10010101,
         last: true,
     },
 ];

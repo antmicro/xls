@@ -34,7 +34,7 @@ enum RefillError: u1 {
 struct RefillerState<ADDR_W: u32, LENGTH_W: u32, BUFFER_W_CLOG2: u32> {
     curr_addr: uN[ADDR_W],                       // next memory address to request data from
     fsm: RefillerFsm,                            // FSM state
-    buffer_occupancy: uN[BUFFER_W_CLOG2],        // amount of bits that are currently in the ShiftBuffer +
+    future_buf_occupancy: uN[BUFFER_W_CLOG2],        // amount of bits that are currently in the ShiftBuffer +
                                                  // amount of bits that will enter ShiftBuffer once all
                                                  // pending memory requests are served
     axi_error: bool,                             // whether or not at least one memory read resulted in AXI error
@@ -99,30 +99,26 @@ proc RefillingShiftBufferInternal<
     next(state: State) {
         let tok = join();
 
-        trace_fmt!("current state: {:#x}", state);
+        trace_fmt!("Current refiller state: {:#x}", state);
 
         // public interface - receive start/stop&flush requests
         let (_, start_req, start_valid) = recv_if_non_blocking(tok, start_req_r, state.fsm == Fsm::IDLE, zero!<StartReq>());
-        // TODO: permit flushing from IDLE state (to facilitate flushing after an error occurred)
         let (_, (), stop_flush_valid) = recv_if_non_blocking(tok, stop_flush_req_r, state.fsm == Fsm::REFILLING, ());
 
         // flush logic
-        let flushing_end = state.buffer_occupancy == BufferSize:0;
+        let flushing_end = state.future_buf_occupancy == BufferSize:0;
         let flushing = state.fsm == Fsm::FLUSHING;
         // flush at most DATA_W bits in a given next() evaluation
         let flush_amount_bits = std::umin(DATA_W as BufferSize, state.bits_to_flush);
+        // send "flushing done" notification once we complete it
         send_if(tok, flushing_done_s, flushing && flushing_end, ());
 
         // snooping logic for the ShiftBuffer control channel
         // recv and immediately send out control packets heading for ShiftBuffer,
-        // unless we're flushing or its not possible to serve such request anyway
-        // as the buffer doesn't have enough data to serve to previous request.
-        // This is to prevent unbounded amount of control packets from accumulating
-        // on buffer_ctrl_r and thus potentially breaking flushing mechanism as it
-        // relies on being able to 
+        // unless we're flushing, if so we block receiving any new control packets 
         let (_, snoop_ctrl, snoop_ctrl_valid) = recv_if_non_blocking(tok, buffer_ctrl_r, !flushing, zero!<SBCtrl>());
         // If we're flushing send our packets for taking out data from the shiftbuffer
-        // (that will then be discarded)
+        // (that data will then be discarded)
         let ctrl_packet = if (flushing) {
             SBCtrl {length: flush_amount_bits as uN[LENGTH_W]}
         } else if (snoop_ctrl_valid) {
@@ -153,7 +149,7 @@ proc RefillingShiftBufferInternal<
         // if the proc sending control requests isn't receiving the data on
         // the output channel fast enough, but this is true of any proc that
         // uses MemReader but we don't consider this an issue
-        let buf_has_enough_space = state.buffer_occupancy <= DATA_W as BufferSize;    // TODO: fix implementation detail of ShiftBuffer leaking here
+        let buf_has_enough_space = state.future_buf_occupancy <= DATA_W as BufferSize;    // TODO: fix implementation detail of ShiftBuffer leaking here
         let do_refill_cycle = state.fsm == Fsm::REFILLING && buf_has_enough_space;
         // send request to memory for more data under the assumption
         // that there's enough space in the ShiftBuffer to fit it
@@ -179,48 +175,61 @@ proc RefillingShiftBufferInternal<
         // this send will always succeed since part of the condition `do_buffer_refill` is `buf_has_enough_space`
         send_if(tok, buffer_data_in_s, do_buffer_refill, data_packet);
         if (do_buffer_refill) {
-            trace_fmt!("Sent data to the shiftbuffer: {:#x}", data_packet);
+            trace_fmt!("Sent data to the ShiftBuffer: {:#x}", data_packet);
         } else {};
 
         // length of additional data that will be inserted into the ShiftBuffer *in the future*
         // once all pending memory requests are served
         let future_input_bits = if (do_refill_cycle) {
-            DATA_W as uN[LENGTH_W]
+            DATA_W as BufferSize
         } else {
-            uN[LENGTH_W]:0
+            BufferSize:0
+        };
+        // actual amount of bits inserted into the ShiftBuffer in this next() evaluation
+        let input_bits = if (do_buffer_refill) {
+            reader_resp_len_bits as BufferSize
+        } else {
+            BufferSize:0
         };
         // length of data that was snooped on the ShiftBuffer output
         // note: default value of snoop_ctrl.length from its recv_if_non_blocking is 0
-        let output_bits = snoop_data.payload.length;
+        let output_bits = snoop_data.payload.length as BufferSize;
         // calculate the difference in the amount of bits inserted/taken out
-        // this will never underflow as it's always true that output_bits <= state.buffer_occupancy
+        // this will never underflow as it's always true that output_bits <= state.future_buf_occupancy
         // (because output_bits is based on the number of outgoing bits from the buffer which cannot be
         // larger than its current occupancy) 
-        let next_buffer_occupancy = state.buffer_occupancy + (future_input_bits as BufferSize) - (output_bits as BufferSize); 
+        let next_future_buf_occupancy = state.future_buf_occupancy + future_input_bits - output_bits; 
 
         let next_bits_to_flush = if (flushing) {
             state.bits_to_flush - flush_amount_bits
         } else {
-            next_buffer_occupancy
+            next_future_buf_occupancy
         };
 
         // error handling
-        let axi_resp_error = reader_resp_valid && reader_resp.status == MemReaderStatus::ERROR;
-        let first_axi_error = axi_resp_error && !state.axi_error;
-        let next_bits_to_axi_error = if (first_axi_error) {
-            state.bits_to_axi_error - snoop_ctrl.length as BufferSize
+        // we've encountered an error, either previously or in this next() evaluation
+        let axi_error = state.axi_error || (reader_resp_valid && reader_resp.status == MemReaderStatus::ERROR);
+        let next_bits_to_axi_error = if (axi_error) {
+            if (state.bits_to_axi_error < snoop_ctrl.length as BufferSize) {
+                // prevent underflow
+                BufferSize:0
+            } else {
+                // keep track of amount of bits to reach offending data (from ERROR memory response)
+                state.bits_to_axi_error - (snoop_ctrl.length as BufferSize)
+            }
         } else {
-            next_buffer_occupancy - DATA_W as BufferSize
+            // keep track of current amount of bits in the buffer 
+            state.bits_to_axi_error + input_bits - output_bits
         };
-        // we will consume at least one bit from the data that returned AXI error
+        // check if we will consume at least one bit from the data that returned AXI error
         let reads_error_bits = snoop_ctrl_valid && state.bits_to_axi_error < snoop_ctrl.length as BufferSize;
-        let do_send_error = state.axi_error && reads_error_bits;
+        let do_send_error = axi_error && reads_error_bits;
         send_if(tok, error_s, do_send_error, RefillError::AXI_ERROR);
 
-        let next_axi_error = (state.axi_error || axi_resp_error) && state.fsm == Fsm::REFILLING;
+        let next_axi_error = axi_error && state.fsm == Fsm::REFILLING;
 
-        // equivalent to the following implication: state.fsm == Fsm::IDLE => next_buffer_occupancy == 0
-        assert!(!(state.fsm == Fsm::IDLE) || state.buffer_occupancy == BufferSize:0, "buffer_occupancy was not 0 in IDLE state");        
+        // equivalent to the following implication: state.fsm == Fsm::IDLE => next_future_buf_occupancy == 0
+        assert!(!(state.fsm == Fsm::IDLE) || state.future_buf_occupancy == BufferSize:0, "future_buf_occupancy was not 0 in IDLE state");        
 
         // FSM
         let next_state = match (state.fsm) {
@@ -241,11 +250,6 @@ proc RefillingShiftBufferInternal<
                 if (stop_flush_valid) {
                     State {
                         fsm: Fsm::FLUSHING,
-                        ..state
-                    }
-                } else if (do_send_error) {
-                    State {
-                        fsm: Fsm::IDLE,  // TODO: if we want the user to clean up, we should stay in refilling state
                         ..state
                     }
                 } else if (do_refill_cycle) {
@@ -273,7 +277,7 @@ proc RefillingShiftBufferInternal<
 
         // combine next FSM state with buffer occupancy data
         State {
-            buffer_occupancy: next_buffer_occupancy,
+            future_buf_occupancy: next_future_buf_occupancy,
             bits_to_axi_error: next_bits_to_axi_error,
             bits_to_flush: next_bits_to_flush,
             axi_error: next_axi_error,
@@ -537,11 +541,10 @@ proc RefillingShiftBufferTest {
             last: false,
         });
 
-        // old request for 4 bits was flushed as well so we need to issue a new one
+        // try reading data from the buffer after the flush
         let tok = send(tok, buffer_ctrl_s, SBCtrl {
             length: uN[TEST_LENGTH_W]:4
         });
-        // we should be able to receive data from the buffer at this point
         let (tok, resp) = recv(tok, buffer_data_out_r);
         assert_eq(resp, SBOutput {
             status: SBStatus::OK,
@@ -565,6 +568,7 @@ proc RefillingShiftBufferTest {
             last: false,
         });
 
+        // test receiving more than DATA_W bits
         let tok = send(tok, buffer_ctrl_s, SBCtrl {
             length: uN[TEST_LENGTH_W]:64
         });
@@ -572,7 +576,8 @@ proc RefillingShiftBufferTest {
             length: uN[TEST_LENGTH_W]:60
         });
 
-        // receive all of the new data and verify that it's new data
+        // receive all of the new data and verify that no old data
+        // remained in the buffer
         let (tok, resp) = recv(tok, buffer_data_out_r);
         assert_eq(resp, SBOutput {
             status: SBStatus::OK,
@@ -591,7 +596,30 @@ proc RefillingShiftBufferTest {
                 last: false,
             }
         });
+       
+        // proc should've requested more data by now
+        // respond with AXI error from MemReader
+        let (tok, req) = recv(tok, reader_req_r);
+        assert_eq(req, MemReaderReq {
+            addr: uN[TEST_ADDR_W]:0x1000_1200,
+            length: REFILL_SIZE,
+        });
+        let tok = send(tok, reader_resp_s, MemReaderResp {
+            status: MemReaderStatus::ERROR,
+            data: uN[TEST_DATA_W]:0x0,
+            length: uN[TEST_ADDR_W]:0x0,
+            last: false,
+        });
 
+        // try reading from the buffer that's tainted by
+        // AXI error - should induce a packet on the error channel
+        let tok = send(tok, buffer_ctrl_s, SBCtrl {
+            length: uN[TEST_LENGTH_W]:1
+        });
+        let (tok, resp) = recv(tok, error_r);
+        assert_eq(resp, RefillError::AXI_ERROR);
+         
+         
         send(tok, terminator, true);
     }
 }

@@ -1138,15 +1138,6 @@ xls_benchmark_ir(
     tags = ["manual"],
 )
 
-xls_dslx_verilog(
-    name = "refilling_shift_buffer_verilog",
-    codegen_args = common_codegen_args,
-    dslx_top = "RefillingShiftBufferInst",
-    library = ":refilling_shift_buffer_dslx",
-    tags = ["manual"],
-    verilog_file = "refilling_shift_buffer.v",
-)
-
 verilog_library(
     name = "refilling_shift_buffer_internal_verilog_lib",
     srcs = [

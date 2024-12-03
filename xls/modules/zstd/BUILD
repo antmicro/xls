@@ -2612,8 +2612,9 @@ xls_dslx_test(
 
 huffman_data_preprocessor_codegen_args = common_codegen_args | {
     "module_name": "HuffmanDataPreprocessor",
-    "pipeline_stages": "4",
-    "clock_period_ps": "750",
+    "pipeline_stages": "36",
+    "clock_period_ps": "810",
+    "clock_margin_percent": "0",
     "worst_case_throughput": "1",
 }
 

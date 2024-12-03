@@ -41,6 +41,8 @@ type Streams = common::Streams;
 
 proc LiteralsDecoder<
     HISTORY_BUFFER_SIZE_KB: u32,
+    // AXI parameters
+    AXI_DATA_W: u32, AXI_ADDR_W: u32, AXI_ID_W: u32, AXI_DEST_W: u32,
     RAM_SIZE: u32 = {parallel_rams::ram_size(HISTORY_BUFFER_SIZE_KB)},
     RAM_ADDR_WIDTH: u32 = {parallel_rams::ram_addr_width(HISTORY_BUFFER_SIZE_KB)},
 > {
@@ -48,17 +50,39 @@ proc LiteralsDecoder<
     type ReadResp = ram::ReadResp<literals_buffer::RAM_DATA_WIDTH>;
     type WriteReq = ram::WriteReq<RAM_ADDR_WIDTH, literals_buffer::RAM_DATA_WIDTH, literals_buffer::RAM_NUM_PARTITIONS>;
     type WriteResp = ram::WriteResp;
-
-    literals_ctrl_r: chan<LiteralsPathCtrl> in;
-    literals_data_r: chan<LiteralsData> in;
-    literals_buf_ctrl_r: chan<LiteralsBufferCtrl> in;
-    literals_s: chan<SequenceExecutorPacket> out;
+    type MemReaderReq  = mem_reader::MemReaderReq<AXI_ADDR_W>;
+    type MemReaderResp = mem_reader::MemReaderResp<AXI_DATA_W, AXI_ADDR_W>;
+    type RawLiteralsDecoderReq = raw_literals_dec::RawLiteralsDecoderReq<AXI_ADDR_W>;
+    type RawLiteralsDecoderResp = raw_literals_dec::RawLiteralsDecoderResp;
+    type RleLiteralsDecoderReq = rle_literals_dec::RleLiteralsDecoderReq<AXI_ADDR_W>;
+    type RleLiteralsDecoderResp = rle_literals_dec::RleLiteralsDecoderResp;
+    type HuffmanLiteralsDecoderReq = huffman_literals_dec::HuffmanLiteralsDecoderReq<AXI_ADDR_W>;
+    type HuffmanLiteralsDecoderResp = huffman_literals_dec::HuffmanLiteralsDecoderResp;
+    type MemAxiAr = axi::AxiAr<AXI_ADDR_W, AXI_ID_W>;
+    type MemAxiR = axi::AxiR<AXI_DATA_W, AXI_ID_W>;
 
     config (
-        literals_ctrl_r: chan<LiteralsPathCtrl> in,
-        literals_data_r: chan<LiteralsData> in,
-        literals_buf_ctrl_r: chan<LiteralsBufferCtrl> in,
-        literals_s: chan<SequenceExecutorPacket> out,
+        // AXI Literals Header Decoder (manager)
+        lit_header_axi_ar_s: chan<MemAxiAr> out,
+        lit_header_axi_r_r: chan<MemAxiR> in,
+
+        // AXI Raw Literals Decoder (manager)
+        raw_lit_axi_ar_s: chan<MemAxiAr> out,
+        raw_lit_axi_r_r: chan<MemAxiR> in,
+
+        // AXI Huffman Literals Decoder (manager)
+        huffman_lit_axi_ar_s: chan<MemAxiAr> out,
+        huffman_lit_axi_r_r: chan<MemAxiR> in,
+
+        // Literals Decoder control
+        lit_ctrl_req_r: chan<LiteralsDecCtrlReq> in,
+        lit_ctrl_resp_s: chan<LiteralsDecCtrlResp> out,
+
+        // Literals Decoder output control
+        lit_buf_ctrl_r: chan<LiteralsBufferCtrl> in,
+        lit_buf_out_s: chan<SequenceExecutorPacket> out,
+
+        // Internal memory
         rd_req_m0_s: chan<ReadReq> out,
         rd_req_m1_s: chan<ReadReq> out,
         rd_req_m2_s: chan<ReadReq> out,
@@ -92,24 +116,71 @@ proc LiteralsDecoder<
         wr_resp_m6_r: chan<WriteResp> in,
         wr_resp_m7_r: chan<WriteResp> in
     ) {
-        let (raw_literals_s, raw_literals_r) = chan<LiteralsDataWithSync, u32:1>("raw_literals");
-        let (rle_literals_s, rle_literals_r) = chan<RleLiteralsData, u32:1>("rle_literals");
-        let (huff_literals_s, huff_literals_r) = chan<LiteralsDataWithSync, u32:1>("huff_literals");
+        // Literals Header Decoder
+        let (lit_header_mem_rd_req_s, lit_header_mem_rd_req_r) = chan<MemReaderReq, CHANNEL_DEPTH>("lit_header_mem_rd_req");
+        let (lit_header_mem_rd_resp_s, lit_header_mem_rd_resp_r) = chan<MemReaderResp, CHANNEL_DEPTH>("lit_header_mem_rd_resp");
 
-        let (decoded_raw_literals_s, decoded_raw_literals_r) = chan<LiteralsDataWithSync, u32:1>("decoded_raw_literals");
-        let (decoded_rle_literals_s, decoded_rle_literals_r) = chan<LiteralsDataWithSync, u32:1>("decoded_rle_literals");
-
-        spawn literals_dispatcher::LiteralsDispatcher(
-            literals_ctrl_r, literals_data_r,
-            raw_literals_s, rle_literals_s, huff_literals_s,
+        spawn mem_reader::MemReader<AXI_DATA_W, AXI_ADDR_W, AXI_DEST_W, AXI_ID_W, CHANNEL_DEPTH>(
+           lit_header_mem_rd_req_r, lit_header_mem_rd_resp_s,
+           lit_header_axi_ar_s, lit_header_axi_r_r
         );
 
-        spawn raw_literals_dec::RawLiteralsDecoder(raw_literals_r, decoded_raw_literals_s);
+        let (lit_header_req_s,  lit_header_req_r) = chan<RawLiteralsDecoderReq, CHANNEL_DEPTH>("lit_header_req");
+        let (lit_header_resp_s, lit_header_resp_r) = chan<RawLiteralsDecoderResp, CHANNEL_DEPTH>("lit_header_resp");
 
-        spawn rle_literals_dec::RleLiteralsDecoder(rle_literals_r, decoded_rle_literals_s);
+        spawn literals_header_dec::LiteralsHeaderDecoder<AXI_DATA_W, AXI_ADDR_W>(
+            lit_header_req_r, lit_header_resp_s,
+            lit_header_mem_rd_req_s, lit_header_mem_rd_resp_r
+        );
 
+        // Raw Literals Decoder
+        let (raw_lit_mem_rd_req_s, raw_lit_mem_rd_req_r) = chan<MemReaderReq, CHANNEL_DEPTH>("raw_lit_mem_rd_req");
+        let (raw_lit_mem_rd_resp_s, raw_lit_mem_rd_resp_r) = chan<MemReaderResp, CHANNEL_DEPTH>("raw_lit_mem_rd_resp");
+
+        spawn mem_reader::MemReader<AXI_DATA_W, AXI_ADDR_W, AXI_DEST_W, AXI_ID_W, CHANNEL_DEPTH>(
+           raw_lit_mem_rd_req_r, raw_lit_mem_rd_resp_s,
+           raw_lit_axi_ar_s, raw_lit_axi_r_r
+        );
+
+        let (raw_lit_req_s,  raw_lit_req_r) = chan<RawLiteralsDecoderReq, CHANNEL_DEPTH>("raw_lit_req");
+        let (raw_lit_resp_s, raw_lit_resp_r) = chan<RawLiteralsDecoderResp, CHANNEL_DEPTH>("raw_lit_resp");
+        let (raw_lit_output_s, raw_lit_output_r) = chan<LiteralsDataWithSync, CHANNEL_DEPTH>("raw_lit_output");
+
+        spawn raw_literals_dec::RawLiteralsDecoder<AXI_DATA_W, AXI_ADDR_W>(
+            raw_lit_req_r, raw_lit_resp_s, raw_lit_output_s,
+            raw_lit_mem_rd_req_s, raw_lit_mem_rd_resp_r
+        );
+
+        // Rle Literals Decoder
+        let (rle_lit_req_s,  rle_lit_req_r) = chan<RleLiteralsDecoderReq, CHANNEL_DEPTH>("rle_lit_req");
+        let (rle_lit_resp_s, rle_lit_resp_r) = chan<RleLiteralsDecoderResp, CHANNEL_DEPTH>("rle_lit_resp");
+        let (rle_lit_output_s, rle_lit_output_r) = chan<RleLiteralsData, CHANNEL_DEPTH>("rle_lit_output");
+
+        spawn rle_literals_dec::RleLiteralsDecoder<AXI_DATA_W, AXI_ADDR_W>(
+            rle_lit_req_r, rle_lit_resp_s, rle_lit_output_s
+        );
+
+        // Huffman Literals Decoder
+        let (huffman_lit_mem_rd_req_s, huffman_lit_mem_rd_req_r) = chan<MemReaderReq, CHANNEL_DEPTH>("huffman_lit_mem_rd_req");
+        let (huffman_lit_mem_rd_resp_s, huffman_lit_mem_rd_resp_r) = chan<MemReaderResp, CHANNEL_DEPTH>("huffman_lit_mem_rd_resp");
+
+        spawn mem_reader::MemReader<AXI_DATA_W, AXI_ADDR_W, AXI_DEST_W, AXI_ID_W, CHANNEL_DEPTH>(
+           huffman_lit_mem_rd_req_r, huffman_lit_mem_rd_resp_s,
+           huffman_lit_axi_ar_s, huffman_lit_axi_r_r
+        );
+
+        let (huffman_lit_req_s,  huffman_lit_req_r) = chan<HuffmanLiteralsDecoderReq, CHANNEL_DEPTH>("huffman_lit_req");
+        let (huffman_lit_resp_s, huffman_lit_resp_r) = chan<HuffmanLiteralsDecoderResp, CHANNEL_DEPTH>("huffman_lit_resp");
+        let (huffman_lit_output_s, huffman_lit_output_r) = chan<LiteralsDataWithSync, CHANNEL_DEPTH>("huffman_lit_output");
+
+        spawn huffman_literals_dec::HuffmanLiteralsDecoder<AXI_DATA_W, AXI_ADDR_W>(
+            huffman_lit_req_r, huffman_lit_resp_s, huffman_lit_output_s,
+            huffman_lit_mem_rd_req_s, huffman_lit_mem_rd_resp_r
+        );
+
+        // Literals Buffer
         spawn literals_buffer::LiteralsBuffer<HISTORY_BUFFER_SIZE_KB> (
-            decoded_raw_literals_r, decoded_rle_literals_r, huff_literals_r,
+            raw_lit_output_r, rle_lit_output_r, huffman_lit_output_r,
             literals_buf_ctrl_r, literals_s,
             rd_req_m0_s, rd_req_m1_s, rd_req_m2_s, rd_req_m3_s,
             rd_req_m4_s, rd_req_m5_s, rd_req_m6_s, rd_req_m7_s,
@@ -121,10 +192,15 @@ proc LiteralsDecoder<
             wr_resp_m4_r, wr_resp_m5_r, wr_resp_m6_r, wr_resp_m7_r,
         );
 
-        (
-            literals_ctrl_r, literals_data_r,
-            literals_buf_ctrl_r, literals_s,
-        )
+        spawn LiteralsDecoderCtrl (
+            lit_ctrl_req_r, lit_ctrl_resp_s,
+            lit_header_req_s, lit_header_resp_r,
+            raw_lit_req_s, raw_lit_resp_r,
+            rle_lit_req_s, rle_lit_resp_r,
+            huffman_lit_req_s, huffman_lit_resp_r,
+        );
+
+        ()
     }
 
     init { }
@@ -143,7 +219,6 @@ proc LiteralsDecoderInst {
 
     config (
         literals_ctrl_r: chan<LiteralsPathCtrl> in,
-        literals_data_r: chan<LiteralsData> in,
         literals_buf_ctrl_r: chan<LiteralsBufferCtrl> in,
         literals_s: chan<SequenceExecutorPacket> out,
         rd_req_m0_s: chan<ReadReq> out,
@@ -180,7 +255,7 @@ proc LiteralsDecoderInst {
         wr_resp_m7_r: chan<WriteResp> in
     ) {
         spawn LiteralsDecoder<ZSTD_HISTORY_BUFFER_SIZE_KB> (
-            literals_ctrl_r, literals_data_r,
+            literals_ctrl_r,
             literals_buf_ctrl_r, literals_s,
             rd_req_m0_s, rd_req_m1_s, rd_req_m2_s, rd_req_m3_s,
             rd_req_m4_s, rd_req_m5_s, rd_req_m6_s, rd_req_m7_s,
@@ -338,7 +413,6 @@ proc LiteralsDecoder_test {
 
     config (terminator: chan<bool> out) {
         let (literals_ctrl_s, literals_ctrl_r) = chan<LiteralsPathCtrl, u32:1>("literals_ctrl");
-        let (literals_data_s, literals_data_r) = chan<LiteralsData, u32:1>("literals_data");
         let (literals_buf_ctrl_s, literals_buf_ctrl_r) = chan<LiteralsBufferCtrl, u32:1>("literals_buf_ctrl");
         let (literals_s, literals_r) = chan<SequenceExecutorPacket, u32:1>("literals");
 
@@ -351,7 +425,7 @@ proc LiteralsDecoder_test {
         let (ram_wr_resp_s, ram_wr_resp_r) = chan<TestWriteResp>[literals_buffer::RAM_NUM]("ram_wr_resp");
 
         spawn LiteralsDecoder<TEST_HISTORY_BUFFER_SIZE_KB>(
-            literals_ctrl_r, literals_data_r,
+            literals_ctrl_r,
             literals_buf_ctrl_r, literals_s,
             ram_rd_req_s[0], ram_rd_req_s[1], ram_rd_req_s[2], ram_rd_req_s[3],
             ram_rd_req_s[4], ram_rd_req_s[5], ram_rd_req_s[6], ram_rd_req_s[7],
@@ -572,7 +646,6 @@ proc LiteralsDecoder_test {
 
 //     config (terminator: chan<bool> out) {
 //         let (literals_ctrl_s, literals_ctrl_r) = chan<LiteralsPathCtrl>("literals_ctrl");
-//         let (literals_data_s, literals_data_r) = chan<LiteralsData>("literals_data");
 //         let (literals_buf_ctrl_s, literals_buf_ctrl_r) = chan<LiteralsBufferCtrl>("literals_buf_ctrl");
 //         let (literals_s, literals_r) = chan<SequenceExecutorPacket>("literals");
 
@@ -582,7 +655,7 @@ proc LiteralsDecoder_test {
 //         let (ram_wr_resp_s, ram_wr_resp_r) = chan<TestWriteResp>[literals_buffer::RAM_NUM]("ram_wr_resp");
 
 //         spawn LiteralsDecoder<TEST_HISTORY_BUFFER_SIZE_KB>(
-//             literals_ctrl_r, literals_data_r,
+//             literals_ctrl_r,
 //             literals_buf_ctrl_r, literals_s,
 //             ram_rd_req_s[0], ram_rd_req_s[1], ram_rd_req_s[2], ram_rd_req_s[3],
 //             ram_rd_req_s[4], ram_rd_req_s[5], ram_rd_req_s[6], ram_rd_req_s[7],

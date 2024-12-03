@@ -2226,6 +2226,7 @@ xls_dslx_library(
     srcs = ["raw_literals_dec.x"],
     deps = [
         ":common_dslx",
+        "//xls/modules/zstd/memory:mem_reader_dslx",
     ],
 )
 

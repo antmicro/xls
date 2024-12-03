@@ -1195,6 +1195,15 @@ place_and_route(
     target_die_utilization_percentage = "10",
 )
 
+#xls_dslx_verilog(
+#    name = "refilling_shift_buffer_verilog",
+#    codegen_args = common_codegen_args,
+#    dslx_top = "RefillingShiftBufferInst",
+#    library = ":refilling_shift_buffer_dslx",
+#    tags = ["manual"],
+#    verilog_file = "refilling_shift_buffer.v",
+#)
+
 #xls_dslx_library(
 #    name = "comp_block_dec_dslx",
 #    srcs = ["comp_block_dec.x"],

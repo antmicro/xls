@@ -14,7 +14,7 @@
 
 import std;
 import xls.examples.ram;
-import xls.modules.zstd.shift_buffer;
+import xls.modules.shift_buffer.shift_buffer;
 
 pub const DATA_WIDTH = u32:64;
 pub const MAX_ID = u32::MAX;
@@ -235,8 +235,10 @@ pub type SeqDecBlockRamAddr = bits[SEQDEC_BLOCK_RAM_ADDR_WIDTH];
 pub type SeqDecBlockRamData = bits[SEQDEC_BLOCK_RAM_DATA_WIDTH];
 
 pub type SeqDecShiftBufferCtrl = shift_buffer::ShiftBufferCtrl<SEQDEC_SHIFT_BUFFER_LENGTH_WIDTH>;
-pub type SeqDecShiftBufferInput = shift_buffer::ShiftBufferInput<SEQDEC_SHIFT_BUFFER_DATA_WIDTH, SEQDEC_SHIFT_BUFFER_LENGTH_WIDTH>;
+pub type SeqDecShiftBufferInput = shift_buffer::ShiftBufferPacket<SEQDEC_SHIFT_BUFFER_DATA_WIDTH, SEQDEC_SHIFT_BUFFER_LENGTH_WIDTH>;
 pub type SeqDecShiftBufferOutput = shift_buffer::ShiftBufferOutput<SEQDEC_SHIFT_BUFFER_DATA_WIDTH, SEQDEC_SHIFT_BUFFER_LENGTH_WIDTH>;
+pub type SeqDecShiftBufferPacket = shift_buffer::ShiftBufferPacket<SEQDEC_SHIFT_BUFFER_DATA_WIDTH, SEQDEC_SHIFT_BUFFER_LENGTH_WIDTH>;
+pub type SeqDecShiftBufferStatus = shift_buffer::ShiftBufferStatus;
 
 // Literals decoding
 

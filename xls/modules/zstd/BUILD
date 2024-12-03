@@ -1414,3 +1414,19 @@ py_test(
         "@com_google_protobuf//:protobuf_python",
     ],
 )
+
+xls_dslx_library(
+    name = "fse_lookup_dec_dslx",
+    srcs = [
+        "fse_lookup_dec.x",
+    ],
+    deps = [
+        "//xls/modules/zstd/memory:mem_reader_dslx",
+        "//xls/modules/zstd/memory:axi_ram_dslx",
+    ]
+)
+
+xls_dslx_test(
+    name = "fse_lookup_dec_dslx_test",
+    library = ":fse_lookup_dec_dslx",
+)

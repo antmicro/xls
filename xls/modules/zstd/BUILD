@@ -178,7 +178,7 @@ xls_dslx_library(
         "common.x",
     ],
     deps = [
-        ":shift_buffer_dslx",
+        "//xls/modules/shift_buffer:shift_buffer_dslx",
         "//xls/examples:ram_dslx",
     ],
 )
@@ -1837,7 +1837,7 @@ xls_dslx_library(
     deps = [
         ":common_dslx",
         ":math_dslx",
-        ":shift_buffer_dslx",
+        "//xls/modules/shift_buffer:shift_buffer_dslx",
         "//xls/examples:ram_dslx",
     ],
 )

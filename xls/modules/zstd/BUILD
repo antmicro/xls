@@ -1412,8 +1412,13 @@ xls_dslx_library(
         "fse_lookup_dec.x",
     ],
     deps = [
-        "//xls/modules/zstd/memory:mem_reader_dslx",
+        "//xls/examples:ram_dslx",
+        "//xls/modules/zstd/memory:axi_dslx",
         "//xls/modules/zstd/memory:axi_ram_dslx",
+        "//xls/modules/zstd:fse_table_creator_dslx",
+        "//xls/modules/zstd:refilling_shift_buffer_dslx",
+        "//xls/modules/zstd:fse_proba_freq_dec_dslx",
+        "//xls/modules/shift_buffer:shift_buffer_dslx",
     ]
 )
 

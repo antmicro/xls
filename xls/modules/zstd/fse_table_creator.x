@@ -62,7 +62,7 @@ struct FseTableRecord {
     base: u16
 }
 
-struct FseStartMsg { num_symbs: SymbolCount, accuracy_log: AccuracyLog }
+pub struct FseStartMsg { num_symbs: SymbolCount, accuracy_log: AccuracyLog }
 
 fn fse_record_to_bits(record: FseTableRecord) -> u48 {
     record.base ++ record.num_of_bits ++ record.symbol
@@ -92,31 +92,14 @@ fn test_bits_to_fse_record() {
 
 proc FseTableCreator<
     // Default Probability Distribution RAM parameters
-    DPD_RAM_DATA_WIDTH: u32,
-    DPD_RAM_SIZE: u32,
-    DPD_RAM_WORD_PARTITION_SIZE: u32,
-
+    DPD_RAM_DATA_WIDTH: u32, DPD_RAM_ADDR_WIDTH: u32, DPD_RAM_NUM_PARTITIONS: u32,
     // FSE lookup table parameters
-    FSE_RAM_DATA_WIDTH: u32,
-    FSE_RAM_SIZE: u32,
-    FSE_RAM_WORD_PARTITION_SIZE: u32,
-
-    TMP_RAM_DATA_WIDTH: u32,
-    TMP_RAM_SIZE: u32,
-    TMP_RAM_WORD_PARTITION_SIZE: u32,
-
-    // values computed from other params
-    DPD_RAM_ADDR_WIDTH: u32 = {std::clog2(DPD_RAM_SIZE)},
-    DPD_RAM_NUM_PARTITIONS: u32 = {ram::num_partitions(DPD_RAM_WORD_PARTITION_SIZE, DPD_RAM_DATA_WIDTH)},
-    FSE_RAM_ADDR_WIDTH: u32 = {std::clog2(FSE_RAM_SIZE)},
-    FSE_RAM_NUM_PARTITIONS: u32 = {ram::num_partitions(FSE_RAM_WORD_PARTITION_SIZE, FSE_RAM_DATA_WIDTH)},
-    TMP_RAM_ADDR_WIDTH: u32 = {std::clog2(TMP_RAM_SIZE)},
-    TMP_RAM_NUM_PARTITIONS: u32 = {ram::num_partitions(TMP_RAM_WORD_PARTITION_SIZE, TMP_RAM_DATA_WIDTH)}
+    FSE_RAM_DATA_WIDTH: u32, FSE_RAM_ADDR_WIDTH: u32, FSE_RAM_NUM_PARTITIONS: u32,
+    // Temp RAM parameters
+    TMP_RAM_DATA_WIDTH: u32, TMP_RAM_ADDR_WIDTH: u32, TMP_RAM_NUM_PARTITIONS: u32,
 > {
     type State = FseTableCreatorState;
 
-    type DpdRamWriteReq = ram::WriteReq<DPD_RAM_ADDR_WIDTH, DPD_RAM_DATA_WIDTH, DPD_RAM_NUM_PARTITIONS>;
-    type DpdRamWriteResp = ram::WriteResp;
     type DpdRamReadReq = ram::ReadReq<DPD_RAM_ADDR_WIDTH, DPD_RAM_NUM_PARTITIONS>;
     type DpdRamReadResp = ram::ReadResp<DPD_RAM_DATA_WIDTH>;
 
@@ -135,8 +118,6 @@ proc FseTableCreator<
 
     dpd_rd_req_s: chan<DpdRamReadReq> out;
     dpd_rd_resp_r: chan<DpdRamReadResp> in;
-    dpd_wr_req_s: chan<DpdRamWriteReq> out;
-    dpd_wr_resp_r: chan<DpdRamWriteResp> in;
 
     // a request to start creating the FSE decoding table
     fse_table_start_r: chan<FseStartMsg> in;
@@ -163,8 +144,6 @@ proc FseTableCreator<
         // RAM with default probability distribution
         dpd_rd_req_s: chan<DpdRamReadReq> out,
         dpd_rd_resp_r: chan<DpdRamReadResp> in,
-        dpd_wr_req_s: chan<DpdRamWriteReq> out,
-        dpd_wr_resp_r: chan<DpdRamWriteResp> in,
 
         // Ram with FSE decoding table
         fse_rd_req_s: chan<FseRamReadReq> out,
@@ -182,7 +161,7 @@ proc FseTableCreator<
         spawn fse_table_iterator::FseTableIterator(it_ctrl_r, it_index_s);
 
         (
-            dpd_rd_req_s, dpd_rd_resp_r, dpd_wr_req_s, dpd_wr_resp_r,
+            dpd_rd_req_s, dpd_rd_resp_r,
             fse_table_start_r, fse_table_finish_s,
             fse_rd_req_s, fse_rd_resp_r, fse_wr_req_s, fse_wr_resp_r,
             tmp_rd_req_s, tmp_rd_resp_r, tmp_wr_req_s, tmp_wr_resp_r,
@@ -208,10 +187,6 @@ proc FseTableCreator<
         type TmpRamReadReq = ram::ReadReq<TMP_RAM_ADDR_WIDTH, TMP_RAM_NUM_PARTITIONS>;
 
         let tok0 = join();
-
-        // dummy operations on unused channels
-        send_if(tok0, dpd_wr_req_s, false, zero!<DpdRamWriteReq>());
-        recv_if(tok0, dpd_wr_resp_r, false, zero!<DpdRamWriteResp>());
 
         let receive_start = (state.status == Status::RECEIVE_START);
         let (tok1, fse_start_msg) = recv_if(tok0, fse_table_start_r, receive_start, zero!<FseStartMsg>());
@@ -466,8 +441,6 @@ const TEST_TMP_RAM_NUM_PARTITIONS = ram::num_partitions(
 proc FseTableCreatorInst {
     type DpdRamReadReq = ram::ReadReq<TEST_DPD_RAM_ADDR_WIDTH, TEST_DPD_RAM_NUM_PARTITIONS>;
     type DpdRamReadResp = ram::ReadResp<TEST_DPD_RAM_DATA_WIDTH>;
-    type DpdRamWriteReq = ram::WriteReq<TEST_DPD_RAM_ADDR_WIDTH, TEST_DPD_RAM_DATA_WIDTH, TEST_DPD_RAM_NUM_PARTITIONS>;
-    type DpdRamWriteResp = ram::WriteResp;
 
     type FseRamReadReq = ram::ReadReq<TEST_FSE_RAM_ADDR_WIDTH, TEST_FSE_RAM_NUM_PARTITIONS>;
     type FseRamReadResp = ram::ReadResp<TEST_FSE_RAM_DATA_WIDTH>;
@@ -479,32 +452,12 @@ proc FseTableCreatorInst {
     type TmpRamReadReq = ram::ReadReq<TEST_TMP_RAM_ADDR_WIDTH, TEST_TMP_RAM_NUM_PARTITIONS>;
     type TmpRamReadResp = ram::ReadResp<TEST_TMP_RAM_DATA_WIDTH>;
 
-    dpd_rd_req_s: chan<DpdRamReadReq> out;
-    dpd_rd_resp_r: chan<DpdRamReadResp> in;
-    dpd_wr_req_s: chan<DpdRamWriteReq> out;
-    dpd_wr_resp_r: chan<DpdRamWriteResp> in;
-
-    fse_table_start_r: chan<FseStartMsg> in;
-    fse_table_finish_s: chan<()> out;
-
-    fse_rd_req_s: chan<FseRamReadReq> out;
-    fse_rd_resp_r: chan<FseRamReadResp> in;
-    fse_wr_req_s: chan<FseRamWriteReq> out;
-    fse_wr_resp_r: chan<FseRamWriteResp> in;
-
-    tmp_rd_req_s: chan<TmpRamReadReq> out;
-    tmp_rd_resp_r: chan<TmpRamReadResp> in;
-    tmp_wr_req_s: chan<TmpRamWriteReq> out;
-    tmp_wr_resp_r: chan<TmpRamWriteResp> in;
-
     config(
         fse_table_start_r: chan<FseStartMsg> in,
         fse_table_finish_s: chan<()> out,
 
         dpd_rd_req_s: chan<DpdRamReadReq> out,
         dpd_rd_resp_r: chan<DpdRamReadResp> in,
-        dpd_wr_req_s: chan<DpdRamWriteReq> out,
-        dpd_wr_resp_r: chan<DpdRamWriteResp> in,
 
         fse_rd_req_s: chan<FseRamReadReq> out,
         fse_rd_resp_r: chan<FseRamReadResp> in,
@@ -517,21 +470,15 @@ proc FseTableCreatorInst {
         tmp_wr_resp_r: chan<TmpRamWriteResp> in
     ) {
         spawn FseTableCreator<
-            TEST_DPD_RAM_DATA_WIDTH, TEST_DPD_RAM_SIZE, TEST_DPD_RAM_WORD_PARTITION_SIZE,
-            TEST_FSE_RAM_DATA_WIDTH, TEST_FSE_RAM_SIZE, TEST_FSE_RAM_WORD_PARTITION_SIZE,
-            TEST_TMP_RAM_DATA_WIDTH, TEST_TMP_RAM_SIZE, TEST_TMP_RAM_WORD_PARTITION_SIZE
+            TEST_DPD_RAM_DATA_WIDTH, TEST_DPD_RAM_ADDR_WIDTH, TEST_DPD_RAM_NUM_PARTITIONS,
+            TEST_FSE_RAM_DATA_WIDTH, TEST_FSE_RAM_ADDR_WIDTH, TEST_FSE_RAM_NUM_PARTITIONS,
+            TEST_TMP_RAM_DATA_WIDTH, TEST_TMP_RAM_ADDR_WIDTH, TEST_TMP_RAM_NUM_PARTITIONS,
         >(
             fse_table_start_r, fse_table_finish_s,
-            dpd_rd_req_s, dpd_rd_resp_r, dpd_wr_req_s, dpd_wr_resp_r,
+            dpd_rd_req_s, dpd_rd_resp_r,
             fse_rd_req_s, fse_rd_resp_r, fse_wr_req_s, fse_wr_resp_r,
             tmp_rd_req_s, tmp_rd_resp_r, tmp_wr_req_s, tmp_wr_resp_r
         );
-        (
-            dpd_rd_req_s, dpd_rd_resp_r, dpd_wr_req_s, dpd_wr_resp_r,
-            fse_table_start_r, fse_table_finish_s,
-            fse_rd_req_s, fse_rd_resp_r, fse_wr_req_s, fse_wr_resp_r,
-            tmp_rd_req_s, tmp_rd_resp_r, tmp_wr_req_s, tmp_wr_resp_r
-        )
     }
 
     init {  }
@@ -595,20 +542,11 @@ proc FseTableCreatorTest {
     fse_table_start_s: chan<FseStartMsg> out;
     fse_table_finish_r: chan<()> in;
 
-    dpd_rd_req_s: chan<DpdRamReadReq> out;
-    dpd_rd_resp_r: chan<DpdRamReadResp> in;
     dpd_wr_req_s: chan<DpdRamWriteReq> out;
     dpd_wr_resp_r: chan<DpdRamWriteResp> in;
 
     fse_rd_req_s: chan<FseRamReadReq> out;
     fse_rd_resp_r: chan<FseRamReadResp> in;
-    fse_wr_req_s: chan<FseRamWriteReq> out;
-    fse_wr_resp_r: chan<FseRamWriteResp> in;
-
-    tmp_rd_req_s: chan<TmpRamReadReq> out;
-    tmp_rd_resp_r: chan<TmpRamReadResp> in;
-    tmp_wr_req_s: chan<TmpRamWriteReq> out;
-    tmp_wr_resp_r: chan<TmpRamWriteResp> in;
 
     config(terminator: chan<bool> out) {
         let (dpd_rd_req_s, dpd_rd_req_r) = chan<DpdRamReadReq>("dpd_rd_req");
@@ -642,12 +580,12 @@ proc FseTableCreatorTest {
         let (fse_table_finish_s, fse_table_finish_r) = chan<()>("fse_table_finish");
 
         spawn FseTableCreator<
-            TEST_DPD_RAM_DATA_WIDTH, TEST_DPD_RAM_SIZE, TEST_DPD_RAM_WORD_PARTITION_SIZE,
-            TEST_FSE_RAM_DATA_WIDTH, TEST_FSE_RAM_SIZE, TEST_FSE_RAM_WORD_PARTITION_SIZE,
-            TEST_TMP_RAM_DATA_WIDTH, TEST_TMP_RAM_SIZE, TEST_TMP_RAM_WORD_PARTITION_SIZE
+            TEST_DPD_RAM_DATA_WIDTH, TEST_DPD_RAM_ADDR_WIDTH, TEST_DPD_RAM_NUM_PARTITIONS,
+            TEST_FSE_RAM_DATA_WIDTH, TEST_FSE_RAM_ADDR_WIDTH, TEST_FSE_RAM_NUM_PARTITIONS,
+            TEST_TMP_RAM_DATA_WIDTH, TEST_TMP_RAM_ADDR_WIDTH, TEST_TMP_RAM_NUM_PARTITIONS,
         >(
             fse_table_start_r, fse_table_finish_s,
-            dpd_rd_req_s, dpd_rd_resp_r, dpd_wr_req_s, dpd_wr_resp_r,
+            dpd_rd_req_s, dpd_rd_resp_r,
             fse_rd_req_s, fse_rd_resp_r, fse_wr_req_s, fse_wr_resp_r,
             tmp_rd_req_s, tmp_rd_resp_r, tmp_wr_req_s, tmp_wr_resp_r
         );
@@ -655,9 +593,8 @@ proc FseTableCreatorTest {
         (
             terminator,
             fse_table_start_s, fse_table_finish_r,
-            dpd_rd_req_s, dpd_rd_resp_r, dpd_wr_req_s, dpd_wr_resp_r,
-            fse_rd_req_s, fse_rd_resp_r, fse_wr_req_s, fse_wr_resp_r,
-            tmp_rd_req_s, tmp_rd_resp_r, tmp_wr_req_s, tmp_wr_resp_r,
+            dpd_wr_req_s, dpd_wr_resp_r,
+            fse_rd_req_s, fse_rd_resp_r,
         )
     }
 

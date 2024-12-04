@@ -145,10 +145,8 @@ fn get_adjusted_value(data: u16, remainder: Remainder) -> u16 {
 // proc for filling probability frequencies table
 pub proc FseProbaFreqDecoder<
     RAM_DATA_WIDTH: u32,
-    RAM_SIZE: u32,
-    RAM_WORD_PARTITION_SIZE: u32,
-    RAM_ADDR_WIDTH: u32 = {std::clog2(RAM_SIZE)},
-    RAM_NUM_PARTITIONS: u32 = {ram::num_partitions(RAM_WORD_PARTITION_SIZE, RAM_DATA_WIDTH)},
+    RAM_ADDR_WIDTH: u32,
+    RAM_NUM_PARTITIONS: u32,
     DATA_WIDTH: u32 = {common::DATA_WIDTH},
     LENGTH_WIDTH: u32 = {common::BLOCK_PACKET_WIDTH}
 > {
@@ -174,8 +172,6 @@ pub proc FseProbaFreqDecoder<
     resp_in_s: chan<bool> out;
     resp_out_r: chan<SymbolCount> in;
 
-    rd_req_s: chan<RamReadReq> out;
-    rd_resp_r: chan<RamReadResp> in;
     wr_req_s: chan<RamWriteReq> out;
 
     config(
@@ -188,8 +184,6 @@ pub proc FseProbaFreqDecoder<
         buff_out_data_r: chan<BufferOutput> in,
 
         // created lookup
-        rd_req_s: chan<RamReadReq> out,
-        rd_resp_r: chan<RamReadResp> in,
         wr_req_s: chan<RamWriteReq> out,
         wr_resp_r: chan<RamWriteResp> in
     ) {
@@ -204,7 +198,7 @@ pub proc FseProbaFreqDecoder<
             req_r, resp_s,
             buff_in_ctrl_s, buff_out_data_r,
             resp_in_s, resp_out_r,
-            rd_req_s, rd_resp_r, wr_req_s,
+            wr_req_s,
         )
     }
 
@@ -514,10 +508,6 @@ pub proc FseProbaFreqDecoder<
         let (do_send_finish, finish_data) = resp_option;
         let tok2_3 = send_if(tok1, resp_s, do_send_finish, finish_data);
 
-        // unused channels
-        send_if(tok0, rd_req_s, false, zero!<RamReadReq>());
-        recv_if(tok0, rd_resp_r, false, zero!<RamReadResp>());
-
         new_state
     }
 }
@@ -531,26 +521,19 @@ const INST_DATA_WIDTH = common::DATA_WIDTH;
 const INST_LENGTH_WIDTH = common::BLOCK_PACKET_WIDTH;
 
 proc FseProbaFreqDecoderInst {
-    rd_req_s: chan<ram::ReadReq<INST_RAM_ADDR_WIDTH, INST_RAM_NUM_PARTITIONS>> out;
-    rd_resp_r: chan<ram::ReadResp<INST_RAM_DATA_WIDTH>> in;
-
     config(
         req_r: chan<FseProbaFreqDecoderReq> in,
         resp_s: chan<FseProbaFreqDecoderResp> out,
         buff_in_ctrl_s: chan<shift_buffer::ShiftBufferCtrl<INST_LENGTH_WIDTH>> out,
         buff_out_data_r: chan<shift_buffer::ShiftBufferOutput<INST_DATA_WIDTH, INST_LENGTH_WIDTH>> in,
-        rd_req_s: chan<ram::ReadReq<INST_RAM_ADDR_WIDTH, INST_RAM_NUM_PARTITIONS>> out,
-        rd_resp_r: chan<ram::ReadResp<INST_RAM_DATA_WIDTH>> in,
         wr_req_s: chan<ram::WriteReq<INST_RAM_ADDR_WIDTH, INST_RAM_DATA_WIDTH, INST_RAM_NUM_PARTITIONS>> out,
         wr_resp_r: chan<ram::WriteResp> in) {
 
-        spawn FseProbaFreqDecoder<INST_RAM_DATA_WIDTH, INST_RAM_SIZE, INST_RAM_WORD_PARTITION_SIZE>(
+        spawn FseProbaFreqDecoder<INST_RAM_DATA_WIDTH, INST_RAM_ADDR_WIDTH, INST_RAM_NUM_PARTITIONS>(
             req_r, resp_s,
             buff_in_ctrl_s, buff_out_data_r,
-            rd_req_s, rd_resp_r, wr_req_s, wr_resp_r
+            wr_req_s, wr_resp_r
         );
-
-        (rd_req_s, rd_resp_r)
     }
 
     init { }
@@ -607,10 +590,10 @@ proc FseProbaFreqDecoderTest {
         spawn FseInputBuffer<TEST_DATA_WIDTH, TEST_LENGTH_WIDTH>(
             seq_data_r, buff_in_ctrl_r, buff_out_data_s);
 
-        spawn FseProbaFreqDecoder<TEST_RAM_DATA_WIDTH, TEST_RAM_SIZE, TEST_RAM_WORD_PARTITION_SIZE>(
+        spawn FseProbaFreqDecoder<TEST_RAM_DATA_WIDTH, TEST_RAM_ADDR_WIDTH, TEST_RAM_NUM_PARTITIONS>(
             req_r, resp_s,
             buff_in_ctrl_s, buff_out_data_r,
-            rd_req_s, rd_resp_r, wr_req_s, wr_resp_r);
+            wr_req_s, wr_resp_r);
 
         spawn ram::RamModel<TEST_RAM_DATA_WIDTH, TEST_RAM_SIZE, TEST_RAM_WORD_PARTITION_SIZE>(
             rd_req_r, rd_resp_s, wr_req_r, wr_resp_s);

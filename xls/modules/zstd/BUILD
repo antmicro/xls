@@ -2151,8 +2151,6 @@ xls_dslx_library(
     ],
     deps = [
         ":common_dslx",
-        "//xls/modules/rle:rle_common_dslx",
-        "//xls/modules/rle:rle_dec_dslx",
     ],
 )
 

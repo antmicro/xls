@@ -277,13 +277,6 @@ pub struct LiteralsPathCtrl {
     literals_type: LiteralType,
 }
 
-pub struct RleLiteralsData {
-    data: RleLitData,
-    repeat: RleLitRepeat,
-    last: bool,
-    id: LitID,
-}
-
 pub struct LiteralsData {
     data: LitData,
     length: LitLength,

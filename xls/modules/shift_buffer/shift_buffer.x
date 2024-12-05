@@ -29,14 +29,11 @@ pub fn length_width(data_width: u32) -> u32 {
 pub struct ShiftBufferPacket<DATA_WIDTH: u32, LENGTH_WIDTH: u32> {
     data: uN[DATA_WIDTH],
     length: uN[LENGTH_WIDTH],
-    last: bool,
+    error: bool,
 }
 
 // Output structure - packet with embedded status of the buffer operation
-pub struct ShiftBufferOutput<DATA_WIDTH: u32, LENGTH_WIDTH: u32> {
-    payload: ShiftBufferPacket<DATA_WIDTH, LENGTH_WIDTH>,
-    status: ShiftBufferStatus,
-}
+pub type ShiftBufferOutput = ShiftBufferPacket;
 
 // Buffer pop command
 pub struct ShiftBufferCtrl<LENGTH_WIDTH: u32> {
@@ -82,7 +79,7 @@ pub proc ShiftBufferAligner<
         let tok0 = send(tok0, inter_s, Inter {
             length: data.length,
             data: math::logshiftl(data.data as DataX2, state.ptr),
-            last: data.last
+            error: data.error,
         });
 
         State {ptr: (state.ptr + data.length) % (DATA_WIDTH as Length) }
@@ -118,37 +115,37 @@ proc ShiftBufferAlignerTest {
     init {  }
 
     next(state: ()) {
-        let tok = send(join(), input_s, Input { data: Data:0xAABB_CCDD, length: Length:32, last: false});
-        let tok = send(tok, input_s, Input { data: Data:0x1122, length: Length:16, last: false});
-        let tok = send(tok, input_s, Input { data: Data:0x33, length: Length:8, last: false});
-        let tok = send(tok, input_s, Input { data: Data:0x44, length: Length:8, last: false});
-        let tok = send(tok, input_s, Input { data: Data:0xFFFF, length: Length:4, last: false});
-        let tok = send(tok, input_s, Input { data: Data:0x0, length: Length:0, last: false});
-        let tok = send(tok, input_s, Input { data: Data:0x0, length: Length:4, last: false});
-        let tok = send(tok, input_s, Input { data: Data:0x1, length: Length:1, last: false});
-        let tok = send(tok, input_s, Input { data: Data:0xF, length: Length:3, last: false});
-        let tok = send(tok, input_s, Input { data: Data:0xF, length: Length:4, last: false});
+        let tok = send(join(), input_s, Input { data: Data:0xAABB_CCDD, length: Length:32, error: false});
+        let tok = send(tok, input_s, Input { data: Data:0x1122, length: Length:16, error: false});
+        let tok = send(tok, input_s, Input { data: Data:0x33, length: Length:8, error: false});
+        let tok = send(tok, input_s, Input { data: Data:0x44, length: Length:8, error: false});
+        let tok = send(tok, input_s, Input { data: Data:0xFFFF, length: Length:4, error: false});
+        let tok = send(tok, input_s, Input { data: Data:0x0, length: Length:0, error: false});
+        let tok = send(tok, input_s, Input { data: Data:0x0, length: Length:4, error: false});
+        let tok = send(tok, input_s, Input { data: Data:0x1, length: Length:1, error: false});
+        let tok = send(tok, input_s, Input { data: Data:0xF, length: Length:3, error: false});
+        let tok = send(tok, input_s, Input { data: Data:0xF, length: Length:4, error: false});
 
         let (tok, data) = recv(tok, inter_r);
-        assert_eq(data, Inter { data: DataX2: 0xAABB_CCDD, length: Length: 32, last: false});
+        assert_eq(data, Inter { data: DataX2: 0xAABB_CCDD, length: Length: 32, error: false});
         let (tok, data) = recv(tok, inter_r);
-        assert_eq(data, Inter { data: DataX2: 0x1122_0000_0000, length: Length: 16, last: false});
+        assert_eq(data, Inter { data: DataX2: 0x1122_0000_0000, length: Length: 16, error: false});
         let (tok, data) = recv(tok, inter_r);
-        assert_eq(data, Inter { data: DataX2: 0x33_0000_0000_0000, length: Length: 8, last: false});
+        assert_eq(data, Inter { data: DataX2: 0x33_0000_0000_0000, length: Length: 8, error: false});
         let (tok, data) = recv(tok, inter_r);
-        assert_eq(data, Inter { data: DataX2: 0x4400_0000_0000_0000, length: Length: 8, last: false});
+        assert_eq(data, Inter { data: DataX2: 0x4400_0000_0000_0000, length: Length: 8, error: false});
         let (tok, data) = recv(tok, inter_r);
-        assert_eq(data, Inter { data: DataX2:0xFFFF, length: Length:4, last: false});
+        assert_eq(data, Inter { data: DataX2:0xFFFF, length: Length:4, error: false});
         let (tok, data) = recv(tok, inter_r);
-        assert_eq(data, Inter { data: DataX2:0x0, length: Length:0, last: false});
+        assert_eq(data, Inter { data: DataX2:0x0, length: Length:0, error: false});
         let (tok, data) = recv(tok, inter_r);
-        assert_eq(data, Inter { data: DataX2:0x00, length: Length:4, last: false});
+        assert_eq(data, Inter { data: DataX2:0x00, length: Length:4, error: false});
         let (tok, data) = recv(tok, inter_r);
-        assert_eq(data, Inter { data: DataX2:0x100, length: Length:1, last: false});
+        assert_eq(data, Inter { data: DataX2:0x100, length: Length:1, error: false});
         let (tok, data) = recv(tok, inter_r);
-        assert_eq(data, Inter { data: DataX2:0x1E00, length: Length:3, last: false});
+        assert_eq(data, Inter { data: DataX2:0x1E00, length: Length:3, error: false});
         let (tok, data) = recv(tok, inter_r);
-        assert_eq(data, Inter { data: DataX2:0xF000, length: Length:4, last: false});
+        assert_eq(data, Inter { data: DataX2:0xF000, length: Length:4, error: false});
 
         send(tok, terminator, true);
     }
@@ -159,10 +156,9 @@ struct ShiftBufferStorageState<BUFFER_WIDTH: u32, LENGTH_WIDTH: u32> {
     buffer_cnt: bits[LENGTH_WIDTH + u32:2],  // Number of valid bits in the buffer.
     read_ptr: bits[LENGTH_WIDTH + u32:2],  // First occupied bit in the buffer when buffer_cnt > 0.
     write_ptr: bits[LENGTH_WIDTH + u32:2],  // First free bit in the buffer.
-    last: bool,  // Received last value from shift proc.
+    error: bool, // Last input received had error bit set
     cmd: ShiftBufferCtrl<LENGTH_WIDTH>,  // Received command of ShiftBufferCtrl type.
     cmd_valid: bool,  // Field cmd is valid.
-    status: ShiftBufferStatus,
 }
 
 pub proc ShiftBufferStorage<DATA_WIDTH: u32, LENGTH_WIDTH: u32> {
@@ -241,31 +237,29 @@ pub proc ShiftBufferStorage<DATA_WIDTH: u32, LENGTH_WIDTH: u32> {
         // Handle incoming writes
         let (tok_input, wdata, wdata_valid) = recv_if_non_blocking(tok, inter, recv_new_input, zero!<Inter>());
 
-        let (new_buffer, new_write_ptr, new_last) = fixme::fast_if_tuple_3(wdata_valid,
-            {
-                // Shift data if required
-                let new_data = fixme::fast_if(shift_data_left,
-                    {
-                        wdata.data as Buffer << DATA_WIDTH
-                    }, {
-                        wdata.data as Buffer
-                    }
-                );
-                let new_buffer = new_buffer | new_data;
-                let new_write_ptr = new_write_ptr + wdata.length as BufferLength;
-                let new_last = wdata.last;
+        let (new_buffer, new_write_ptr, new_error) = if wdata_valid {
+            // Shift data if required
+            let new_data = fixme::fast_if(shift_data_left,
+                {
+                    wdata.data as Buffer << DATA_WIDTH
+                }, {
+                    wdata.data as Buffer
+                }
+            );
+            let new_buffer = new_buffer | new_data;
+            let new_write_ptr = new_write_ptr + wdata.length as BufferLength;
+            let new_error = wdata.error;
 
-                (new_buffer, new_write_ptr, new_last)
-            }, {
-                (new_buffer, new_write_ptr, state.last)
-            }
-        );
+            (new_buffer, new_write_ptr, new_error)
+        } else {
+            (new_buffer, new_write_ptr, false)
+        };
 
         if (wdata_valid) {
             trace_fmt!("Received aligned data {:#x}", wdata);
             trace_fmt!("new_buffer: {:#x}", new_buffer);
             trace_fmt!("new_write_ptr: {}", new_write_ptr);
-            trace_fmt!("new_last: {:#x}", new_last);
+            trace_fmt!("new_error: {:#x}", new_error);
         } else { () };
 
         // Handle incoming reads
@@ -281,12 +275,9 @@ pub proc ShiftBufferStorage<DATA_WIDTH: u32, LENGTH_WIDTH: u32> {
         let (rdata, new_read_ptr) = if send_response {
             let new_read_ptr = new_read_ptr + state.cmd.length as BufferLength;
             let rdata = Output {
-                payload: OutputPayload {
-                    length: state.cmd.length,
-                    data: math::mask(math::logshiftr(state.buffer, state.read_ptr) as Data, state.cmd.length),
-                    last: state.last && state.cmd.length as BufferLength == state.buffer_cnt,
-                },
-                status: OutputStatus::OK,
+                length: state.cmd.length,
+                data: math::mask(math::logshiftr(state.buffer, state.read_ptr) as Data, state.cmd.length),
+                error: state.error,
             };
 
             trace_fmt!("rdata: {:#x}", rdata);
@@ -294,7 +285,7 @@ pub proc ShiftBufferStorage<DATA_WIDTH: u32, LENGTH_WIDTH: u32> {
 
             (rdata, new_read_ptr)
         } else {
-            (Output { payload: zero!<OutputPayload>(), status: OutputStatus::OK }, new_read_ptr)
+            (zero!<Output>(), new_read_ptr)
         };
 
         let tok = join(tok_input, tok_ctrl);
@@ -304,17 +295,15 @@ pub proc ShiftBufferStorage<DATA_WIDTH: u32, LENGTH_WIDTH: u32> {
         } else {()};
 
         let new_buffer_cnt = new_write_ptr - new_read_ptr;
-        let new_last = new_last && new_buffer_cnt != BufferLength:0;
 
         let new_state = State {
             buffer: new_buffer,
             buffer_cnt: new_buffer_cnt,
             read_ptr: new_read_ptr,
             write_ptr: new_write_ptr,
-            last: new_last,
+            error: new_error,
             cmd: new_cmd,
             cmd_valid: new_cmd_valid,
-            status: rdata.status
         };
 
         new_state
@@ -356,94 +345,90 @@ proc ShiftBufferStorageTest {
 
     next(state: ()) {
         // Single input, single output packet 32bit buffering
-        let tok = send(join(), inter_s, Inter { data: DataX2: 0xAABB_CCDD, length: Length: 32, last: false});
+        let tok = send(join(), inter_s, Inter { data: DataX2: 0xAABB_CCDD, length: Length: 32, error: false});
 
         // Multiple input packets, single output 32bit buffering
-        let tok = send(tok, inter_s, Inter { data: DataX2: 0x3344_0000_0000, length: Length: 16, last: false});
-        let tok = send(tok, inter_s, Inter { data: DataX2: 0x22_0000_0000_0000, length: Length: 8, last: false});
-        let tok = send(tok, inter_s, Inter { data: DataX2: 0x1100_0000_0000_0000, length: Length: 8, last: false});
+        let tok = send(tok, inter_s, Inter { data: DataX2: 0x3344_0000_0000, length: Length: 16, error: false});
+        let tok = send(tok, inter_s, Inter { data: DataX2: 0x22_0000_0000_0000, length: Length: 8, error: false});
+        let tok = send(tok, inter_s, Inter { data: DataX2: 0x1100_0000_0000_0000, length: Length: 8, error: false});
 
         // Small consecutive single input, single output 8bit buffering
-        let tok = send(tok, inter_s, Inter { data: DataX2: 0x55, length: Length: 8, last: false});
-        let tok = send(tok, inter_s, Inter { data: DataX2: 0x6600, length: Length: 8, last: false});
+        let tok = send(tok, inter_s, Inter { data: DataX2: 0x55, length: Length: 8, error: false});
+        let tok = send(tok, inter_s, Inter { data: DataX2: 0x6600, length: Length: 8, error: false});
 
         // Multiple input packets, single output 64bit buffering
-        let tok = send(tok, inter_s, Inter { data: DataX2: 0xDDEE_0000, length: Length: 16, last: false});
-        let tok = send(tok, inter_s, Inter { data: DataX2: 0xBBCC_0000_0000, length: Length: 16, last: false});
-        let tok = send(tok, inter_s, Inter { data: DataX2: 0x99AA_0000_0000_0000, length: Length: 16, last: false});
-        let tok = send(tok, inter_s, Inter { data: DataX2: 0x7788, length: Length: 16, last: false});
+        let tok = send(tok, inter_s, Inter { data: DataX2: 0xDDEE_0000, length: Length: 16, error: false});
+        let tok = send(tok, inter_s, Inter { data: DataX2: 0xBBCC_0000_0000, length: Length: 16, error: false});
+        let tok = send(tok, inter_s, Inter { data: DataX2: 0x99AA_0000_0000_0000, length: Length: 16, error: false});
+        let tok = send(tok, inter_s, Inter { data: DataX2: 0x7788, length: Length: 16, error: false});
 
         // Single input packet, single output 64bit buffering
-        let tok = send(tok, inter_s, Inter { data: DataX2: 0x1122_3344_5566_7788_0000, length: Length: 64, last: false});
+        let tok = send(tok, inter_s, Inter { data: DataX2: 0x1122_3344_5566_7788_0000, length: Length: 64, error: false});
 
         // Single 64bit input packet, multiple output packets of different sizes
-        let tok = send(tok, inter_s, Inter { data: DataX2: 0xEEFF_0011_CCDD_BBAA_0000, length: Length: 64, last: false});
+        let tok = send(tok, inter_s, Inter { data: DataX2: 0xEEFF_0011_CCDD_BBAA_0000, length: Length: 64, error: false});
 
-        // Consecutive small packet last propagation
         // Account for leftover 0xEEFF from the previous packet
-        let tok = send(tok, inter_s, Inter { data: DataX2: 0x1122_0000, length: Length: 16, last: false});
+        let tok = send(tok, inter_s, Inter { data: DataX2: 0x1122_0000, length: Length: 16, error: false});
         // Should operate on flushed buffer
-        let tok = send(tok, inter_s, Inter { data: DataX2: 0x3344_0000_0000, length: Length: 16, last: false});
+        let tok = send(tok, inter_s, Inter { data: DataX2: 0x3344_0000_0000, length: Length: 16, error: false});
 
-        // Multiple input packets with last propagation at the last packet
         // Input packets additionally span across 2 shift buffer aligner shift domains
-        let tok = send(tok, inter_s, Inter { data: DataX2: 0x7788_0000_0000_0000, length: Length: 16, last: false});
-        let tok = send(tok, inter_s, Inter { data: DataX2: 0x5566, length: Length: 16, last: false});
+        let tok = send(tok, inter_s, Inter { data: DataX2: 0x7788_0000_0000_0000, length: Length: 16, error: false});
+        let tok = send(tok, inter_s, Inter { data: DataX2: 0x5566, length: Length: 16, error: false});
 
         // Single input, single output packet 32bit buffering
         let tok = send(tok, ctrl_s, Ctrl { length: Length:32});
         let (tok, data) = recv(tok, output_r);
-        assert_eq(data, Output { payload: OutputPayload { data: Data: 0xAABB_CCDD, length: Length: 32, last: false}, status: OutputStatus::OK});
+        assert_eq(data, Output { data: Data: 0xAABB_CCDD, length: Length: 32, error: false});
 
         // Multiple input packets, single output 32bit buffering
         let tok = send(tok, ctrl_s, Ctrl { length: Length:32});
         let (tok, data) = recv(tok, output_r);
-        assert_eq(data, Output { payload: OutputPayload { data: Data: 0x1122_3344, length: Length: 32, last: false}, status: OutputStatus::OK});
+        assert_eq(data, Output { data: Data: 0x1122_3344, length: Length: 32, error: false});
 
         // Small consecutive single input, single output 8bit buffering
         let tok = send(tok, ctrl_s, Ctrl { length: Length:8});
         let (tok, data) = recv(tok, output_r);
-        assert_eq(data, Output { payload: OutputPayload { data: Data: 0x55, length: Length: 8, last: false}, status: OutputStatus::OK});
+        assert_eq(data, Output { data: Data: 0x55, length: Length: 8, error: false});
         let tok = send(tok, ctrl_s, Ctrl { length: Length:8});
         let (tok, data) = recv(tok, output_r);
-        assert_eq(data, Output { payload: OutputPayload { data: Data: 0x66, length: Length: 8, last: false}, status: OutputStatus::OK});
+        assert_eq(data, Output { data: Data: 0x66, length: Length: 8, error: false});
 
         // Multiple input packets, single output 64bit buffering
         let tok = send(tok, ctrl_s, Ctrl { length: Length:64});
         let (tok, data) = recv(tok, output_r);
-        assert_eq(data, Output { payload: OutputPayload { data: Data: 0x7788_99AA_BBCC_DDEE, length: Length: 64, last: false}, status: OutputStatus::OK});
+        assert_eq(data, Output { data: Data: 0x7788_99AA_BBCC_DDEE, length: Length: 64, error: false});
 
         // Single input packet, single output 64bit buffering
         let tok = send(tok, ctrl_s, Ctrl { length: Length:64});
         let (tok, data) = recv(tok, output_r);
-        assert_eq(data, Output { payload: OutputPayload { data: Data: 0x1122_3344_5566_7788, length: Length: 64, last: false}, status: OutputStatus::OK});
+        assert_eq(data, Output { data: Data: 0x1122_3344_5566_7788, length: Length: 64, error: false});
 
         // Single 64bit input packet, multiple output packets of different sizes
         let tok = send(tok, ctrl_s, Ctrl { length: Length:8});
         let (tok, data) = recv(tok, output_r);
-        assert_eq(data, Output { payload: OutputPayload { data: Data: 0xAA, length: Length: 8, last: false}, status: OutputStatus::OK});
+        assert_eq(data, Output { data: Data: 0xAA, length: Length: 8, error: false});
         let tok = send(tok, ctrl_s, Ctrl { length: Length:8});
         let (tok, data) = recv(tok, output_r);
-        assert_eq(data, Output { payload: OutputPayload { data: Data: 0xBB, length: Length: 8, last: false}, status: OutputStatus::OK});
+        assert_eq(data, Output { data: Data: 0xBB, length: Length: 8, error: false});
         let tok = send(tok, ctrl_s, Ctrl { length: Length:16});
         let (tok, data) = recv(tok, output_r);
-        assert_eq(data, Output { payload: OutputPayload { data: Data: 0xCCDD, length: Length: 16, last: false}, status: OutputStatus::OK});
+        assert_eq(data, Output { data: Data: 0xCCDD, length: Length: 16, error: false});
         let tok = send(tok, ctrl_s, Ctrl { length: Length:32});
         let (tok, data) = recv(tok, output_r);
-        assert_eq(data, Output { payload: OutputPayload { data: Data: 0xEEFF_0011, length: Length: 32, last: false}, status: OutputStatus::OK});
+        assert_eq(data, Output { data: Data: 0xEEFF_0011, length: Length: 32, error: false});
 
-        // Consecutive small packet last propagation
         let tok = send(tok, ctrl_s, Ctrl { length: Length:16});
         let (tok, data) = recv(tok, output_r);
-        assert_eq(data, Output { payload: OutputPayload { data: Data: 0x1122, length: Length: 16, last: false}, status: OutputStatus::OK});
+        assert_eq(data, Output { data: Data: 0x1122, length: Length: 16, error: false});
         let tok = send(tok, ctrl_s, Ctrl { length: Length:16});
         let (tok, data) = recv(tok, output_r);
-        assert_eq(data, Output { payload: OutputPayload { data: Data: 0x3344, length: Length: 16, last: false}, status: OutputStatus::OK});
+        assert_eq(data, Output { data: Data: 0x3344, length: Length: 16, error: false});
 
-        // Multiple input packets with last propagation at the last packet
         let tok = send(tok, ctrl_s, Ctrl { length: Length:32});
         let (tok, data) = recv(tok, output_r);
-        assert_eq(data, Output { payload: OutputPayload { data: Data: 0x5566_7788, length: Length: 32, last: false}, status: OutputStatus::OK});
+        assert_eq(data, Output { data: Data: 0x5566_7788, length: Length: 32, error: false});
 
         // Test attempting to read more data than available in the buffer
         // This should wait indefinitely, we test this by checking that we can't
@@ -456,7 +441,7 @@ proc ShiftBufferStorageTest {
         }(tok);
 
         // Refill the buffer with more data - not enough to reply to the earlier request for 64b
-        let tok = send(tok, inter_s, Inter { data: DataX2: 0xDEAD_BEEF_0000, length: Length: 32, last: false});
+        let tok = send(tok, inter_s, Inter { data: DataX2: 0xDEAD_BEEF_0000, length: Length: 32, error: false});
         // Check that we can't receive still
         let tok = for (_, tok): (u32, token) in u32:1..u32:100 {
             let (tok, _, data_valid) = recv_non_blocking(tok, output_r, zero!<Output>());
@@ -465,10 +450,10 @@ proc ShiftBufferStorageTest {
         }(tok);
 
         // Refill buffer with enough data
-        let tok = send(tok, inter_s, Inter { data: DataX2: 0xF00B_A4BA_0000_0000_0000, length: Length: 32, last: false});
+        let tok = send(tok, inter_s, Inter { data: DataX2: 0xF00B_A4BA_0000_0000_0000, length: Length: 32, error: false});
         // Now we should be able to receive a response for 64b request
         let (tok, data) = recv(tok, output_r);
-        assert_eq(data, Output { payload: OutputPayload { data: Data: 0xF00BA4BA_DEADBEEF, length: Length: 64, last: false}, status: OutputStatus::OK});
+        assert_eq(data, Output { data: Data: 0xF00BA4BA_DEADBEEF, length: Length: 64, error: false});
 
         send(tok, terminator, true);
     }
@@ -528,118 +513,114 @@ proc ShiftBufferTest {
         type OutputStatus = ShiftBufferStatus;
         type Ctrl = ShiftBufferCtrl;
 
-        let tok = send(join(), input_s, Input { data: Data:0xDD_44, length: Length:16, last: false });
-        let tok = send(tok, input_s, Input { data: Data:0xAA_11_BB_22_CC_33, length: Length:48, last: false });
-        let tok = send(tok, input_s, Input { data: Data:0xEE_55_FF_66_00_77_11_88, length: Length:64, last: false });
+        let tok = send(join(), input_s, Input { data: Data:0xDD_44, length: Length:16, error: false });
+        let tok = send(tok, input_s, Input { data: Data:0xAA_11_BB_22_CC_33, length: Length:48, error: false });
+        let tok = send(tok, input_s, Input { data: Data:0xEE_55_FF_66_00_77_11_88, length: Length:64, error: false });
 
         // Single input, single output packet 32bit buffering
-        let tok = send(join(), input_s, Input { data: Data: 0xAABB_CCDD, length: Length: 32, last: false});
+        let tok = send(join(), input_s, Input { data: Data: 0xAABB_CCDD, length: Length: 32, error: false});
 
         // Multiple input packets, single output 32bit buffering
-        let tok = send(tok, input_s, Input { data: Data: 0x3344, length: Length: 16, last: false});
-        let tok = send(tok, input_s, Input { data: Data: 0x22, length: Length: 8, last: false});
-        let tok = send(tok, input_s, Input { data: Data: 0x11, length: Length: 8, last: false});
+        let tok = send(tok, input_s, Input { data: Data: 0x3344, length: Length: 16, error: false});
+        let tok = send(tok, input_s, Input { data: Data: 0x22, length: Length: 8, error: false});
+        let tok = send(tok, input_s, Input { data: Data: 0x11, length: Length: 8, error: false});
 
         // Small consecutive single input, single output 8bit buffering
-        let tok = send(tok, input_s, Input { data: Data: 0x55, length: Length: 8, last: false});
-        let tok = send(tok, input_s, Input { data: Data: 0x66, length: Length: 8, last: false});
+        let tok = send(tok, input_s, Input { data: Data: 0x55, length: Length: 8, error: false});
+        let tok = send(tok, input_s, Input { data: Data: 0x66, length: Length: 8, error: false});
 
         // Multiple input packets, single output 64bit buffering
-        let tok = send(tok, input_s, Input { data: Data: 0xDDEE, length: Length: 16, last: false});
-        let tok = send(tok, input_s, Input { data: Data: 0xBBCC, length: Length: 16, last: false});
-        let tok = send(tok, input_s, Input { data: Data: 0x99AA, length: Length: 16, last: false});
-        let tok = send(tok, input_s, Input { data: Data: 0x7788, length: Length: 16, last: false});
+        let tok = send(tok, input_s, Input { data: Data: 0xDDEE, length: Length: 16, error: false});
+        let tok = send(tok, input_s, Input { data: Data: 0xBBCC, length: Length: 16, error: false});
+        let tok = send(tok, input_s, Input { data: Data: 0x99AA, length: Length: 16, error: false});
+        let tok = send(tok, input_s, Input { data: Data: 0x7788, length: Length: 16, error: false});
 
         // Single input packet, single output 64bit buffering
-        let tok = send(tok, input_s, Input { data: Data: 0x1122_3344_5566_7788, length: Length: 64, last: false});
+        let tok = send(tok, input_s, Input { data: Data: 0x1122_3344_5566_7788, length: Length: 64, error: false});
 
         // Single 64bit input packet, multiple output packets of different sizes
-        let tok = send(tok, input_s, Input { data: Data: 0xEEFF_0011_CCDD_BBAA, length: Length: 64, last: false});
+        let tok = send(tok, input_s, Input { data: Data: 0xEEFF_0011_CCDD_BBAA, length: Length: 64, error: false});
 
-        // Consecutive small packet last propagation
         // Account for leftover 0xEEFF from the previous packet
-        let tok = send(tok, input_s, Input { data: Data: 0x1122, length: Length: 16, last: false});
+        let tok = send(tok, input_s, Input { data: Data: 0x1122, length: Length: 16, error: false});
         // Should operate on flushed buffer
-        let tok = send(tok, input_s, Input { data: Data: 0x3344, length: Length: 16, last: false});
+        let tok = send(tok, input_s, Input { data: Data: 0x3344, length: Length: 16, error: false});
 
-        // Multiple input packets with last propagation at the last packet
         // Input packets additionally span across 2 shift buffer aligner shift domains
-        let tok = send(tok, input_s, Input { data: Data: 0x7788, length: Length: 16, last: false});
-        let tok = send(tok, input_s, Input { data: Data: 0x5566, length: Length: 16, last: false});
+        let tok = send(tok, input_s, Input { data: Data: 0x7788, length: Length: 16, error: false});
+        let tok = send(tok, input_s, Input { data: Data: 0x5566, length: Length: 16, error: false});
 
         let tok = send(tok, ctrl_s, Ctrl { length: Length:8 });
         let (tok, output) = recv(tok, data_r);
-        assert_eq(output, Output { payload: OutputPayload { data: Data:0x44, length: Length:8, last: false }, status: OutputStatus::OK});
+        assert_eq(output, Output { data: Data:0x44, length: Length:8, error: false });
 
         let tok = send(tok, ctrl_s, Ctrl { length: Length:4 });
         let (tok, output) = recv(tok, data_r);
-        assert_eq(output, Output { payload: OutputPayload { data: Data:0xD, length: Length:4, last: false }, status: OutputStatus::OK});
+        assert_eq(output, Output { data: Data:0xD, length: Length:4, error: false });
         let tok = send(tok, ctrl_s, Ctrl { length: Length:4 });
         let (tok, output) = recv(tok, data_r);
-        assert_eq(output, Output { payload: OutputPayload { data: Data:0xD, length: Length:4, last: false }, status: OutputStatus::OK});
+        assert_eq(output, Output { data: Data:0xD, length: Length:4, error: false });
 
         let tok = send(tok, ctrl_s, Ctrl { length: Length:48 });
         let (tok, output) = recv(tok, data_r);
-        assert_eq(output, Output { payload: OutputPayload { data: Data:0xAA_11_BB_22_CC_33, length: Length:48, last: false }, status: OutputStatus::OK});
+        assert_eq(output, Output { data: Data:0xAA_11_BB_22_CC_33, length: Length:48, error: false });
 
         let tok = send(tok, ctrl_s, Ctrl { length: Length:64 });
         let (tok, output) = recv(tok, data_r);
-        assert_eq(output, Output { payload: OutputPayload { data: Data:0xEE_55_FF_66_00_77_11_88, length: Length:64, last: false }, status: OutputStatus::OK});
+        assert_eq(output, Output { data: Data:0xEE_55_FF_66_00_77_11_88, length: Length:64, error: false });
 
         // Single input, single output packet 32bit buffering
         let tok = send(tok, ctrl_s, Ctrl { length: Length:32});
         let (tok, data) = recv(tok, data_r);
-        assert_eq(data, Output { payload: OutputPayload { data: Data: 0xAABB_CCDD, length: Length: 32, last: false}, status: OutputStatus::OK});
+        assert_eq(data, Output { data: Data: 0xAABB_CCDD, length: Length: 32, error: false});
 
         // Multiple input packets, single output 32bit buffering
         let tok = send(tok, ctrl_s, Ctrl { length: Length:32});
         let (tok, data) = recv(tok, data_r);
-        assert_eq(data, Output { payload: OutputPayload { data: Data: 0x1122_3344, length: Length: 32, last: false}, status: OutputStatus::OK});
+        assert_eq(data, Output { data: Data: 0x1122_3344, length: Length: 32, error: false});
 
         // Small consecutive single input, single output 8bit buffering
         let tok = send(tok, ctrl_s, Ctrl { length: Length:8});
         let (tok, data) = recv(tok, data_r);
-        assert_eq(data, Output { payload: OutputPayload { data: Data: 0x55, length: Length: 8, last: false}, status: OutputStatus::OK});
+        assert_eq(data, Output { data: Data: 0x55, length: Length: 8, error: false});
         let tok = send(tok, ctrl_s, Ctrl { length: Length:8});
         let (tok, data) = recv(tok, data_r);
-        assert_eq(data, Output { payload: OutputPayload { data: Data: 0x66, length: Length: 8, last: false}, status: OutputStatus::OK});
+        assert_eq(data, Output { data: Data: 0x66, length: Length: 8, error: false});
 
         // Multiple input packets, single output 64bit buffering
         let tok = send(tok, ctrl_s, Ctrl { length: Length:64});
         let (tok, data) = recv(tok, data_r);
-        assert_eq(data, Output { payload: OutputPayload { data: Data: 0x7788_99AA_BBCC_DDEE, length: Length: 64, last: false}, status: OutputStatus::OK});
+        assert_eq(data, Output { data: Data: 0x7788_99AA_BBCC_DDEE, length: Length: 64, error: false});
 
         // Single input packet, single output 64bit buffering
         let tok = send(tok, ctrl_s, Ctrl { length: Length:64});
         let (tok, data) = recv(tok, data_r);
-        assert_eq(data, Output { payload: OutputPayload { data: Data: 0x1122_3344_5566_7788, length: Length: 64, last: false}, status: OutputStatus::OK});
+        assert_eq(data, Output { data: Data: 0x1122_3344_5566_7788, length: Length: 64, error: false});
 
         // Single 64bit input packet, multiple output packets of different sizes
         let tok = send(tok, ctrl_s, Ctrl { length: Length:8});
         let (tok, data) = recv(tok, data_r);
-        assert_eq(data, Output { payload: OutputPayload { data: Data: 0xAA, length: Length: 8, last: false}, status: OutputStatus::OK});
+        assert_eq(data, Output { data: Data: 0xAA, length: Length: 8, error: false});
         let tok = send(tok, ctrl_s, Ctrl { length: Length:8});
         let (tok, data) = recv(tok, data_r);
-        assert_eq(data, Output { payload: OutputPayload { data: Data: 0xBB, length: Length: 8, last: false}, status: OutputStatus::OK});
+        assert_eq(data, Output { data: Data: 0xBB, length: Length: 8, error: false});
         let tok = send(tok, ctrl_s, Ctrl { length: Length:16});
         let (tok, data) = recv(tok, data_r);
-        assert_eq(data, Output { payload: OutputPayload { data: Data: 0xCCDD, length: Length: 16, last: false}, status: OutputStatus::OK});
+        assert_eq(data, Output { data: Data: 0xCCDD, length: Length: 16, error: false});
         let tok = send(tok, ctrl_s, Ctrl { length: Length:32});
         let (tok, data) = recv(tok, data_r);
-        assert_eq(data, Output { payload: OutputPayload { data: Data: 0xEEFF_0011, length: Length: 32, last: false}, status: OutputStatus::OK});
+        assert_eq(data, Output { data: Data: 0xEEFF_0011, length: Length: 32, error: false});
 
-        // Consecutive small packet last propagation
         let tok = send(tok, ctrl_s, Ctrl { length: Length:16});
         let (tok, data) = recv(tok, data_r);
-        assert_eq(data, Output { payload: OutputPayload { data: Data: 0x1122, length: Length: 16, last: false}, status: OutputStatus::OK});
+        assert_eq(data, Output { data: Data: 0x1122, length: Length: 16, error: false});
         let tok = send(tok, ctrl_s, Ctrl { length: Length:16});
         let (tok, data) = recv(tok, data_r);
-        assert_eq(data, Output { payload: OutputPayload { data: Data: 0x3344, length: Length: 16, last: false}, status: OutputStatus::OK});
+        assert_eq(data, Output { data: Data: 0x3344, length: Length: 16, error: false});
 
-        // Multiple input packets with last propagation at the last packet
         let tok = send(tok, ctrl_s, Ctrl { length: Length:32});
         let (tok, data) = recv(tok, data_r);
-        assert_eq(data, Output { payload: OutputPayload { data: Data: 0x5566_7788, length: Length: 32, last: false}, status: OutputStatus::OK});
+        assert_eq(data, Output { data: Data: 0x5566_7788, length: Length: 32, error: false});
 
         // Test attempting to read more data than available in the buffer
         // This should wait indefinitely, we test this by checking that we can't
@@ -652,7 +633,7 @@ proc ShiftBufferTest {
         }(tok);
 
         // Refill the buffer with more data - not enough to reply to the earlier request for 64b
-        let tok = send(tok, input_s, Input { data: Data: 0xDEAD_BEEF, length: Length: 32, last: false});
+        let tok = send(tok, input_s, Input { data: Data: 0xDEAD_BEEF, length: Length: 32, error: false});
         // Check that we can't receive still
         let tok = for (_, tok): (u32, token) in u32:1..u32:100 {
             let (tok, _, data_valid) = recv_non_blocking(tok, data_r, zero!<Output>());
@@ -661,10 +642,10 @@ proc ShiftBufferTest {
         }(tok);
 
         // Refill buffer with enough data
-        let tok = send(tok, input_s, Input { data: Data: 0xF00B_A4BA, length: Length: 32, last: false});
+        let tok = send(tok, input_s, Input { data: Data: 0xF00B_A4BA, length: Length: 32, error: false});
         // Now we should be able to receive a response for 64b request
         let (tok, data) = recv(tok, data_r);
-        assert_eq(data, Output { payload: OutputPayload { data: Data: 0xF00BA4BA_DEADBEEF, length: Length: 64, last: false}, status: OutputStatus::OK});
+        assert_eq(data, Output { data: Data: 0xF00BA4BA_DEADBEEF, length: Length: 64, error: false});
 
         send(tok, terminator, true);
     }

@@ -183,7 +183,7 @@ proc RefillingShiftBufferInternal<
         let data_packet = SBPacket {
             data: reader_resp.data,
             length: reader_resp_len_bits,
-            last: false
+            error: false
         };
         // this send might stall only if proc that receives responses isn't reading from the
         // ShiftBuffer fast enough, apart from that since part of the condition `do_buffer_refill`
@@ -208,7 +208,7 @@ proc RefillingShiftBufferInternal<
         };
         // length of data that was snooped on the ShiftBuffer output
         // note: default value of snoop_ctrl.length from its recv_if_non_blocking is 0
-        let output_bits = snoop_data.payload.length as BufferSize;
+        let output_bits = snoop_data.length as BufferSize;
         // calculate the difference in the amount of bits inserted/taken out
         // this will never underflow as it's always true that output_bits <= state.future_buf_occupancy
         // (because output_bits is based on the number of outgoing bits from the buffer which cannot be
@@ -489,12 +489,9 @@ proc RefillingShiftBufferTest {
         });
         let (tok, resp) = recv(tok, buffer_data_out_r);
         assert_eq(resp, SBOutput {
-            status: SBStatus::OK,
-            payload: SBPacket {
-                data: uN[TEST_DATA_W]:0xEF,
-                length: uN[TEST_LENGTH_W]:8,
-                last: false,
-            }
+            data: uN[TEST_DATA_W]:0xEF,
+            length: uN[TEST_LENGTH_W]:8,
+            error: false,
         });
 
         // proc shouldn't be asking for any more data at this point
@@ -510,12 +507,9 @@ proc RefillingShiftBufferTest {
         });
         let (tok, resp) = recv(tok, buffer_data_out_r);
         assert_eq(resp, SBOutput {
-            status: SBStatus::OK,
-            payload: SBPacket {
-                data: uN[TEST_DATA_W]:0x01234567_89ABCD,
-                length: uN[TEST_LENGTH_W]:56,
-                last: false,
-            }
+            data: uN[TEST_DATA_W]:0x01234567_89ABCD,
+            length: uN[TEST_LENGTH_W]:56,
+            error: false,
         });
         let (tok, req) = recv(tok, reader_req_r);
         assert_eq(req, MemReaderReq {
@@ -530,12 +524,9 @@ proc RefillingShiftBufferTest {
         });
         let (tok, resp) = recv(tok, buffer_data_out_r);
         assert_eq(resp, SBOutput {
-            status: SBStatus::OK,
-            payload: SBPacket {
-                data: uN[TEST_DATA_W]:0xEDCBA98_76543210,
-                length: uN[TEST_LENGTH_W]:60,
-                last: false,
-            }
+            data: uN[TEST_DATA_W]:0xEDCBA98_76543210,
+            length: uN[TEST_LENGTH_W]:60,
+            error: false,
         });
 
         // ask for more data from the buffer (but not enough data is available)
@@ -559,12 +550,9 @@ proc RefillingShiftBufferTest {
         // should be able to receive from the buffer now
         let (tok, resp) = recv(tok, buffer_data_out_r);
         assert_eq(resp, SBOutput {
-            status: SBStatus::OK,
-            payload: SBPacket {
-                data: uN[TEST_DATA_W]:0xD0F,
-                length: uN[TEST_LENGTH_W]:12,
-                last: false,
-            }
+            data: uN[TEST_DATA_W]:0xD0F,
+            length: uN[TEST_LENGTH_W]:12,
+            error: false,
         });
 
         // buffer now contains 56 bits - proc should have sent 1 more
@@ -612,12 +600,9 @@ proc RefillingShiftBufferTest {
         });
         let (tok, resp) = recv(tok, buffer_data_out_r);
         assert_eq(resp, SBOutput {
-            status: SBStatus::OK,
-            payload: SBPacket {
-                data: uN[TEST_DATA_W]:0x7,
-                length: uN[TEST_LENGTH_W]:4,
-                last: false,
-            }
+            data: uN[TEST_DATA_W]:0x7,
+            length: uN[TEST_LENGTH_W]:4,
+            error: false,
         });
     
         // refill with even more data
@@ -645,21 +630,15 @@ proc RefillingShiftBufferTest {
         // remained in the buffer
         let (tok, resp) = recv(tok, buffer_data_out_r);
         assert_eq(resp, SBOutput {
-            status: SBStatus::OK,
-            payload: SBPacket {
-                data: uN[TEST_DATA_W]:0xAFEFDFCF_BFAF9F8F,
-                length: uN[TEST_LENGTH_W]:64,
-                last: false,
-            }
+            data: uN[TEST_DATA_W]:0xAFEFDFCF_BFAF9F8F,
+            length: uN[TEST_LENGTH_W]:64,
+            error: false,
         });
         let (tok, resp) = recv(tok, buffer_data_out_r);
         assert_eq(resp, SBOutput {
-            status: SBStatus::OK,
-            payload: SBPacket {
-                data: uN[TEST_DATA_W]:0xABBA_BAAB_AABB_BBA,
-                length: uN[TEST_LENGTH_W]:60,
-                last: false,
-            }
+            data: uN[TEST_DATA_W]:0xABBA_BAAB_AABB_BBA,
+            length: uN[TEST_LENGTH_W]:60,
+            error: false,
         });
        
         // proc should've requested more data by now
@@ -687,7 +666,7 @@ proc RefillingShiftBufferTest {
         // to comply with the usage protocol of refiller we need to recv response
         let (tok, resp) = recv(tok, buffer_data_out_r);
         // don't assume anything about the response except that the lenght must be 1
-        assert_eq(resp.payload.length, uN[TEST_LENGTH_W]:1);
+        assert_eq(resp.length, uN[TEST_LENGTH_W]:1);
         
         // send some more data, can be OK status this time
         let (tok, req) = recv(tok, reader_req_r);
@@ -708,7 +687,7 @@ proc RefillingShiftBufferTest {
         });
         let (tok, resp) = recv(tok, buffer_data_out_r);
         // again don't assume anything about the response other data length
-        assert_eq(resp.payload.length, uN[TEST_LENGTH_W]:64);
+        assert_eq(resp.length, uN[TEST_LENGTH_W]:64);
         let (tok, resp) = recv(tok, error_r);
         assert_eq(resp, RefillError::AXI_ERROR);
 
@@ -756,12 +735,9 @@ proc RefillingShiftBufferTest {
         });
         let (tok, resp) = recv(tok, buffer_data_out_r);
         assert_eq(resp, SBOutput {
-            status: SBStatus::OK,
-            payload: SBPacket {
-                data: uN[TEST_DATA_W]:0x11,
-                length: uN[TEST_LENGTH_W]:8,
-                last: false,
-            }
+            data: uN[TEST_DATA_W]:0x11,
+            length: uN[TEST_LENGTH_W]:8,
+            error: false,
         });
 
         // respond to second memory request
@@ -784,12 +760,9 @@ proc RefillingShiftBufferTest {
         });
         let (tok, resp) = recv(tok, buffer_data_out_r);
         assert_eq(resp, SBOutput {
-            status: SBStatus::OK,
-            payload: SBPacket {
-                data: uN[TEST_DATA_W]:0x44_3333_2222_11,
-                length: uN[TEST_LENGTH_W]:48,
-                last: false,
-            }
+            data: uN[TEST_DATA_W]:0x44_3333_2222_11,
+            length: uN[TEST_LENGTH_W]:48,
+            error: false,
         });
         
         // now ask for data that *will* trigger an error
@@ -798,7 +771,7 @@ proc RefillingShiftBufferTest {
             length: uN[TEST_LENGTH_W]: 9
         });
         let (tok, resp) = recv(tok, buffer_data_out_r);
-        assert_eq(resp.payload.length, uN[TEST_LENGTH_W]:9);
+        assert_eq(resp.length, uN[TEST_LENGTH_W]:9);
         let (tok, resp) = recv(tok, error_r);
         assert_eq(resp, RefillError::AXI_ERROR);
 

@@ -43,13 +43,17 @@ const ACCURACY_LOG_WIDTH = common::FSE_ACCURACY_LOG_WIDTH;
 
 pub struct Remainder { value: u1, valid: bool }
 
-enum FseProbaFreqDecoderStatus: u1 {
+pub enum FseProbaFreqDecoderStatus: u1 {
     OK = 0,
     ERROR = 1,
 }
 
 pub struct FseProbaFreqDecoderReq {}
-pub struct FseProbaFreqDecoderResp { status: FseProbaFreqDecoderStatus }
+pub struct FseProbaFreqDecoderResp {
+    status: FseProbaFreqDecoderStatus,
+    accuracy_log: AccuracyLog,
+    symbol_count: SymbolCount,
+}
 
 enum Fsm : u4 {
     IDLE                  = 0,
@@ -473,7 +477,11 @@ pub proc FseProbaFreqDecoder<
                     (
                         (false, zero!<BufferCtrl>()),
                         (false, zero!<RamWriteReq>()),
-                        (true, Resp { status: Status::OK }),
+                        (true, Resp {
+                            status: Status::OK,
+                            accuracy_log: state.accuracy_log,
+                            symbol_count: state.symbol_count,
+                        }),
                         zero!<State>(),
                     )
                 } else {
@@ -640,7 +648,12 @@ proc FseProbaFreqDecoderTest {
             last: false
         });
         let tok = send(tok, req_s, zero!<Req>());
-        let (tok, _) = recv(tok, resp_r);
+        let (tok, resp) = recv(tok, resp_r);
+        assert_eq(resp, Resp {
+            status: FseProbaFreqDecoderStatus::OK,
+            accuracy_log: AccuracyLog:8,
+            symbol_count: SymbolCount:12,
+        });
 
         for ((i, exp_val), tok): ((u32, RamData), token) in enumerate(EXPECTED_RAM_CONTENTS) {
             let tok = send(tok, rd_req_s, ReadReq {
@@ -671,7 +684,12 @@ proc FseProbaFreqDecoderTest {
             last: false
         });
         let tok = send(tok, req_s, zero!<Req>());
-        let (tok, _) = recv(tok, resp_r);
+        let (tok, resp) = recv(tok, resp_r);
+        assert_eq(resp, Resp {
+            status: FseProbaFreqDecoderStatus::OK,
+            accuracy_log: AccuracyLog:9,
+            symbol_count: SymbolCount:2,
+        });
 
         for ((i, exp_val), tok): ((u32, RamData), token) in enumerate(EXPECTED_RAM_CONTENTS) {
             let tok = send(tok, rd_req_s, ReadReq {
@@ -702,7 +720,12 @@ proc FseProbaFreqDecoderTest {
             last: false
         });
         let tok = send(tok, req_s, zero!<Req>());
-        let (tok, _) = recv(tok, resp_r);
+        let (tok, resp) = recv(tok, resp_r);
+        assert_eq(resp, Resp {
+            status: FseProbaFreqDecoderStatus::OK,
+            accuracy_log: AccuracyLog:9,
+            symbol_count: SymbolCount:2,
+        });
 
         for ((i, exp_val), tok): ((u32, RamData), token) in enumerate(EXPECTED_RAM_CONTENTS) {
             let tok = send(tok, rd_req_s, ReadReq {

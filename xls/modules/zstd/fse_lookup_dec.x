@@ -21,8 +21,18 @@ import xls.modules.zstd.refilling_shift_buffer;
 import xls.modules.zstd.fse_proba_freq_dec;
 import xls.modules.shift_buffer.shift_buffer;
 
-pub struct FseLookupDecoderReq<AXI_ADDRW: u32> {}
-pub struct FseLookupDecoderResp {}
+pub enum FseLookupDecoderStatus: u1 {
+    OK = 0,
+    ERROR = 1,
+}
+
+pub struct FseLookupDecoderReq<AXI_ADDR_W: u32> {
+    addr: uN[AXI_ADDR_W]
+}
+
+pub struct FseLookupDecoderResp {
+    status: FseLookupDecoderStatus
+}
 
 pub proc FseLookupDecoder<
     AXI_DATA_W: u32, AXI_ADDR_W: u32,
@@ -33,6 +43,7 @@ pub proc FseLookupDecoder<
 > {
     type Req = FseLookupDecoderReq<AXI_ADDR_W>;
     type Resp = FseLookupDecoderResp;
+    type Status = FseLookupDecoderStatus;
 
     type FseTableStart = fse_table_creator::FseStartMsg;
 
@@ -62,7 +73,7 @@ pub proc FseLookupDecoder<
 
     type FsePFDecReq = fse_proba_freq_dec::FseProbaFreqDecoderReq;
     type FsePFDecResp = fse_proba_freq_dec::FseProbaFreqDecoderResp;
-
+    type FsePFDecStatus = fse_proba_freq_dec::FseProbaFreqDecoderStatus;
 
     req_r: chan<Req> in;
     resp_s: chan<Resp> out;
@@ -73,6 +84,10 @@ pub proc FseLookupDecoder<
     buffer_ctrl_s: chan<SBCtrl> out;
     buffer_data_out_r: chan<SBOutput> in;
     flushing_done_r: chan<()> in;
+    fse_pf_dec_req_s: chan<FsePFDecReq> out;
+    fse_pf_dec_resp_r: chan<FsePFDecResp> in;
+    fse_table_start_s: chan<FseTableStart> out;
+    fse_table_finish_r: chan<()> in;
 
     init {}
 
@@ -147,10 +162,40 @@ pub proc FseLookupDecoder<
             stop_flush_req_s,
             error_r,
             flushing_done_r,
+            fse_pf_dec_req_s, fse_pf_dec_resp_r,
+            fse_table_start_s, fse_table_finish_r,
         )
     }
 
     next(state: ()) {
+        let tok = join();
+        let (tok, start_req) = recv(tok, req_r);
+
+        // start refilling shift buffer
+        let tok_dec_pf1 = send(tok, start_req_s, RefillerStartReq {
+            start_addr: start_req.addr
+        });
+        // start FSE probability frequency decoder
+        let tok_dec_pf2 = send(tok, fse_pf_dec_req_s, FsePFDecReq {});
+
+        // wait for completion from FSE probability frequency decoder
+        let tok = join(tok_dec_pf1, tok_dec_pf2);
+        let (tok_dec_resp, pf_dec_res) = recv(tok, fse_pf_dec_resp_r);
+
+        // flush refilling shift buffer (regardless of any errors)
+        let tok_flush = send(tok_dec_resp, stop_flush_req_s, ());
+        recv(tok_flush, flushing_done_r);
+
+        let pf_dec_ok = pf_dec_res.status == FsePFDecStatus::OK;
+        // run FSE Table creation conditional or previous processing succeeding
+        let tok = send_if(tok_dec_resp, fse_table_start_s, pf_dec_ok, FseTableStart {
+            num_symbs: pf_dec_res.symbol_count,
+            accuracy_log: pf_dec_res.accuracy_log,
+        });
+        // wait for completion from FSE table creator
+        let (tok, ()) = recv_if(tok, fse_table_finish_r, pf_dec_ok, ());
+
+        send(tok, resp_s, if pf_dec_ok { Status::OK } else { Status::ERROR });
     }
 }
 

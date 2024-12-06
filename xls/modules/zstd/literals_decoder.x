@@ -18,23 +18,25 @@ import std;
 
 import xls.examples.ram;
 import xls.modules.zstd.common as common;
-import xls.modules.zstd.literals_buffer as literals_buffer;
-import xls.modules.zstd.literals_dispatcher as literals_dispatcher;
+import xls.modules.zstd.literals_block_header_dec as literals_block_header_dec;
+//import xls.modules.zstd.literals_buffer as literals_buffer;
+//import xls.modules.zstd.literals_dispatcher as literals_dispatcher;
 import xls.modules.zstd.parallel_rams as parallel_rams;
 import xls.modules.zstd.ram_printer as ram_printer;
 import xls.modules.zstd.raw_literals_dec as raw_literals_dec;
 import xls.modules.zstd.rle_literals_dec as rle_literals_dec;
+import xls.modules.zstd.huffman_literals_dec as huffman_literals_dec;
 
 type CopyOrMatchContent = common::CopyOrMatchContent;
 type CopyOrMatchLength = common::CopyOrMatchLength;
 type LitData = common::LitData;
 type LitLength = common::LitLength;
-type LiteralType = common::LiteralType;
+type LiteralsBlockType = literals_block_header_dec::LiteralsBlockType;
 type LiteralsBufferCtrl = common::LiteralsBufferCtrl;
 type LiteralsData = common::LiteralsData;
 type LiteralsDataWithSync = common::LiteralsDataWithSync;
 type LiteralsPathCtrl = common::LiteralsPathCtrl;
-type RleLiteralsData = common::RleLiteralsData;
+//type RleLiteralsData = common::RleLiteralsData;
 type SequenceExecutorMessageType = common::SequenceExecutorMessageType;
 type SequenceExecutorPacket = common::SequenceExecutorPacket<common::SYMBOL_WIDTH>;
 type Streams = common::Streams;
@@ -69,11 +71,15 @@ proc LiteralsDecoderCtrl<AXI_ADDR_W: u32> {
     type HeaderResp = literals_block_header_dec::LiteralsHeaderDecoderResp;
     type RawReq = raw_literals_dec::RawLiteralsDecoderReq<AXI_ADDR_W>;
     type RawResp = raw_literals_dec::RawLiteralsDecoderResp;
+    type RawRespStatus = raw_literals_dec::RawLiteralsDecoderStatus;
     type RleReq = rle_literals_dec::RleLiteralsDecoderReq<AXI_ADDR_W>;
     type RleResp = rle_literals_dec::RleLiteralsDecoderResp;
+    type RleRespStatus = rle_literals_dec::RleLiteralsDecoderStatus;
     type HuffmanReq = huffman_literals_dec::HuffmanLiteralsDecoderReq<AXI_ADDR_W>;
     type HuffmanResp = huffman_literals_dec::HuffmanLiteralsDecoderResp;
+    type HuffmanRespStatus = huffman_literals_dec::HuffmanLiteralsDecoderStatus;
 
+    type Status = LiteralsDecoderCtrlStatus;
     type State = LiteralsDecoderCtrlState;
 
     // Literals Decoder control
@@ -127,10 +133,11 @@ proc LiteralsDecoderCtrl<AXI_ADDR_W: u32> {
             raw_lit_req_s, raw_lit_resp_r,
             rle_lit_req_s, rle_lit_resp_r,
             huffman_lit_req_s, huffman_lit_resp_r
-req)
+        )
     }
 
     next (state: State) {
+        let tok = join();
         // Try receiving response from Raw-, Rle- and HuffmanLiteralsDecoder procs to free
         // resources at the very begining of next() evaluation
         let do_recv_raw_resp = state.decoding_raw_literals;
@@ -159,17 +166,17 @@ req)
 
         // Receive new literals decoding request if previous was handled
         let do_recv_ctrl_req = state.req_invalid;
-        let (tok, ctrl_req, ctrl_req_valid) = recv_if_non_blocking(join(), lit_ctrl_req_r, do_recv_ctrl_req, zero!<CtrlReq>());
+        let (tok, ctrl_req, ctrl_req_valid) = recv_if_non_blocking(tok, lit_ctrl_req_r, do_recv_ctrl_req, zero!<CtrlReq>());
 
         let new_id = if (ctrl_req_valid) {
             state.id + u32:1
         } else {
             state.id
         };
-        new_ctrl_req = if (ctrl_req_valid) {
+        let new_ctrl_req = if (ctrl_req_valid) {
             ctrl_req
         } else {
-            state.ctrl_req
+            state.req
         };
 
         // There's no harm in trying to receive header decoding response in every next() evaluation
@@ -183,16 +190,16 @@ req)
         let tok = send_if(tok, lit_header_req_s, do_send_header_req, header_req);
 
         // Address of the beginning of the actual literals in the Literals Section
-        let literals_addr = state.ctrl_req.addr + header_resp.header.length;
+        let literals_addr = state.req.addr + header_resp.length as uN[AXI_ADDR_W];
 
         // Send raw literals decoding request right after receiving decoded literals header
         let raw_req = RawReq {
             addr: literals_addr,
-            length: header_resp.header.regenerated_size,
+            length: header_resp.header.regenerated_size as uN[AXI_ADDR_W],
             id: state.id,
             literals_last: state.req.literals_last
         };
-        let do_send_raw_req = header_resp_valid && (header_resp.header.literal_type == LiteralType::RAW) && !decoding_raw_literals;
+        let do_send_raw_req = header_resp_valid && (header_resp.header.literal_type == LiteralsBlockType::RAW) && !decoding_raw_literals;
         let tok = send_if(tok, raw_lit_req_s, do_send_raw_req, raw_req);
         let decoding_raw_literals = if (do_send_raw_req) {
             true
@@ -205,9 +212,9 @@ req)
             symbol: header_resp.symbol,
             length: header_resp.header.regenerated_size,
             id: state.id,
-            literals_last: state.ctrl_req.literals_last
+            literals_last: state.req.literals_last
         };
-        let do_send_rle_req = header_resp_valid && (header_resp.header.literal_type == LiteralType::RLE) && !decoding_rle_literals;
+        let do_send_rle_req = header_resp_valid && (header_resp.header.literal_type == LiteralsBlockType::RLE) && !decoding_rle_literals;
         let tok = send_if(tok, rle_lit_req_s, do_send_rle_req, rle_req);
         let decoding_rle_literals = if (do_send_rle_req) {
             true
@@ -217,21 +224,21 @@ req)
 
         // Send huffman literals decoding request right after receiving decoded literals header
         let huffman_new_config = match(header_resp.header.literal_type) {
-            LiteralType::COMP => true,
-            LiteralType::COMP_4 => true,
-            LiteralType::TREELESS => false,
-            LiteralType::TREELESS_4 => false,
+            LiteralsBlockType::COMP => true,
+            LiteralsBlockType::COMP_4 => true,
+            LiteralsBlockType::TREELESS => false,
+            LiteralsBlockType::TREELESS_4 => false,
             _ => false,
         };
         let huffman_req = HuffmanReq {
             base_addr: literals_addr,
-            len: header_resp.header.compressed_size,
+            len: header_resp.header.compressed_size as uN[AXI_ADDR_W],
             new_config: huffman_new_config
         };
-        let huffman_literals_type = header_resp.header.literal_type == LiteralType::COMP ||
-                                    header_resp.header.literal_type == LiteralType::COMP_4 ||
-                                    header_resp.header.literal_type == LiteralType::TREELESS ||
-                                    header_resp.header.literal_type == LiteralType::TREELESS_4;
+        let huffman_literals_type = header_resp.header.literal_type == LiteralsBlockType::COMP ||
+                                    header_resp.header.literal_type == LiteralsBlockType::COMP_4 ||
+                                    header_resp.header.literal_type == LiteralsBlockType::TREELESS ||
+                                    header_resp.header.literal_type == LiteralsBlockType::TREELESS_4;
         let do_send_huffman_req = header_resp_valid && huffman_literals_type && !decoding_huffman_literals;
         let tok = send_if(tok, huffman_lit_req_s, do_send_huffman_req, huffman_req);
         let decoding_huffman_literals = if (do_send_huffman_req) {
@@ -249,10 +256,11 @@ req)
         } else {
             state.req_invalid
         };
-        // ERROR status is coded by non-zero integer. Invalid (not received) response defaults to OKAY
-        let resp = if (raw_resp.status == RawLiteralsRespStatus::ERROR ||
-                       rle_resp.status == RleLiteralsRespStatus::ERROR ||
-                       huffman_resp.status == HuffmanLiteralsRespStatus::ERROR) {
+        // ERROR status is coded by non-zero integer
+        // RleLiteralsDecoder cannot fail
+        // Invalid (not received) response defaults to OKAY
+        let resp = if (raw_resp.status == RawRespStatus::ERROR ||
+                       huffman_resp.status == HuffmanRespStatus::ERROR) {
             CtrlResp { status: Status::ERROR }
         } else {
             CtrlResp { status: Status::OKAY }
@@ -261,13 +269,61 @@ req)
 
         State {
             id: new_id,
-            req: new_req,
+            req: new_ctrl_req,
             req_invalid: req_invalid,
             decoding_raw_literals: decoding_raw_literals,
             decoding_rle_literals: decoding_rle_literals,
             decoding_huffman_literals: decoding_huffman_literals,
         }
     }
+}
+
+const INST_AXI_ADDR_W = u32:16;
+proc LiteralsDecoderCtrlInst {
+    type CtrlReq = LiteralsDecoderCtrlReq<INST_AXI_ADDR_W>;
+    type CtrlResp = LiteralsDecoderCtrlResp;
+    type HeaderReq = literals_block_header_dec::LiteralsHeaderDecoderReq<INST_AXI_ADDR_W>;
+    type HeaderResp = literals_block_header_dec::LiteralsHeaderDecoderResp;
+    type RawReq = raw_literals_dec::RawLiteralsDecoderReq<INST_AXI_ADDR_W>;
+    type RawResp = raw_literals_dec::RawLiteralsDecoderResp;
+    type RleReq = rle_literals_dec::RleLiteralsDecoderReq<INST_AXI_ADDR_W>;
+    type RleResp = rle_literals_dec::RleLiteralsDecoderResp;
+    type HuffmanReq = huffman_literals_dec::HuffmanLiteralsDecoderReq<INST_AXI_ADDR_W>;
+    type HuffmanResp = huffman_literals_dec::HuffmanLiteralsDecoderResp;
+
+    init {}
+
+    config (
+        // Literals Decoder control
+        lit_ctrl_req_r: chan<CtrlReq> in,
+        lit_ctrl_resp_s: chan<CtrlResp> out,
+
+        // Literals Header Decoder
+        lit_header_req_s: chan<HeaderReq> out,
+        lit_header_resp_r: chan<HeaderResp> in,
+
+        // Raw Literals Decoder
+        raw_lit_req_s: chan<RawReq> out,
+        raw_lit_resp_r: chan<RawResp> in,
+
+        // Rle Literals Decoder
+        rle_lit_req_s: chan<RleReq> out,
+        rle_lit_resp_r: chan<RleResp> in,
+
+        // Huffman Literals Decoder
+        huffman_lit_req_s: chan<HuffmanReq> out,
+        huffman_lit_resp_r: chan<HuffmanResp> in
+    ) {
+        spawn LiteralsDecoderCtrl<INST_AXI_ADDR_W>(
+            lit_ctrl_req_r, lit_ctrl_resp_s,
+            lit_header_req_s, lit_header_resp_r,
+            raw_lit_req_s, raw_lit_resp_r,
+            rle_lit_req_s, rle_lit_resp_r,
+            huffman_lit_req_s, huffman_lit_resp_r
+        );
+    }
+
+    next (state: ()) {}
 }
 
 proc LiteralsDecoder<

@@ -34,6 +34,15 @@ pub struct HuffmanControlAndSequenceCtrl<AXI_ADDR_W: u32> {
     new_config: bool,
 }
 
+pub enum HuffmanControlAndSequenceCtrlStatus: u1 {
+    OKAY = 0,
+    ERROR = 1,
+}
+
+pub struct HuffmanControlAndSequenceCtrlResp {
+    status: HuffmanControlAndSequenceCtrlStatus
+}
+
 struct HuffmanControlAndSequenceState {
     fsm: HuffmanControlAndSequenceFSM,
 }
@@ -207,7 +216,7 @@ proc HuffmanControlAndSequence_test {
         let (data_preprocess_start_s, data_preprocess_start_r) = chan<DataPreprocessorStart>("data_preprocess_start");
         let (decoder_start_s, decoder_start_r) = chan<DecoderStart>("decoder_start");
         let (decoder_done_s, decoder_done_r) = chan<()>("decoder_done");
-        
+
         spawn HuffmanControlAndSequence<INST_AXI_ADDR_W>(
             ctrl_r,
             prescan_start_s,

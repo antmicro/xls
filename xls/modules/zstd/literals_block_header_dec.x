@@ -152,6 +152,7 @@ pub struct LiteralsHeaderDecoderReq <ADDR_W: u32> {
 
 pub struct LiteralsHeaderDecoderResp {
     header: LiteralsHeader,
+    symbol: u8,
     length: u3,
     status: LiteralsHeaderDecoderStatus,
 }
@@ -199,6 +200,8 @@ pub proc LiteralsHeaderDecoder<AXI_DATA_W: u32, AXI_ADDR_W: u32> {
         let (header, length) = parse_literals_header(raw.data[:40]);
         send(tok, resp_s, Resp {
             header: header,
+            // FIXME: Add symbol prefetchning
+            symbol: u8:0xDE,
             length: length,
             status: match (raw.status) {
                 MemReaderStatus::OKAY => Status::OKAY,
@@ -251,7 +254,7 @@ proc LiteralsHeaderDecoderTest {
 
     next(state: ()) {
         let tok = join();
-        
+
         // test data format: raw header, expected size in bytes, expected parsed header
         let tests: (u40, u3, LiteralsHeader)[16] = [
             // 2 bits block type == RAW, 1 bit size_format == 0, 5 bits regenerated_size
@@ -272,7 +275,7 @@ proc LiteralsHeaderDecoderTest {
                 regenerated_size: u20:0b10101,
                 compressed_size: u20:0b10101,
             }),
-            // 2 bits block type == RAW, 2 bit size_format == 3, 20 bits regenerated_size 
+            // 2 bits block type == RAW, 2 bit size_format == 3, 20 bits regenerated_size
             (u40:0b10101010101010101010_11_00, u3:3, LiteralsHeader {
                 literal_type: LiteralsBlockType::RAW,
                 regenerated_size: u20:0b10101010101010101010,
@@ -297,7 +300,7 @@ proc LiteralsHeaderDecoderTest {
                 regenerated_size: u20:0b10101,
                 compressed_size: u20:1,
             }),
-            // 2 bits block type == RLE, 2 bits size_format == 3, 20 bits regenerated_size 
+            // 2 bits block type == RLE, 2 bits size_format == 3, 20 bits regenerated_size
             (u40:0b10101010101010101010_11_01, u3:3, LiteralsHeader {
                 literal_type: LiteralsBlockType::RLE,
                 regenerated_size: u20:0b10101010101010101010,
@@ -354,8 +357,8 @@ proc LiteralsHeaderDecoderTest {
                 compressed_size: u20:0b101010101010101010,
             }),
         ];
-        const ADDR = uN[TEST_AXI_ADDR_W]:0xDEAD;        
-        
+        const ADDR = uN[TEST_AXI_ADDR_W]:0xDEAD;
+
         // positive cases
         let tok = for ((_, (test_vec, expected_length, expected_header)), tok): ((u32, (u40, u3, LiteralsHeader)), token) in enumerate(tests) {
             send(tok, req_s, Req {
@@ -367,7 +370,7 @@ proc LiteralsHeaderDecoderTest {
                 length: uN[TEST_AXI_ADDR_W]:5
             });
             let tok = send(tok, mem_rd_resp_s, MemReaderResp {
-                status: MemReaderStatus::OKAY, 
+                status: MemReaderStatus::OKAY,
                 data: test_vec as uN[TEST_AXI_DATA_W],
                 length: uN[TEST_AXI_ADDR_W]:5,
                 last: true,
@@ -375,6 +378,8 @@ proc LiteralsHeaderDecoderTest {
             let (tok, resp) = recv(tok, resp_r);
             assert_eq(resp, LiteralsHeaderDecoderResp {
                 header: expected_header,
+                // FIXME: symbol prefetching
+                symbol: u8:0xDE,
                 status: LiteralsHeaderDecoderStatus::OKAY,
                 length: expected_length,
             });
@@ -391,7 +396,7 @@ proc LiteralsHeaderDecoderTest {
             length: uN[TEST_AXI_ADDR_W]:5
         });
         let tok = send(tok, mem_rd_resp_s, MemReaderResp {
-            status: MemReaderStatus::ERROR, 
+            status: MemReaderStatus::ERROR,
             data: uN[TEST_AXI_DATA_W]:0,
             length: uN[TEST_AXI_ADDR_W]:0,
             last: true,

@@ -25,6 +25,10 @@ import xls.modules.zstd.huffman_ctrl as ctrl;
 import xls.modules.zstd.memory.axi as axi;
 import xls.examples.ram;
 
+pub type HuffmanLiteralsDecoderReq = ctrl::HuffmanControlAndSequenceCtrl;
+pub type HuffmanLiteralsDecoderResp = ctrl::HuffmanControlAndSequenceCtrlResp;
+pub type HuffmanLiteralsDecoderStatus = ctrl::HuffmanControlAndSequenceCtrlStatus;
+
 pub proc HuffmanLiteralsDecoder<AXI_DATA_W: u32, AXI_ADDR_W: u32, AXI_ID_W: u32, RAM_ADDR_WIDTH: u32, RAM_ACCESS_WIDTH: u32> {
     type AxiR = axi::AxiR<AXI_DATA_W, AXI_ID_W>;
     type AxiAr = axi::AxiAr<AXI_ADDR_W, AXI_ID_W>;

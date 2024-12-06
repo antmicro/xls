@@ -2395,18 +2395,45 @@ xls_dslx_library(
     deps = [
         "//xls/examples:ram_dslx",
         ":common_dslx",
-        ":literals_buffer_dslx",
-        ":literals_dispatcher_dslx",
+        #":literals_buffer_dslx",
+        ":literals_block_header_dec_dslx",
+        #":literals_dispatcher_dslx",
         ":parallel_rams_dslx",
         ":ram_printer_dslx",
         ":raw_literals_dec_dslx",
         ":rle_literals_dec_dslx",
+        ":huffman_literals_dec_dslx",
     ],
 )
 
 xls_dslx_test(
     name = "literals_decoder_dslx_test",
     library = ":literals_decoder_dslx",
+)
+
+literals_decoder_ctrl_codegen_args = common_codegen_args | {
+    "module_name": "LiteralsDecoderCtrl",
+    "pipeline_stages": "10",
+}
+
+xls_dslx_verilog(
+    name = "literals_decoder_ctrl_verilog",
+    codegen_args = literals_decoder_ctrl_codegen_args,
+	opt_ir_args = {
+	    "inline_procs": "false",
+	},
+    dslx_top = "LiteralsDecoderCtrlInst",
+    library = ":literals_decoder_dslx",
+    verilog_file = "literals_decoder_ctrl.v",
+)
+
+xls_benchmark_ir(
+    name = "literals_decoder_ctrl_opt_ir_benchmark",
+    src = ":literals_decoder_ctrl_verilog.opt.ir",
+    benchmark_ir_args = literals_decoder_ctrl_codegen_args | {
+		"multi_proc": "true",
+	    "inline_procs": "false",
+	},
 )
 
 xls_dslx_verilog(

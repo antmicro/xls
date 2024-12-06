@@ -39,19 +39,27 @@ type SequenceExecutorMessageType = common::SequenceExecutorMessageType;
 type SequenceExecutorPacket = common::SequenceExecutorPacket<common::SYMBOL_WIDTH>;
 type Streams = common::Streams;
 
-enum LiteralsDecoderCtrlFsm: u3 {
-    IDLE = 0,
-    DECODE_HEADER = 1,
-    DECODE_RAW_LITERALS = 2,
-    DECODE_RLE_LITERALS = 3,
-    DECODE_HUFFMAN = 4,
-    ERROR = 7,
+struct LiteralsDecoderCtrlReq<AXI_ADDR_W: u32> {
+    addr: uN[AXI_ADDR_W],
+    literals_last: bool
 }
 
-struct LiteralsDecoderCtrlState<AXI_DATA_W: u32, AXI_ADDR_W: u32, LOG2_REGS_N: u32> {
-    fsm: LiteralsDecoderCtrlFsm,
-    // Header
-    // Contents
+pub enum LiteralsDecoderCtrlStatus: u1 {
+    OKAY = 0,
+    ERROR = 1,
+}
+
+struct LiteralsDecoderCtrlResp {
+    status: LiteralsDecoderCtrlStatus
+}
+
+struct LiteralsDecoderCtrlState<AXI_ADDR_W: u32> {
+    id: u32,
+    req: LiteralsDecoderCtrlReq<AXI_ADDR_W>,
+    req_invalid: bool,
+    decoding_raw_literals: bool,
+    decoding_rle_literals: bool,
+    decoding_huffman_literals: bool,
 }
 
 proc LiteralsDecoderCtrl<AXI_ADDR_W: u32> {
@@ -66,7 +74,6 @@ proc LiteralsDecoderCtrl<AXI_ADDR_W: u32> {
     type HuffmanReq = huffman_literals_dec::HuffmanLiteralsDecoderReq<AXI_ADDR_W>;
     type HuffmanResp = huffman_literals_dec::HuffmanLiteralsDecoderResp;
 
-    type Fsm = LiteralsDecoderCtrlFsm;
     type State = LiteralsDecoderCtrlState;
 
     // Literals Decoder control
@@ -120,48 +127,95 @@ proc LiteralsDecoderCtrl<AXI_ADDR_W: u32> {
             raw_lit_req_s, raw_lit_resp_r,
             rle_lit_req_s, rle_lit_resp_r,
             huffman_lit_req_s, huffman_lit_resp_r
-        )
+req)
     }
 
     next (state: State) {
-        let do_recv_ctrl_req = true;
-        let (tok, req, req_valid) = recv_if_non_blocking(join(), lit_ctrl_req_r, do_recv_ctrl_req, zero!<CtrlReq>());
-
-        let header_req = HeaderReq {
-            addr: req.addr
+        // Try receiving response from Raw-, Rle- and HuffmanLiteralsDecoder procs to free
+        // resources at the very begining of next() evaluation
+        let do_recv_raw_resp = state.decoding_raw_literals;
+        let (tok, raw_resp, raw_resp_valid) = recv_if_non_blocking(tok, raw_lit_resp_r, do_recv_raw_resp, zero!<RawResp>());
+        let decoding_raw_literals = if (raw_resp_valid) {
+            false
+        } else {
+            state.decoding_raw_literals
         };
-        let do_send_header_req = req_valid;
+
+        let do_recv_rle_resp = state.decoding_rle_literals;
+        let (tok, rle_resp, rle_resp_valid) = recv_if_non_blocking(tok, rle_lit_resp_r, do_recv_rle_resp, zero!<RleResp>());
+        let decoding_rle_literals = if (rle_resp_valid) {
+            false
+        } else {
+            state.decoding_rle_literals
+        };
+
+        let do_recv_huffman_resp = state.decoding_huffman_literals;
+        let (tok, huffman_resp, huffman_resp_valid) = recv_if_non_blocking(tok, huffman_lit_resp_r, do_recv_huffman_resp, zero!<HuffmanResp>());
+        let decoding_huffman_literals = if (huffman_resp_valid) {
+            false
+        } else {
+            state.decoding_huffman_literals
+        };
+
+        // Receive new literals decoding request if previous was handled
+        let do_recv_ctrl_req = state.req_invalid;
+        let (tok, ctrl_req, ctrl_req_valid) = recv_if_non_blocking(join(), lit_ctrl_req_r, do_recv_ctrl_req, zero!<CtrlReq>());
+
+        let new_id = if (ctrl_req_valid) {
+            state.id + u32:1
+        } else {
+            state.id
+        };
+        new_ctrl_req = if (ctrl_req_valid) {
+            ctrl_req
+        } else {
+            state.ctrl_req
+        };
+
+        // There's no harm in trying to receive header decoding response in every next() evaluation
+        let (tok, header_resp, header_resp_valid) = recv_non_blocking(tok, lit_header_resp_r, zero!<HeaderResp>());
+
+        // Send literals header decoding request right after receiving CtrlRequest
+        let header_req = HeaderReq {
+            addr: new_ctrl_req.addr
+        };
+        let do_send_header_req = ctrl_req_valid;
         let tok = send_if(tok, lit_header_req_s, do_send_header_req, header_req);
 
-        let do_recv_header_resp = state.fsm == Fsm::DECODE_HEADER;
-        let (tok, header_resp, header_resp_valid) = recv_if_non_blocking(tok, lit_header_resp_r, do_recv_header_resp, zero!<HeaderResp>());
+        // Address of the beginning of the actual literals in the Literals Section
+        let literals_addr = state.ctrl_req.addr + header_resp.header.length;
 
-        let literals_addr = state.req.addr + header_resp.header.length;
-
+        // Send raw literals decoding request right after receiving decoded literals header
         let raw_req = RawReq {
             addr: literals_addr,
             length: header_resp.header.regenerated_size,
             id: state.id,
             literals_last: state.req.literals_last
         };
-        let do_send_raw_req = header_resp_valid && (header_resp.header.literal_type == LiteralType::RAW);
+        let do_send_raw_req = header_resp_valid && (header_resp.header.literal_type == LiteralType::RAW) && !decoding_raw_literals;
         let tok = send_if(tok, raw_lit_req_s, do_send_raw_req, raw_req);
+        let decoding_raw_literals = if (do_send_raw_req) {
+            true
+        } else {
+            decoding_raw_literals
+        };
 
-        let do_recv_raw_resp = state.decoding_raw_literals;
-        let (tok, raw_resp, raw_resp_valid) = recv_if_non_blocking(tok, raw_lit_resp_r, do_recv_raw_resp, zero!<RawResp>());
-
+        // Send rle literals decoding request right after receiving decoded literals header
         let rle_req = RleReq {
             symbol: header_resp.symbol,
             length: header_resp.header.regenerated_size,
             id: state.id,
-            literals_last: state.req.literals_last
+            literals_last: state.ctrl_req.literals_last
         };
-        let do_send_rle_req = header_resp_valid && (header_resp.header.literal_type == LiteralType::RLE);
+        let do_send_rle_req = header_resp_valid && (header_resp.header.literal_type == LiteralType::RLE) && !decoding_rle_literals;
         let tok = send_if(tok, rle_lit_req_s, do_send_rle_req, rle_req);
+        let decoding_rle_literals = if (do_send_rle_req) {
+            true
+        } else {
+            decoding_rle_literals
+        };
 
-        let do_recv_rle_resp = state.decoding_rle_literals;
-        let (tok, rle_resp, rle_resp_valid) = recv_if_non_blocking(tok, rle_lit_resp_r, do_recv_rle_resp, zero!<RleResp>());
-
+        // Send huffman literals decoding request right after receiving decoded literals header
         let huffman_new_config = match(header_resp.header.literal_type) {
             LiteralType::COMP => true,
             LiteralType::COMP_4 => true,
@@ -178,67 +232,41 @@ proc LiteralsDecoderCtrl<AXI_ADDR_W: u32> {
                                     header_resp.header.literal_type == LiteralType::COMP_4 ||
                                     header_resp.header.literal_type == LiteralType::TREELESS ||
                                     header_resp.header.literal_type == LiteralType::TREELESS_4;
-        let do_send_huffman_req = header_resp_valid && huffman_literals_type;
+        let do_send_huffman_req = header_resp_valid && huffman_literals_type && !decoding_huffman_literals;
         let tok = send_if(tok, huffman_lit_req_s, do_send_huffman_req, huffman_req);
+        let decoding_huffman_literals = if (do_send_huffman_req) {
+            true
+        } else {
+            decoding_huffman_literals
+        };
 
-        let do_recv_huffman_resp = state.decoding_huffman_literals;
-        let (tok, huffman_resp, huffman_resp_valid) = recv_if_non_blocking(tok, huffman_lit_resp_r, do_recv_huffman_resp, zero!<HuffmanResp>());
-
-        // TODO: handle response and writing state
-        // try to eliminate FSM
-        // figure out what will happen if LiteralsDecoder will receive 2 consecutive requests that
-        // will end up as decoding two separate literals blocks of the same type (problem with
-        // busy decoder of specific type)
+        // Handle response after literals were decoded
         let do_send_resp = raw_resp_valid ||
                            rle_resp_valid ||
                            huffman_resp_valid;
-        let resp = Resp {};
+        let req_invalid = if (do_send_resp) {
+            true
+        } else {
+            state.req_invalid
+        };
+        // ERROR status is coded by non-zero integer. Invalid (not received) response defaults to OKAY
+        let resp = if (raw_resp.status == RawLiteralsRespStatus::ERROR ||
+                       rle_resp.status == RleLiteralsRespStatus::ERROR ||
+                       huffman_resp.status == HuffmanLiteralsRespStatus::ERROR) {
+            CtrlResp { status: Status::ERROR }
+        } else {
+            CtrlResp { status: Status::OKAY }
+        };
         let tok = send_if(tok, lit_ctrl_resp_s, do_send_resp, resp);
 
-        let next_state = match(state.fsm) {
-            Fsm::IDLE => {
-                trace_fmt!("LiteralsDecoderCtrl: [IDLE]");
-                State {
-                    fsm: Fsm::DECODE_HEADER,
-                    ..state
-                }
-            },
-            Fsm::DECODE_HEADER => {
-                trace_fmt!("LiteralsDecoderCtrl: [DECODE_HEADER]");
-                State {}
-            },
-            Fsm::DECODE_RAW_LITERALS => {
-                trace_fmt!("LiteralsDecoderCtrl: [DECODE_RAW_LITERALS]");
-                State {
-                    fsm: Fsm::IDLE,
-                    ..state
-                }
-            },
-            Fsm::DECODE_RLE_LITERALS => {
-                trace_fmt!("LiteralsDecoderCtrl: [DECODE_RLE_LITERALS]");
-                State {
-                    fsm: Fsm::IDLE,
-                    ..state
-                }
-            },
-            Fsm::DECODE_HUFFMAN_LITERALS => {
-                trace_fmt!("LiteralsDecoderCtrl: [DECODE_HUFFMAN_LITERALS]");
-                State {
-                    fsm: Fsm::IDLE,
-                    ..state
-                }
-            },
-            Fsm::ERROR => {
-                trace_fmt!("LiteralsDecoderCtrl: [ERROR]");
-                State {
-                    fsm: Fsm::IDLE,
-                    ..zero!<State>()
-                }
-            },
-            _ => zero!<State>(),
-        };
-
-        next_state
+        State {
+            id: new_id,
+            req: new_req,
+            req_invalid: req_invalid,
+            decoding_raw_literals: decoding_raw_literals,
+            decoding_rle_literals: decoding_rle_literals,
+            decoding_huffman_literals: decoding_huffman_literals,
+        }
     }
 }
 

@@ -58,7 +58,7 @@ struct LiteralsDecoderCtrlResp {
 struct LiteralsDecoderCtrlState<AXI_ADDR_W: u32> {
     id: u32,
     req: LiteralsDecoderCtrlReq<AXI_ADDR_W>,
-    req_invalid: bool,
+    req_valid: bool,
     decoding_raw_literals: bool,
     decoding_rle_literals: bool,
     decoding_huffman_literals: bool,
@@ -137,12 +137,14 @@ proc LiteralsDecoderCtrl<AXI_ADDR_W: u32> {
     }
 
     next (state: State) {
+        trace_fmt!("state: {:#x}", state);
         let tok = join();
         // Try receiving response from Raw-, Rle- and HuffmanLiteralsDecoder procs to free
         // resources at the very begining of next() evaluation
         let do_recv_raw_resp = state.decoding_raw_literals;
         let (tok, raw_resp, raw_resp_valid) = recv_if_non_blocking(tok, raw_lit_resp_r, do_recv_raw_resp, zero!<RawResp>());
         let decoding_raw_literals = if (raw_resp_valid) {
+            trace_fmt!("received RawResp: {:#x}", raw_resp);
             false
         } else {
             state.decoding_raw_literals
@@ -151,6 +153,7 @@ proc LiteralsDecoderCtrl<AXI_ADDR_W: u32> {
         let do_recv_rle_resp = state.decoding_rle_literals;
         let (tok, rle_resp, rle_resp_valid) = recv_if_non_blocking(tok, rle_lit_resp_r, do_recv_rle_resp, zero!<RleResp>());
         let decoding_rle_literals = if (rle_resp_valid) {
+            trace_fmt!("received RleResp: {:#x}", raw_resp);
             false
         } else {
             state.decoding_rle_literals
@@ -159,28 +162,31 @@ proc LiteralsDecoderCtrl<AXI_ADDR_W: u32> {
         let do_recv_huffman_resp = state.decoding_huffman_literals;
         let (tok, huffman_resp, huffman_resp_valid) = recv_if_non_blocking(tok, huffman_lit_resp_r, do_recv_huffman_resp, zero!<HuffmanResp>());
         let decoding_huffman_literals = if (huffman_resp_valid) {
+            trace_fmt!("received HuffmanResp: {:#x}", huffman_resp);
             false
         } else {
             state.decoding_huffman_literals
         };
 
         // Receive new literals decoding request if previous was handled
-        let do_recv_ctrl_req = state.req_invalid;
+        let do_recv_ctrl_req = !state.req_valid;
         let (tok, ctrl_req, ctrl_req_valid) = recv_if_non_blocking(tok, lit_ctrl_req_r, do_recv_ctrl_req, zero!<CtrlReq>());
 
-        let new_id = if (ctrl_req_valid) {
-            state.id + u32:1
+        if (ctrl_req_valid) {
+            trace_fmt!("received CtrlReq: {:#x}", ctrl_req);
+        } else {};
+
+        let (new_ctrl_req, new_ctrl_req_valid) = if (ctrl_req_valid) {
+            (ctrl_req, true)
         } else {
-            state.id
-        };
-        let new_ctrl_req = if (ctrl_req_valid) {
-            ctrl_req
-        } else {
-            state.req
+            (state.req, state.req_valid)
         };
 
         // There's no harm in trying to receive header decoding response in every next() evaluation
         let (tok, header_resp, header_resp_valid) = recv_non_blocking(tok, lit_header_resp_r, zero!<HeaderResp>());
+        if (header_resp_valid) {
+            trace_fmt!("received HeaderReq: {:#x}", header_resp);
+        } else {};
 
         // Send literals header decoding request right after receiving CtrlRequest
         let header_req = HeaderReq {
@@ -188,6 +194,9 @@ proc LiteralsDecoderCtrl<AXI_ADDR_W: u32> {
         };
         let do_send_header_req = ctrl_req_valid;
         let tok = send_if(tok, lit_header_req_s, do_send_header_req, header_req);
+        if (do_send_header_req) {
+            trace_fmt!("send HeaderReq: {:#x}", header_req);
+        } else {};
 
         // Address of the beginning of the actual literals in the Literals Section
         let literals_addr = state.req.addr + header_resp.length as uN[AXI_ADDR_W];
@@ -202,6 +211,7 @@ proc LiteralsDecoderCtrl<AXI_ADDR_W: u32> {
         let do_send_raw_req = header_resp_valid && (header_resp.header.literal_type == LiteralsBlockType::RAW) && !decoding_raw_literals;
         let tok = send_if(tok, raw_lit_req_s, do_send_raw_req, raw_req);
         let decoding_raw_literals = if (do_send_raw_req) {
+            trace_fmt!("send RawReq: {:#x}", raw_req);
             true
         } else {
             decoding_raw_literals
@@ -217,6 +227,7 @@ proc LiteralsDecoderCtrl<AXI_ADDR_W: u32> {
         let do_send_rle_req = header_resp_valid && (header_resp.header.literal_type == LiteralsBlockType::RLE) && !decoding_rle_literals;
         let tok = send_if(tok, rle_lit_req_s, do_send_rle_req, rle_req);
         let decoding_rle_literals = if (do_send_rle_req) {
+            trace_fmt!("send RleReq: {:#x}", rle_req);
             true
         } else {
             decoding_rle_literals
@@ -242,6 +253,7 @@ proc LiteralsDecoderCtrl<AXI_ADDR_W: u32> {
         let do_send_huffman_req = header_resp_valid && huffman_literals_type && !decoding_huffman_literals;
         let tok = send_if(tok, huffman_lit_req_s, do_send_huffman_req, huffman_req);
         let decoding_huffman_literals = if (do_send_huffman_req) {
+            trace_fmt!("send HuffmanReq: {:#x}", huffman_req);
             true
         } else {
             decoding_huffman_literals
@@ -251,10 +263,10 @@ proc LiteralsDecoderCtrl<AXI_ADDR_W: u32> {
         let do_send_resp = raw_resp_valid ||
                            rle_resp_valid ||
                            huffman_resp_valid;
-        let req_invalid = if (do_send_resp) {
-            true
+        let new_ctrl_req_valid = if (do_send_resp) {
+            false
         } else {
-            state.req_invalid
+            new_ctrl_req_valid
         };
         // ERROR status is coded by non-zero integer
         // RleLiteralsDecoder cannot fail
@@ -267,14 +279,32 @@ proc LiteralsDecoderCtrl<AXI_ADDR_W: u32> {
         };
         let tok = send_if(tok, lit_ctrl_resp_s, do_send_resp, resp);
 
-        State {
+        let new_id = if (do_send_resp) {
+            if (state.req_valid && state.req.literals_last) {
+                u32:0
+            } else {
+                state.id + u32:1
+            }
+        } else {
+            state.id
+        };
+
+        if (do_send_resp) {
+            trace_fmt!("send CtrlResp: {:#x}", resp);
+        } else {};
+
+        let next_state = State {
             id: new_id,
             req: new_ctrl_req,
-            req_invalid: req_invalid,
+            req_valid: new_ctrl_req_valid,
             decoding_raw_literals: decoding_raw_literals,
             decoding_rle_literals: decoding_rle_literals,
             decoding_huffman_literals: decoding_huffman_literals,
-        }
+        };
+
+        trace_fmt!("next_state: {:#x}", next_state);
+
+        next_state
     }
 }
 
@@ -324,6 +354,242 @@ proc LiteralsDecoderCtrlInst {
     }
 
     next (state: ()) {}
+}
+
+const TEST_AXI_ADDR_W = u32:16;
+#[test_proc]
+proc LiteralsDecoderCtrl_test {
+    type CtrlReq = LiteralsDecoderCtrlReq<TEST_AXI_ADDR_W>;
+    type CtrlResp = LiteralsDecoderCtrlResp;
+    type CtrlStatus = LiteralsDecoderCtrlStatus;
+    type HeaderReq = literals_block_header_dec::LiteralsHeaderDecoderReq<TEST_AXI_ADDR_W>;
+    type HeaderResp = literals_block_header_dec::LiteralsHeaderDecoderResp;
+    type HeaderStatus = literals_block_header_dec::LiteralsHeaderDecoderStatus;
+    type Header = literals_block_header_dec::LiteralsHeader;
+    type LiteralsBlockType = literals_block_header_dec::LiteralsBlockType;
+    type RawReq = raw_literals_dec::RawLiteralsDecoderReq<TEST_AXI_ADDR_W>;
+    type RawResp = raw_literals_dec::RawLiteralsDecoderResp;
+    type RawStatus = raw_literals_dec::RawLiteralsDecoderStatus;
+    type RleReq = rle_literals_dec::RleLiteralsDecoderReq<TEST_AXI_ADDR_W>;
+    type RleResp = rle_literals_dec::RleLiteralsDecoderResp;
+    type RleStatus = rle_literals_dec::RleLiteralsDecoderStatus;
+    type HuffmanReq = huffman_literals_dec::HuffmanLiteralsDecoderReq<TEST_AXI_ADDR_W>;
+    type HuffmanResp = huffman_literals_dec::HuffmanLiteralsDecoderResp;
+    type HuffmanStatus = huffman_literals_dec::HuffmanLiteralsDecoderStatus;
+
+    type Addr = uN[TEST_AXI_ADDR_W];
+
+    terminator: chan<bool> out;
+
+    // Literals Decoder control
+    lit_ctrl_req_s: chan<CtrlReq> out;
+    lit_ctrl_resp_r: chan<CtrlResp> in;
+
+    // Literals Header Decoder
+    lit_header_req_r: chan<HeaderReq> in;
+    lit_header_resp_s: chan<HeaderResp> out;
+
+    // Raw Literals Decoder
+    raw_lit_req_r: chan<RawReq> in;
+    raw_lit_resp_s: chan<RawResp> out;
+
+    // Rle Literals Decoder
+    rle_lit_req_r: chan<RleReq> in;
+    rle_lit_resp_s: chan<RleResp> out;
+
+    // Huffman Literals Decoder
+    huffman_lit_req_r: chan<HuffmanReq> in;
+    huffman_lit_resp_s: chan<HuffmanResp> out;
+
+    config (terminator: chan<bool> out) {
+        // Literals Decoder control
+        let (lit_ctrl_req_s, lit_ctrl_req_r) = chan<CtrlReq>("lit_ctrl_req");
+        let (lit_ctrl_resp_s, lit_ctrl_resp_r) = chan<CtrlResp>("lit_ctrl_resp");
+
+        // Literals Header Decoder
+        let (lit_header_req_s, lit_header_req_r) = chan<HeaderReq>("lit_header_req");
+        let (lit_header_resp_s, lit_header_resp_r) = chan<HeaderResp>("lit_header_resp");
+
+        // Raw Literals Decoder
+        let (raw_lit_req_s, raw_lit_req_r) = chan<RawReq>("raw_lit_req");
+        let (raw_lit_resp_s, raw_lit_resp_r) = chan<RawResp>("raw_lit_resp");
+
+        // Rle Literals Decoder
+        let (rle_lit_req_s, rle_lit_req_r) = chan<RleReq>("rle_lit_req");
+        let (rle_lit_resp_s, rle_lit_resp_r) = chan<RleResp>("rle_lit_resp");
+
+        // Huffman Literals Decoder
+        let (huffman_lit_req_s, huffman_lit_req_r) = chan<HuffmanReq>("huffman_lit_req");
+        let (huffman_lit_resp_s, huffman_lit_resp_r) = chan<HuffmanResp>("huffman_lit_resp");
+
+        spawn LiteralsDecoderCtrl<TEST_AXI_ADDR_W>(
+            lit_ctrl_req_r, lit_ctrl_resp_s,
+            lit_header_req_s, lit_header_resp_r,
+            raw_lit_req_s, raw_lit_resp_r,
+            rle_lit_req_s, rle_lit_resp_r,
+            huffman_lit_req_s, huffman_lit_resp_r
+        );
+
+        (
+            terminator,
+            lit_ctrl_req_s, lit_ctrl_resp_r,
+            lit_header_req_r, lit_header_resp_s,
+            raw_lit_req_r, raw_lit_resp_s,
+            rle_lit_req_r, rle_lit_resp_s,
+            huffman_lit_req_r, huffman_lit_resp_s
+        )
+    }
+
+    init {}
+
+    next (state: ()) {
+        let tok = join();
+
+        let lit_ctrl_reqs: CtrlReq[6] = [
+            CtrlReq { addr: Addr:0x4, literals_last: false },
+            CtrlReq { addr: Addr:0x34, literals_last: false },
+            CtrlReq { addr: Addr:0x234, literals_last: true },
+            CtrlReq { addr: Addr:0x1234, literals_last: false },
+            CtrlReq { addr: Addr:0x2345, literals_last: false },
+            CtrlReq { addr: Addr:0x3456, literals_last: true },
+        ];
+
+        let lit_header_resps: HeaderResp[6] = [
+            HeaderResp {
+                header: Header {
+                    literal_type: LiteralsBlockType::RAW,
+                    regenerated_size: u20:0x10,
+                    compressed_size: u20:0x20
+                },
+                symbol: u8:0x00,
+                length: u3:5,
+                status: HeaderStatus::OKAY
+            },
+            HeaderResp {
+                header: Header {
+                    literal_type: LiteralsBlockType::RAW,
+                    regenerated_size: u20:0x20,
+                    compressed_size: u20:0x10
+                },
+                symbol: u8:0x00,
+                length: u3:3,
+                status: HeaderStatus::OKAY
+            },
+            HeaderResp {
+                header: Header {
+                    literal_type: LiteralsBlockType::RLE,
+                    regenerated_size: u20:0x15,
+                    compressed_size: u20:0x20
+                },
+                symbol: u8:0x5B,
+                length: u3:4,
+                status: HeaderStatus::OKAY
+            },
+            HeaderResp {
+                header: Header {
+                    literal_type: LiteralsBlockType::RAW,
+                    regenerated_size: u20:0x10,
+                    compressed_size: u20:0x20
+                },
+                symbol: u8:0x00,
+                length: u3:5,
+                status: HeaderStatus::OKAY
+            },
+            HeaderResp {
+                header: Header {
+                    literal_type: LiteralsBlockType::RLE,
+                    regenerated_size: u20:0x35,
+                    compressed_size: u20:0x20
+                },
+                symbol: u8:0x6C,
+                length: u3:3,
+                status: HeaderStatus::OKAY
+            },
+            HeaderResp {
+                header: Header {
+                    literal_type: LiteralsBlockType::RAW,
+                    regenerated_size: u20:0x10,
+                    compressed_size: u20:0x20
+                },
+                symbol: u8:0x00,
+                length: u3:5,
+                status: HeaderStatus::OKAY
+            }
+        ];
+
+        // IDs of decoding requests
+        // Should be zero after each ctrl request with literals_last == true
+        let req_ids: u32[6] = [
+            u32:0,
+            u32:1,
+            u32:2,
+            u32:0,
+            u32:1,
+            u32:2,
+        ];
+
+        // Test logic
+        let tok = for (i, tok): (u32, token) in range(u32:0, u32:6) {
+            let lit_ctrl_req = lit_ctrl_reqs[i];
+            let expected_lit_header_req = HeaderReq { addr: lit_ctrl_req.addr };
+            let lit_header_resp = lit_header_resps[i];
+
+            let tok = send(tok, lit_ctrl_req_s, lit_ctrl_req);
+            trace_fmt!("Test: Sent CtrlReq: {:#x}", lit_ctrl_req);
+
+            let (tok, lit_header_req) = recv(tok, lit_header_req_r);
+            trace_fmt!("Test: Received HeaderReq: {:#x}", lit_header_req);
+            assert_eq(lit_header_req, expected_lit_header_req);
+            let tok = send(tok, lit_header_resp_s, lit_header_resp);
+            trace_fmt!("Test: Sent HeaderResp: {:#x}", lit_header_resp);
+
+            if (lit_header_resp.header.literal_type == LiteralsBlockType::RAW) {
+                let (tok, raw_lit_req) = recv(tok, raw_lit_req_r);
+                trace_fmt!("Test: Received RawReq: {:#x}", raw_lit_req);
+                let expected_raw_lit_req = RawReq {
+                    id: req_ids[i],
+                    addr: lit_ctrl_reqs[i].addr + lit_header_resps[i].length as Addr,
+                    length: lit_header_resps[i].header.regenerated_size as Addr,
+                    literals_last: lit_ctrl_reqs[i].literals_last
+                };
+                assert_eq(raw_lit_req, expected_raw_lit_req);
+                let raw_lit_resp = RawResp { status: RawStatus::OKAY };
+                let tok = send(tok, raw_lit_resp_s, raw_lit_resp);
+                trace_fmt!("Test: Sent RawResp: {:#x}", raw_lit_resp);
+            } else if (lit_header_resp.header.literal_type == LiteralsBlockType::RLE) {
+                let (tok, rle_lit_req) = recv(tok, rle_lit_req_r);
+                trace_fmt!("Test: Received RleReq: {:#x}", rle_lit_req);
+                let expected_rle_lit_req = RleReq {
+                    id: req_ids[i],
+                    symbol: lit_header_resps[i].symbol,
+                    length: lit_header_resps[i].header.regenerated_size,
+                    literals_last: lit_ctrl_reqs[i].literals_last
+                };
+                assert_eq(rle_lit_req, expected_rle_lit_req);
+                let rle_lit_resp = RleResp { status: RleStatus::OKAY };
+                let tok = send(tok, rle_lit_resp_s, rle_lit_resp);
+                trace_fmt!("Test: Sent RleResp: {:#x}", rle_lit_resp);
+            } else {
+                //let (tok, huffman_lit_req) = recv(tok, huffman_lit_req_r);
+                //trace_fmt!("Test: Received HuffmanReq: {:#x}", huffman_lit_req);
+                //let expected_huffman_lit_req = HuffmanReq {
+                //};
+                //assert_eq(huffman_lit_req, expected_huffman_lit_req);
+                //let huffman_lit_resp = HuffmanResp { status: HuffmanStatus::OKAY };
+                //let tok = send(tok, huffman_lit_resp_s, huffman_lit_resp);
+                //trace_fmt!("Test: Sent HuffmanResp: {:#x}", huffman_lit_resp);
+            };
+
+            let (tok, lit_ctrl_resp) = recv(tok, lit_ctrl_resp_r);
+            trace_fmt!("Test: Received CtrlResp: {:#x}", lit_ctrl_resp);
+            let expected_lit_ctrl_resp = CtrlResp { status: CtrlStatus::OKAY };
+            assert_eq(lit_ctrl_resp, expected_lit_ctrl_resp);
+
+            tok
+        }(tok);
+
+        send(tok, terminator, true);
+    }
 }
 
 proc LiteralsDecoder<

@@ -22,8 +22,8 @@ import xls.modules.shift_buffer.shift_buffer;
 import xls.modules.zstd.memory.mem_reader;
 
 
-type RefillingShiftBufferInput = shift_buffer::ShiftBufferPacket;
-type RefillingShiftBufferCtrl = shift_buffer::ShiftBufferCtrl;
+pub type RefillingShiftBufferInput = shift_buffer::ShiftBufferPacket;
+pub type RefillingShiftBufferCtrl = shift_buffer::ShiftBufferCtrl;
 
 pub struct RefillStart<ADDR_W: u32> {
     start_addr: uN[ADDR_W]
@@ -54,10 +54,13 @@ struct RefillerState<ADDR_W: u32, LENGTH_W: u32, BUFFER_W_CLOG2: u32> {
     bits_to_flush: uN[BUFFER_W_CLOG2],          // amount of bits left to flush during flushing state
 }
 
+pub fn length_width(data_width: u32) -> u32 {
+    shift_buffer::length_width(data_width + u32:1)
+}
 
 proc RefillingShiftBufferInternal<
     DATA_W: u32, ADDR_W: u32,
-    LENGTH_W: u32 = {shift_buffer::length_width(DATA_W)}, 
+    LENGTH_W: u32 = {length_width(DATA_W)},
     DATA_W_DIV8: u32 = {DATA_W / u32:8},
     BUFFER_W: u32 = {DATA_W * u32:2},             // TODO: fix implementation detail of ShiftBuffer leaking here
     BUFFER_W_CLOG2: u32 = {std::clog2(BUFFER_W) + u32:1},
@@ -356,7 +359,7 @@ proc RefillingShiftBufferInternal<
 pub proc RefillingShiftBuffer<
     DATA_W: u32,
     ADDR_W: u32,
-    LENGTH_W: u32 = {shift_buffer::length_width(DATA_W)},
+    LENGTH_W: u32 = {length_width(DATA_W)},
 > {
     type MemReaderReq = mem_reader::MemReaderReq<ADDR_W>;
     type MemReaderResp = mem_reader::MemReaderResp<DATA_W, ADDR_W>;
@@ -404,7 +407,7 @@ pub proc RefillingShiftBuffer<
 
 const TEST_DATA_W = u32:64;
 const TEST_ADDR_W = u32:32;
-const TEST_LENGTH_W = shift_buffer::length_width(TEST_DATA_W);
+const TEST_LENGTH_W = length_width(TEST_DATA_W);
 const TEST_DATA_W_DIV8 = TEST_DATA_W / u32:8;
 const TEST_BUFFER_W = TEST_DATA_W * u32:2;             // TODO: fix implementation detail of ShiftBuffer leaking here
 const TEST_BUFFER_W_CLOG2 = std::clog2(TEST_BUFFER_W);

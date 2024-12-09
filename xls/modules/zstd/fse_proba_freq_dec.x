@@ -20,6 +20,7 @@ import std;
 import xls.examples.ram;
 import xls.modules.zstd.common;
 import xls.modules.shift_buffer.shift_buffer;
+import xls.modules.zstd.refilling_shift_buffer;
 import xls.modules.zstd.ram_wr_handler as ram_wr;
 
 pub const FSE_MAX_SYMBOLS = u32:256;
@@ -83,6 +84,9 @@ struct State {
     written_symbol_count: SymbolCount,
     // number of processed zero probability symbols
     zero_proba_count: SymbolCount,
+    // indicates error condition: either passed on from ShiftBuffer or due to
+    // using up more probability points than were available
+    data_invalid: bool,
 }
 
 // Adapter for input data, converting the data to a shift buffer input type
@@ -90,38 +94,48 @@ pub proc FseInputBuffer<DATA_WIDTH: u32, LENGTH_WIDTH: u32> {
     type BufferInput = shift_buffer::ShiftBufferPacket<DATA_WIDTH, LENGTH_WIDTH>;
     type BufferCtrl = shift_buffer::ShiftBufferCtrl<LENGTH_WIDTH>;
     type BufferOutput = shift_buffer::ShiftBufferOutput<DATA_WIDTH, LENGTH_WIDTH>;
+    type RefillingBufferOutput = refilling_shift_buffer::RefillingShiftBufferOutput<DATA_WIDTH, LENGTH_WIDTH>;
     type Data = common::BlockData;
     type Length = bits[LENGTH_WIDTH];
 
     in_data_r: chan<SequenceData> in;
     buff_data_s: chan<BufferInput> out;
+    out_s: chan<RefillingBufferOutput> out;
+    buff_data_out_r: chan<BufferOutput> in;
 
     config(
         data_r: chan<SequenceData> in,
         ctrl_r: chan<BufferCtrl> in,
-        out_s: chan<BufferOutput> out,
+        out_s: chan<RefillingBufferOutput> out,
     ) {
         let (buff_data_s, buff_data_r) = chan<BufferInput, u32:1>("buff_in_data");
+        let (buff_data_out_s, buff_data_out_r) = chan<BufferOutput, u32:1>("buff_out_data");
 
         spawn shift_buffer::ShiftBuffer<DATA_WIDTH, LENGTH_WIDTH>(
-            ctrl_r, buff_data_r, out_s);
+            ctrl_r, buff_data_r, buff_data_out_s);
 
-        (data_r, buff_data_s)
+        (data_r, buff_data_s, out_s, buff_data_out_r)
     }
 
     init {  }
 
     next (state: ()) {
         let tok0 = join();
-        let (tok1, recv_data, recv_valid) = recv_non_blocking(tok0, in_data_r, zero!<SequenceData>());
 
+        let (tok1, recv_data, recv_valid) = recv_non_blocking(tok0, in_data_r, zero!<SequenceData>());
         let shift_buffer_data = BufferInput {
             data: recv_data.bytes as Data,
             length: recv_data.length as Length,
-            last: recv_data.last
         };
-
         send_if(tok1, buff_data_s, recv_valid, shift_buffer_data);
+
+        let (tok2, recv_data_out, recv_data_out_valid) = recv_non_blocking(tok0, buff_data_out_r, zero!<BufferOutput>());
+        let shift_buffer_data_out = RefillingBufferOutput {
+            data: recv_data_out.data,
+            length: recv_data_out.length,
+            error: false,
+        };
+        send_if(tok2, out_s, recv_data_out_valid, shift_buffer_data_out);
     }
 }
 
@@ -155,8 +169,8 @@ pub proc FseProbaFreqDecoder<
     LENGTH_WIDTH: u32 = {common::BLOCK_PACKET_WIDTH}
 > {
     type Length = bits[LENGTH_WIDTH];
-    type BufferCtrl = shift_buffer::ShiftBufferCtrl<LENGTH_WIDTH>;
-    type BufferOutput = shift_buffer::ShiftBufferOutput<DATA_WIDTH, LENGTH_WIDTH>;
+    type BufferCtrl = refilling_shift_buffer::RefillingShiftBufferCtrl<LENGTH_WIDTH>;
+    type BufferOutput = refilling_shift_buffer::RefillingShiftBufferOutput<DATA_WIDTH, LENGTH_WIDTH>;
     type RamWriteReq = ram::WriteReq<RAM_ADDR_WIDTH, RAM_DATA_WIDTH, RAM_NUM_PARTITIONS>;
     type RamWriteResp = ram::WriteResp;
     type RamReadReq = ram::ReadReq<RAM_ADDR_WIDTH, RAM_NUM_PARTITIONS>;
@@ -211,8 +225,8 @@ pub proc FseProbaFreqDecoder<
     next(state: State) {
         let tok0 = join();
 
-        type BufferCtrl = shift_buffer::ShiftBufferCtrl<LENGTH_WIDTH>;
-        type BufferOutput = shift_buffer::ShiftBufferOutput<DATA_WIDTH, LENGTH_WIDTH>;
+        type BufferCtrl = refilling_shift_buffer::RefillingShiftBufferCtrl<LENGTH_WIDTH>;
+        type BufferOutput = refilling_shift_buffer::RefillingShiftBufferOutput<DATA_WIDTH, LENGTH_WIDTH>;
 
         type RamWriteReq = ram::WriteReq<RAM_ADDR_WIDTH, RAM_DATA_WIDTH, RAM_NUM_PARTITIONS>;
         type RamWriteResp = ram::WriteResp;
@@ -230,6 +244,7 @@ pub proc FseProbaFreqDecoder<
             _ => false,
         };
         let (tok1_1, out_data) = recv_if(tok0, buff_out_data_r, do_buff_data_recv, zero!<BufferOutput>());
+        let data_invalid = state.data_invalid || out_data.error;
 
         let (tok1_2, written_symbol_count, written_symb_count_valid) =
             recv_non_blocking(tok0, resp_out_r, state.written_symbol_count);
@@ -254,7 +269,7 @@ pub proc FseProbaFreqDecoder<
                 )
             },
             Fsm::RECV_ACCURACY_LOG => {
-                let accuracy_log = AccuracyLog:5 + out_data.payload.data as AccuracyLog;
+                let accuracy_log = AccuracyLog:5 + out_data.data as AccuracyLog;
                 let remaining_proba = RemainingProba:1 << accuracy_log;
 
                 (
@@ -266,6 +281,7 @@ pub proc FseProbaFreqDecoder<
                         accuracy_log,
                         remaining_proba,
                         written_symbol_count,
+                        data_invalid,
                     ..state
                     },
                 )
@@ -284,8 +300,8 @@ pub proc FseProbaFreqDecoder<
                 let lower_mask = get_lower_mask(bit_width);
                 let threshold = get_threshold(bit_width, state.remaining_proba as u16);
 
-                let mask = (u16:1 << out_data.payload.length) - u16:1;
-                let data = out_data.payload.data as u16;
+                let mask = (u16:1 << out_data.length) - u16:1;
+                let data = out_data.data as u16;
                 assert!(data & mask == data, "data should not contain additional bits");
 
                 let value = get_adjusted_value(data, state.remainder);
@@ -299,14 +315,16 @@ pub proc FseProbaFreqDecoder<
 
                 let proba = value as s16 - s16:1;
                 let proba_points = if proba < s16:0 { RemainingProba:1 } else { proba as RemainingProba };
-                assert!(proba_points <= state.remaining_proba, "corrupted_data");
 
                 let remaining_proba = state.remaining_proba - proba_points;
+                let remaining_proba_invalid = proba_points > state.remaining_proba;
                 let symbol_count = state.symbol_count + SymbolCount:1;
                 let remainder_count = if remainder.valid { u16:1 } else { u16:0 };
 
-                // received all the symbols
-                if remaining_proba == RemainingProba:0 {
+                let data_invalid = data_invalid || remaining_proba_invalid;
+                // received all the symbols or the data is invalid either due to corrupted data
+                // or error propagated from ShiftBuffer
+                if remaining_proba == RemainingProba:0 || data_invalid {
                     (
                         (false, zero!<BufferCtrl>()),
                         (true, RamWriteReq {
@@ -321,6 +339,7 @@ pub proc FseProbaFreqDecoder<
                             symbol_count,
                             remaining_proba,
                             remainder,
+                            data_invalid,
                         ..state
                         },
                     )
@@ -376,8 +395,8 @@ pub proc FseProbaFreqDecoder<
                 }
             },
             Fsm::RECV_ZERO_PROBA => {
-                let zero_proba_count = out_data.payload.data as SymbolCount;
-                let zero_proba_length = out_data.payload.length as SymbolCount;
+                let zero_proba_count = out_data.data as SymbolCount;
+                let zero_proba_length = out_data.length as SymbolCount;
                 let zero_proba_count = get_adjusted_value(zero_proba_count as u16, state.remainder) as SymbolCount;
 
                 // all zero probabilitis received
@@ -398,6 +417,7 @@ pub proc FseProbaFreqDecoder<
                             fsm: new_fsm,
                             remainder: zero!<Remainder>(),
                             written_symbol_count,
+                            data_invalid,
                         ..state
                         },
                     )
@@ -414,6 +434,7 @@ pub proc FseProbaFreqDecoder<
                             written_symbol_count,
                             zero_proba_count,
                             next_recv_zero,
+                            data_invalid,
                         ..state
                         },
                     )
@@ -478,7 +499,7 @@ pub proc FseProbaFreqDecoder<
                         (false, zero!<BufferCtrl>()),
                         (false, zero!<RamWriteReq>()),
                         (true, Resp {
-                            status: Status::OK,
+                            status: if state.data_invalid { Status::ERROR } else { Status::OK },
                             accuracy_log: state.accuracy_log,
                             symbol_count: state.symbol_count,
                         }),
@@ -532,8 +553,8 @@ proc FseProbaFreqDecoderInst {
     config(
         req_r: chan<FseProbaFreqDecoderReq> in,
         resp_s: chan<FseProbaFreqDecoderResp> out,
-        buff_in_ctrl_s: chan<shift_buffer::ShiftBufferCtrl<INST_LENGTH_WIDTH>> out,
-        buff_out_data_r: chan<shift_buffer::ShiftBufferOutput<INST_DATA_WIDTH, INST_LENGTH_WIDTH>> in,
+        buff_in_ctrl_s: chan<refilling_shift_buffer::RefillingShiftBufferCtrl<INST_LENGTH_WIDTH>> out,
+        buff_out_data_r: chan<refilling_shift_buffer::RefillingShiftBufferOutput<INST_DATA_WIDTH, INST_LENGTH_WIDTH>> in,
         wr_req_s: chan<ram::WriteReq<INST_RAM_ADDR_WIDTH, INST_RAM_DATA_WIDTH, INST_RAM_NUM_PARTITIONS>> out,
         wr_resp_r: chan<ram::WriteResp> in) {
 
@@ -562,8 +583,8 @@ proc FseProbaFreqDecoderTest {
     type ReadResp = ram::ReadResp<TEST_RAM_DATA_WIDTH>;
     type WriteReq = ram::WriteReq<TEST_RAM_ADDR_WIDTH, TEST_RAM_DATA_WIDTH, TEST_RAM_NUM_PARTITIONS>;
     type WriteResp = ram::WriteResp;
-    type BufferCtrl = shift_buffer::ShiftBufferCtrl<TEST_LENGTH_WIDTH>;
-    type BufferOutput = shift_buffer::ShiftBufferOutput<TEST_DATA_WIDTH, TEST_LENGTH_WIDTH>;
+    type BufferCtrl = refilling_shift_buffer::RefillingShiftBufferCtrl<TEST_LENGTH_WIDTH>;
+    type BufferOutput = refilling_shift_buffer::RefillingShiftBufferOutput<TEST_DATA_WIDTH, TEST_LENGTH_WIDTH>;
     type RamAddr = bits[TEST_RAM_ADDR_WIDTH];
     type RamData = uN[TEST_RAM_DATA_WIDTH];
     type RamDataSigned = sN[TEST_RAM_DATA_WIDTH];
@@ -737,6 +758,9 @@ proc FseProbaFreqDecoderTest {
             assert_eq(recv_data.data, exp_val);
             tok
         }((tok));
+
+        // FIXME: test error path: error propagated from ShiftBuffer and assigning more
+        // probability points than available
 
         let tok = send(tok, terminator, true);
     }

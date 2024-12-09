@@ -942,6 +942,7 @@ xls_dslx_library(
     deps = [
         ":common_dslx",
         ":ram_wr_handler_dslx",
+        ":refilling_shift_buffer_dslx",
         "//xls/modules/shift_buffer:shift_buffer_dslx",
         "//xls/examples:ram_dslx",
     ],

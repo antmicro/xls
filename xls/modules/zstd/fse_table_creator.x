@@ -90,7 +90,7 @@ fn test_bits_to_fse_record() {
     assert_eq(record, FseTableRecord { symbol: u16:0x0017, num_of_bits: u16:0x0005, base: u16:0x0020 });
 }
 
-proc FseTableCreator<
+pub proc FseTableCreator<
     // Default Probability Distribution RAM parameters
     DPD_RAM_DATA_WIDTH: u32, DPD_RAM_ADDR_WIDTH: u32, DPD_RAM_NUM_PARTITIONS: u32,
     // FSE lookup table parameters

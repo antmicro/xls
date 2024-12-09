@@ -13,6 +13,7 @@
 // limitations under the License.
 
 
+import std;
 import xls.examples.ram;
 import xls.modules.zstd.memory.axi;
 import xls.modules.zstd.memory.mem_reader;
@@ -36,10 +37,10 @@ pub struct FseLookupDecoderResp {
 
 pub proc FseLookupDecoder<
     AXI_DATA_W: u32, AXI_ADDR_W: u32,
-    DPD_RAM_ADDR_W: u32, DPD_RAM_DATA_W: u32, DPD_RAM_NUM_PARTITIONS: u32,
-    TMP_RAM_ADDR_W: u32, TMP_RAM_DATA_W: u32, TMP_RAM_NUM_PARTITIONS: u32,
-    FSE_RAM_ADDR_W: u32, FSE_RAM_DATA_W: u32, FSE_RAM_NUM_PARTITIONS: u32,
-    SB_LENGTH_W: u32 = {shift_buffer::length_width(AXI_DATA_W)},
+    DPD_RAM_DATA_W: u32, DPD_RAM_ADDR_W: u32, DPD_RAM_NUM_PARTITIONS: u32,
+    TMP_RAM_DATA_W: u32, TMP_RAM_ADDR_W: u32, TMP_RAM_NUM_PARTITIONS: u32,
+    FSE_RAM_DATA_W: u32, FSE_RAM_ADDR_W: u32, FSE_RAM_NUM_PARTITIONS: u32,
+    SB_LENGTH_W: u32 = {refilling_shift_buffer::length_width(AXI_DATA_W)},
 > {
     type Req = FseLookupDecoderReq<AXI_ADDR_W>;
     type Resp = FseLookupDecoderResp;
@@ -51,10 +52,10 @@ pub proc FseLookupDecoder<
     type MemReaderResp = mem_reader::MemReaderResp<AXI_DATA_W, AXI_ADDR_W>;
     type MemReaderStatus = mem_reader::MemReaderStatus;
 
-    type DpdRamWriteReq = ram::WriteReq<DPD_RAM_ADDR_W, DPD_RAM_DATA_W, DPD_RAM_NUM_PARTITIONS>;
-    type DpdRamWriteResp = ram::WriteResp;
-    type DpdRamReadReq = ram::ReadReq<DPD_RAM_ADDR_W, DPD_RAM_NUM_PARTITIONS>;
-    type DpdRamReadResp = ram::ReadResp<DPD_RAM_DATA_W>;
+    type DpdRamWrReq = ram::WriteReq<DPD_RAM_ADDR_W, DPD_RAM_DATA_W, DPD_RAM_NUM_PARTITIONS>;
+    type DpdRamWrResp = ram::WriteResp;
+    type DpdRamRdReq = ram::ReadReq<DPD_RAM_ADDR_W, DPD_RAM_NUM_PARTITIONS>;
+    type DpdRamRdResp = ram::ReadResp<DPD_RAM_DATA_W>;
 
     type FseRamRdReq = ram::ReadReq<FSE_RAM_ADDR_W, FSE_RAM_NUM_PARTITIONS>;
     type FseRamRdResp = ram::ReadResp<FSE_RAM_DATA_W>;
@@ -68,8 +69,8 @@ pub proc FseLookupDecoder<
 
     type RefillerStartReq = refilling_shift_buffer::RefillStart<AXI_ADDR_W>;
     type RefillerError = refilling_shift_buffer::RefillError;
-    type SBOutput = shift_buffer::ShiftBufferOutput<AXI_DATA_W, SB_LENGTH_W>;
-    type SBCtrl = shift_buffer::ShiftBufferCtrl<SB_LENGTH_W>;
+    type SBOutput = refilling_shift_buffer::RefillingShiftBufferOutput<AXI_DATA_W, SB_LENGTH_W>;
+    type SBCtrl = refilling_shift_buffer::RefillingShiftBufferCtrl<SB_LENGTH_W>;
 
     type FsePFDecReq = fse_proba_freq_dec::FseProbaFreqDecoderReq;
     type FsePFDecResp = fse_proba_freq_dec::FseProbaFreqDecoderResp;
@@ -80,10 +81,8 @@ pub proc FseLookupDecoder<
 
     start_req_s: chan<RefillerStartReq> out;
     stop_flush_req_s: chan<()> out;
-    error_r: chan<RefillerError> in;
-    buffer_ctrl_s: chan<SBCtrl> out;
-    buffer_data_out_r: chan<SBOutput> in;
     flushing_done_r: chan<()> in;
+
     fse_pf_dec_req_s: chan<FsePFDecReq> out;
     fse_pf_dec_resp_r: chan<FsePFDecResp> in;
     fse_table_start_s: chan<FseTableStart> out;
@@ -98,10 +97,10 @@ pub proc FseLookupDecoder<
         mem_rd_req_s: chan<MemReaderReq> out,
         mem_rd_resp_r: chan<MemReaderResp> in,
 
-        dpd_rd_req_s: chan<DpdRamReadReq> out,
-        dpd_rd_resp_r: chan<DpdRamReadResp> in,
-        dpd_wr_req_s: chan<DpdRamWriteReq> out,
-        dpd_wr_resp_r: chan<DpdRamWriteResp> in,
+        dpd_rd_req_s: chan<DpdRamRdReq> out,
+        dpd_rd_resp_r: chan<DpdRamRdResp> in,
+        dpd_wr_req_s: chan<DpdRamWrReq> out,
+        dpd_wr_resp_r: chan<DpdRamWrResp> in,
 
         tmp_rd_req_s: chan<TmpRamRdReq> out,
         tmp_rd_resp_r: chan<TmpRamRdResp> in,
@@ -117,9 +116,9 @@ pub proc FseLookupDecoder<
         let (fse_table_finish_s, fse_table_finish_r) = chan<()>("fse_table_finish");
 
         spawn fse_table_creator::FseTableCreator<
-            DPD_RAM_ADDR_W, DPD_RAM_DATA_W, DPD_RAM_NUM_PARTITIONS,
-            TMP_RAM_ADDR_W, TMP_RAM_DATA_W, TMP_RAM_NUM_PARTITIONS,
-            FSE_RAM_ADDR_W, FSE_RAM_DATA_W, FSE_RAM_NUM_PARTITIONS,
+            DPD_RAM_DATA_W, DPD_RAM_ADDR_W, DPD_RAM_NUM_PARTITIONS,
+            FSE_RAM_DATA_W, FSE_RAM_ADDR_W, FSE_RAM_NUM_PARTITIONS,
+            TMP_RAM_DATA_W, TMP_RAM_ADDR_W, TMP_RAM_NUM_PARTITIONS,
         >(
             fse_table_start_r, fse_table_finish_s,
             dpd_rd_req_s, dpd_rd_resp_r,
@@ -129,7 +128,6 @@ pub proc FseLookupDecoder<
 
         let (start_req_s, start_req_r) = chan<RefillerStartReq>("start_req");
         let (stop_flush_req_s, stop_flush_req_r) = chan<()>("stop_flush_req");
-        let (error_s, error_r) = chan<RefillerError>("error");
         let (buffer_ctrl_s, buffer_ctrl_r) = chan<SBCtrl>("buffer_ctrl");
         let (buffer_data_out_s, buffer_data_out_r) = chan<SBOutput>("buffer_data_out");
         let (flushing_done_s, flushing_done_r) = chan<()>("flushing_done");
@@ -139,7 +137,6 @@ pub proc FseLookupDecoder<
             mem_rd_resp_r,
             start_req_r,
             stop_flush_req_r,
-            error_s,
             buffer_ctrl_r,
             buffer_data_out_s,
             flushing_done_s,
@@ -149,7 +146,7 @@ pub proc FseLookupDecoder<
         let (fse_pf_dec_resp_s, fse_pf_dec_resp_r) = chan<FsePFDecResp>("fse_pf_dec_resp");
 
         spawn fse_proba_freq_dec::FseProbaFreqDecoder<
-            DPD_RAM_ADDR_W, DPD_RAM_DATA_W, DPD_RAM_NUM_PARTITIONS,
+            DPD_RAM_DATA_W, DPD_RAM_ADDR_W, DPD_RAM_NUM_PARTITIONS,
         >(
             fse_pf_dec_req_r, fse_pf_dec_resp_s,
             buffer_ctrl_s, buffer_data_out_r,
@@ -160,7 +157,6 @@ pub proc FseLookupDecoder<
             req_r, resp_s,
             start_req_s,
             stop_flush_req_s,
-            error_r,
             flushing_done_r,
             fse_pf_dec_req_s, fse_pf_dec_resp_r,
             fse_table_start_s, fse_table_finish_r,
@@ -195,7 +191,125 @@ pub proc FseLookupDecoder<
         // wait for completion from FSE table creator
         let (tok, ()) = recv_if(tok, fse_table_finish_r, pf_dec_ok, ());
 
-        send(tok, resp_s, if pf_dec_ok { Status::OK } else { Status::ERROR });
+        send(tok, resp_s, Resp { status: if pf_dec_ok { Status::OK } else { Status::ERROR } });
     }
 }
 
+const TESTCASE: u8[21] = [u8:0x32,u8:0x19,u8:0x08,u8:0x62,u8:0x20,u8:0x86,u8:0x61,u8:0x18,u8:0x84,u8:0x41,u8:0x18,u8:0x06,u8:0xA1,u8:0x28,u8:0x86,u8:0xC1,u8:0x38,u8:0x92,u8:0xC4,u8:0xAC,u8:0x0F,];
+
+const TEST_AXI_DATA_WIDTH = u32:64;
+const TEST_AXI_ADDR_WIDTH = u32:32;
+
+const TEST_DPD_RAM_DATA_WIDTH = u32:16;
+const TEST_DPD_RAM_SIZE = u32:256;
+const TEST_DPD_RAM_ADDR_WIDTH = std::clog2(TEST_DPD_RAM_SIZE);
+const TEST_DPD_RAM_WORD_PARTITION_SIZE = TEST_DPD_RAM_DATA_WIDTH;
+const TEST_DPD_RAM_NUM_PARTITIONS = ram::num_partitions(
+    TEST_DPD_RAM_WORD_PARTITION_SIZE, TEST_DPD_RAM_DATA_WIDTH);
+
+const TEST_FSE_RAM_DATA_WIDTH = u32:48;
+const TEST_FSE_RAM_SIZE = u32:256;
+const TEST_FSE_RAM_ADDR_WIDTH = std::clog2(TEST_FSE_RAM_SIZE);
+const TEST_FSE_RAM_WORD_PARTITION_SIZE = TEST_FSE_RAM_DATA_WIDTH / u32:3;
+const TEST_FSE_RAM_NUM_PARTITIONS = ram::num_partitions(
+    TEST_FSE_RAM_WORD_PARTITION_SIZE, TEST_FSE_RAM_DATA_WIDTH);
+
+const TEST_TMP_RAM_DATA_WIDTH = u32:16;
+const TEST_TMP_RAM_SIZE = u32:256;
+const TEST_TMP_RAM_ADDR_WIDTH = std::clog2(TEST_TMP_RAM_SIZE);
+const TEST_TMP_RAM_WORD_PARTITION_SIZE = TEST_TMP_RAM_DATA_WIDTH;
+const TEST_TMP_RAM_NUM_PARTITIONS = ram::num_partitions(
+    TEST_TMP_RAM_WORD_PARTITION_SIZE, TEST_TMP_RAM_DATA_WIDTH);
+
+
+#[test_proc]
+proc FseLookupDecoderTest {
+    type Req = FseLookupDecoderReq<TEST_AXI_ADDR_WIDTH>;
+    type Resp = FseLookupDecoderResp;
+    type Status = FseLookupDecoderStatus;
+
+    type MemReaderReq  = mem_reader::MemReaderReq<TEST_AXI_ADDR_WIDTH>;
+    type MemReaderResp = mem_reader::MemReaderResp<TEST_AXI_DATA_WIDTH, TEST_AXI_ADDR_WIDTH>;
+
+    type DpdRamWrReq = ram::WriteReq<TEST_DPD_RAM_ADDR_WIDTH, TEST_DPD_RAM_DATA_WIDTH, TEST_DPD_RAM_NUM_PARTITIONS>;
+    type DpdRamWrResp = ram::WriteResp;
+    type DpdRamRdReq = ram::ReadReq<TEST_DPD_RAM_ADDR_WIDTH, TEST_DPD_RAM_NUM_PARTITIONS>;
+    type DpdRamRdResp = ram::ReadResp<TEST_DPD_RAM_DATA_WIDTH>;
+
+    type FseRamRdReq = ram::ReadReq<TEST_FSE_RAM_ADDR_WIDTH, TEST_FSE_RAM_NUM_PARTITIONS>;
+    type FseRamRdResp = ram::ReadResp<TEST_FSE_RAM_DATA_WIDTH>;
+    type FseRamWrReq = ram::WriteReq<TEST_FSE_RAM_ADDR_WIDTH, TEST_FSE_RAM_DATA_WIDTH, TEST_FSE_RAM_NUM_PARTITIONS>;
+    type FseRamWrResp = ram::WriteResp;
+
+    type TmpRamRdReq = ram::ReadReq<TEST_TMP_RAM_ADDR_WIDTH, TEST_TMP_RAM_NUM_PARTITIONS>;
+    type TmpRamRdResp = ram::ReadResp<TEST_TMP_RAM_DATA_WIDTH>;
+    type TmpRamWrReq = ram::WriteReq<TEST_TMP_RAM_ADDR_WIDTH, TEST_TMP_RAM_DATA_WIDTH, TEST_TMP_RAM_NUM_PARTITIONS>;
+    type TmpRamWrResp = ram::WriteResp;
+
+    terminator: chan<bool> out;
+
+    config(terminator: chan<bool> out) {
+        let (req_s, req_r) = chan<Req>("req");
+        let (resp_s, resp_r) = chan<Resp>("resp");
+        let (mem_rd_req_s, mem_rd_req_r) = chan<MemReaderReq>("mem_rd_req");
+        let (mem_rd_resp_s, mem_rd_resp_r) = chan<MemReaderResp>("mem_rd_resp");
+
+        let (dpd_rd_req_s, dpd_rd_req_r) = chan<DpdRamRdReq>("dpd_rd_req");
+        let (dpd_rd_resp_s, dpd_rd_resp_r) = chan<DpdRamRdResp>("dpd_rd_resp");
+        let (dpd_wr_req_s, dpd_wr_req_r) = chan<DpdRamWrReq>("dpd_wr_req");
+        let (dpd_wr_resp_s, dpd_wr_resp_r) = chan<DpdRamWrResp>("dpd_wr_resp");
+
+        let (tmp_rd_req_s, tmp_rd_req_r) = chan<TmpRamRdReq>("tmp_rd_req");
+        let (tmp_rd_resp_s, tmp_rd_resp_r) = chan<TmpRamRdResp>("tmp_rd_resp");
+        let (tmp_wr_req_s, tmp_wr_req_r) = chan<TmpRamWrReq>("tmp_wr_req");
+        let (tmp_wr_resp_s, tmp_wr_resp_r) = chan<TmpRamWrResp>("tmp_wr_resp");
+
+        let (fse_rd_req_s, fse_rd_req_r) = chan<FseRamRdReq>("fse_rd_req");
+        let (fse_rd_resp_s, fse_rd_resp_r) = chan<FseRamRdResp>("fse_rd_resp");
+        let (fse_wr_req_s, fse_wr_req_r) = chan<FseRamWrReq>("fse_wr_req");
+        let (fse_wr_resp_s, fse_wr_resp_r) = chan<FseRamWrResp>("fse_wr_resp");
+
+
+        spawn FseLookupDecoder<
+            TEST_AXI_DATA_WIDTH, TEST_AXI_ADDR_WIDTH,
+            TEST_DPD_RAM_DATA_WIDTH, TEST_DPD_RAM_ADDR_WIDTH, TEST_DPD_RAM_NUM_PARTITIONS,
+            TEST_TMP_RAM_DATA_WIDTH, TEST_TMP_RAM_ADDR_WIDTH, TEST_TMP_RAM_NUM_PARTITIONS,
+            TEST_FSE_RAM_DATA_WIDTH, TEST_FSE_RAM_ADDR_WIDTH, TEST_FSE_RAM_NUM_PARTITIONS,
+        >(
+            req_r,
+            resp_s,
+            mem_rd_req_s,
+            mem_rd_resp_r,
+            dpd_rd_req_s,
+            dpd_rd_resp_r,
+            dpd_wr_req_s,
+            dpd_wr_resp_r,
+            tmp_rd_req_s,
+            tmp_rd_resp_r,
+            tmp_wr_req_s,
+            tmp_wr_resp_r,
+            fse_rd_req_s,
+            fse_rd_resp_r,
+            fse_wr_req_s,
+            fse_wr_resp_r,
+        );
+
+        // TODO:
+        // - rams
+        //   - dpd
+        //   - tmp
+        //   - fse
+        //   - FSE data
+        // - axi ram reader for FSE data
+        // - mem reader for fse lookup decoder
+        
+        (terminator,)
+    }
+
+    init {}
+
+    next(_: ()) {
+        let tok = join();
+        send(tok, terminator, true);
+    }
+}

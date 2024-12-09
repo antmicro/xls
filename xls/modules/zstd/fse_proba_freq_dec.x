@@ -166,7 +166,7 @@ pub proc FseProbaFreqDecoder<
     RAM_ADDR_WIDTH: u32,
     RAM_NUM_PARTITIONS: u32,
     DATA_WIDTH: u32 = {common::DATA_WIDTH},
-    LENGTH_WIDTH: u32 = {common::BLOCK_PACKET_WIDTH}
+    LENGTH_WIDTH: u32 = {refilling_shift_buffer::length_width(DATA_WIDTH)},
 > {
     type Length = bits[LENGTH_WIDTH];
     type BufferCtrl = refilling_shift_buffer::RefillingShiftBufferCtrl<LENGTH_WIDTH>;
@@ -547,7 +547,7 @@ const INST_RAM_DATA_WIDTH = get_bit_width(RemainingProba:1 << common::FSE_MAX_AC
 const INST_RAM_WORD_PARTITION_SIZE = INST_RAM_DATA_WIDTH;
 const INST_RAM_NUM_PARTITIONS = ram::num_partitions(INST_RAM_WORD_PARTITION_SIZE, INST_RAM_DATA_WIDTH);
 const INST_DATA_WIDTH = common::DATA_WIDTH;
-const INST_LENGTH_WIDTH = common::BLOCK_PACKET_WIDTH;
+const INST_LENGTH_WIDTH = refilling_shift_buffer::length_width(INST_DATA_WIDTH);
 
 proc FseProbaFreqDecoderInst {
     config(
@@ -575,7 +575,7 @@ const TEST_RAM_ADDR_WIDTH = std::clog2(TEST_RAM_SIZE);
 const TEST_RAM_WORD_PARTITION_SIZE = TEST_RAM_DATA_WIDTH;
 const TEST_RAM_NUM_PARTITIONS = ram::num_partitions(TEST_RAM_WORD_PARTITION_SIZE, TEST_RAM_DATA_WIDTH);
 const TEST_DATA_WIDTH = common::DATA_WIDTH;
-const TEST_LENGTH_WIDTH = common::BLOCK_PACKET_WIDTH;
+const TEST_LENGTH_WIDTH = refilling_shift_buffer::length_width(TEST_DATA_WIDTH);
 
 #[test_proc]
 proc FseProbaFreqDecoderTest {

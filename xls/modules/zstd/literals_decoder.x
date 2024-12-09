@@ -19,8 +19,10 @@ import std;
 import xls.examples.ram;
 import xls.modules.zstd.common as common;
 import xls.modules.zstd.literals_block_header_dec as literals_block_header_dec;
-//import xls.modules.zstd.literals_buffer as literals_buffer;
+import xls.modules.zstd.literals_buffer as literals_buffer;
 //import xls.modules.zstd.literals_dispatcher as literals_dispatcher;
+import xls.modules.zstd.memory.mem_reader as mem_reader;
+import xls.modules.zstd.memory.axi as axi;
 import xls.modules.zstd.parallel_rams as parallel_rams;
 import xls.modules.zstd.ram_printer as ram_printer;
 import xls.modules.zstd.raw_literals_dec as raw_literals_dec;
@@ -36,7 +38,6 @@ type LiteralsBufferCtrl = common::LiteralsBufferCtrl;
 type LiteralsData = common::LiteralsData;
 type LiteralsDataWithSync = common::LiteralsDataWithSync;
 type LiteralsPathCtrl = common::LiteralsPathCtrl;
-//type RleLiteralsData = common::RleLiteralsData;
 type SequenceExecutorMessageType = common::SequenceExecutorMessageType;
 type SequenceExecutorPacket = common::SequenceExecutorPacket<common::SYMBOL_WIDTH>;
 type Streams = common::Streams;
@@ -603,16 +604,13 @@ proc LiteralsDecoder<
     type ReadResp = ram::ReadResp<literals_buffer::RAM_DATA_WIDTH>;
     type WriteReq = ram::WriteReq<RAM_ADDR_WIDTH, literals_buffer::RAM_DATA_WIDTH, literals_buffer::RAM_NUM_PARTITIONS>;
     type WriteResp = ram::WriteResp;
-    type MemReaderReq  = mem_reader::MemReaderReq<AXI_ADDR_W>;
-    type MemReaderResp = mem_reader::MemReaderResp<AXI_DATA_W, AXI_ADDR_W>;
-    type RawLiteralsDecoderReq = raw_literals_dec::RawLiteralsDecoderReq<AXI_ADDR_W>;
-    type RawLiteralsDecoderResp = raw_literals_dec::RawLiteralsDecoderResp;
-    type RleLiteralsDecoderReq = rle_literals_dec::RleLiteralsDecoderReq<AXI_ADDR_W>;
-    type RleLiteralsDecoderResp = rle_literals_dec::RleLiteralsDecoderResp;
-    type HuffmanLiteralsDecoderReq = huffman_literals_dec::HuffmanLiteralsDecoderReq<AXI_ADDR_W>;
-    type HuffmanLiteralsDecoderResp = huffman_literals_dec::HuffmanLiteralsDecoderResp;
     type MemAxiAr = axi::AxiAr<AXI_ADDR_W, AXI_ID_W>;
     type MemAxiR = axi::AxiR<AXI_DATA_W, AXI_ID_W>;
+
+    type CtrlReq = LiteralsDecoderCtrlReq;
+    type CtrlResp = LiteralsDecoderCtrlResp;
+    type BufferCtrl = common::LiteralsBufferCtrl;
+    type BufferOut = common::SequenceExecutorPacket<common::SYMBOL_WIDTH>;
 
     config (
         // AXI Literals Header Decoder (manager)
@@ -628,12 +626,12 @@ proc LiteralsDecoder<
         huffman_lit_axi_r_r: chan<MemAxiR> in,
 
         // Literals Decoder control
-        lit_ctrl_req_r: chan<LiteralsDecCtrlReq> in,
-        lit_ctrl_resp_s: chan<LiteralsDecCtrlResp> out,
+        lit_ctrl_req_r: chan<CtrlReq> in,
+        lit_ctrl_resp_s: chan<CtrlResp> out,
 
         // Literals Decoder output control
-        lit_buf_ctrl_r: chan<LiteralsBufferCtrl> in,
-        lit_buf_out_s: chan<SequenceExecutorPacket> out,
+        lit_buf_ctrl_r: chan<BufferCtrl> in,
+        lit_buf_out_s: chan<BufferOut> out,
 
         // Internal memory
         rd_req_m0_s: chan<ReadReq> out,
@@ -669,6 +667,19 @@ proc LiteralsDecoder<
         wr_resp_m6_r: chan<WriteResp> in,
         wr_resp_m7_r: chan<WriteResp> in
     ) {
+        type HeaderReq = literals_block_header_dec::LiteralsHeaderDecoderReq<AXI_ADDR_W>;
+        type HeaderResp = literals_block_header_dec::LiteralsHeaderDecoderResp;
+        type RawReq = raw_literals_dec::RawLiteralsDecoderReq<AXI_ADDR_W>;
+        type RawResp = raw_literals_dec::RawLiteralsDecoderResp;
+        type RleReq = rle_literals_dec::RleLiteralsDecoderReq<AXI_ADDR_W>;
+        type RleResp = rle_literals_dec::RleLiteralsDecoderResp;
+        type HuffmanReq = huffman_literals_dec::HuffmanLiteralsDecoderReq<AXI_ADDR_W>;
+        type HuffmanResp = huffman_literals_dec::HuffmanLiteralsDecoderResp;
+        type MemReaderReq  = mem_reader::MemReaderReq<AXI_ADDR_W>;
+        type MemReaderResp = mem_reader::MemReaderResp<AXI_DATA_W, AXI_ADDR_W>;
+
+        const CHANNEL_DEPTH = u32:1;
+
         // Literals Header Decoder
         let (lit_header_mem_rd_req_s, lit_header_mem_rd_req_r) = chan<MemReaderReq, CHANNEL_DEPTH>("lit_header_mem_rd_req");
         let (lit_header_mem_rd_resp_s, lit_header_mem_rd_resp_r) = chan<MemReaderResp, CHANNEL_DEPTH>("lit_header_mem_rd_resp");
@@ -678,10 +689,10 @@ proc LiteralsDecoder<
            lit_header_axi_ar_s, lit_header_axi_r_r
         );
 
-        let (lit_header_req_s,  lit_header_req_r) = chan<RawLiteralsDecoderReq, CHANNEL_DEPTH>("lit_header_req");
-        let (lit_header_resp_s, lit_header_resp_r) = chan<RawLiteralsDecoderResp, CHANNEL_DEPTH>("lit_header_resp");
+        let (lit_header_req_s,  lit_header_req_r) = chan<HeaderReq, CHANNEL_DEPTH>("lit_header_req");
+        let (lit_header_resp_s, lit_header_resp_r) = chan<HeaderResp, CHANNEL_DEPTH>("lit_header_resp");
 
-        spawn literals_header_dec::LiteralsHeaderDecoder<AXI_DATA_W, AXI_ADDR_W>(
+        spawn literals_block_header_dec::LiteralsHeaderDecoder<AXI_DATA_W, AXI_ADDR_W>(
             lit_header_req_r, lit_header_resp_s,
             lit_header_mem_rd_req_s, lit_header_mem_rd_resp_r
         );
@@ -695,8 +706,8 @@ proc LiteralsDecoder<
            raw_lit_axi_ar_s, raw_lit_axi_r_r
         );
 
-        let (raw_lit_req_s,  raw_lit_req_r) = chan<RawLiteralsDecoderReq, CHANNEL_DEPTH>("raw_lit_req");
-        let (raw_lit_resp_s, raw_lit_resp_r) = chan<RawLiteralsDecoderResp, CHANNEL_DEPTH>("raw_lit_resp");
+        let (raw_lit_req_s,  raw_lit_req_r) = chan<RawReq, CHANNEL_DEPTH>("raw_lit_req");
+        let (raw_lit_resp_s, raw_lit_resp_r) = chan<RawResp, CHANNEL_DEPTH>("raw_lit_resp");
         let (raw_lit_output_s, raw_lit_output_r) = chan<LiteralsDataWithSync, CHANNEL_DEPTH>("raw_lit_output");
 
         spawn raw_literals_dec::RawLiteralsDecoder<AXI_DATA_W, AXI_ADDR_W>(
@@ -705,9 +716,9 @@ proc LiteralsDecoder<
         );
 
         // Rle Literals Decoder
-        let (rle_lit_req_s,  rle_lit_req_r) = chan<RleLiteralsDecoderReq, CHANNEL_DEPTH>("rle_lit_req");
-        let (rle_lit_resp_s, rle_lit_resp_r) = chan<RleLiteralsDecoderResp, CHANNEL_DEPTH>("rle_lit_resp");
-        let (rle_lit_output_s, rle_lit_output_r) = chan<RleLiteralsData, CHANNEL_DEPTH>("rle_lit_output");
+        let (rle_lit_req_s,  rle_lit_req_r) = chan<RleReq, CHANNEL_DEPTH>("rle_lit_req");
+        let (rle_lit_resp_s, rle_lit_resp_r) = chan<RleResp, CHANNEL_DEPTH>("rle_lit_resp");
+        let (rle_lit_output_s, rle_lit_output_r) = chan<LiteralsDataWithSync, CHANNEL_DEPTH>("rle_lit_output");
 
         spawn rle_literals_dec::RleLiteralsDecoder<AXI_DATA_W, AXI_ADDR_W>(
             rle_lit_req_r, rle_lit_resp_s, rle_lit_output_s
@@ -722,8 +733,8 @@ proc LiteralsDecoder<
            huffman_lit_axi_ar_s, huffman_lit_axi_r_r
         );
 
-        let (huffman_lit_req_s,  huffman_lit_req_r) = chan<HuffmanLiteralsDecoderReq, CHANNEL_DEPTH>("huffman_lit_req");
-        let (huffman_lit_resp_s, huffman_lit_resp_r) = chan<HuffmanLiteralsDecoderResp, CHANNEL_DEPTH>("huffman_lit_resp");
+        let (huffman_lit_req_s,  huffman_lit_req_r) = chan<HuffmanReq, CHANNEL_DEPTH>("huffman_lit_req");
+        let (huffman_lit_resp_s, huffman_lit_resp_r) = chan<HuffmanResp, CHANNEL_DEPTH>("huffman_lit_resp");
         let (huffman_lit_output_s, huffman_lit_output_r) = chan<LiteralsDataWithSync, CHANNEL_DEPTH>("huffman_lit_output");
 
         spawn huffman_literals_dec::HuffmanLiteralsDecoder<AXI_DATA_W, AXI_ADDR_W>(
@@ -734,7 +745,7 @@ proc LiteralsDecoder<
         // Literals Buffer
         spawn literals_buffer::LiteralsBuffer<HISTORY_BUFFER_SIZE_KB> (
             raw_lit_output_r, rle_lit_output_r, huffman_lit_output_r,
-            literals_buf_ctrl_r, literals_s,
+            lit_buf_ctrl_r, lit_buf_out_s,
             rd_req_m0_s, rd_req_m1_s, rd_req_m2_s, rd_req_m3_s,
             rd_req_m4_s, rd_req_m5_s, rd_req_m6_s, rd_req_m7_s,
             rd_resp_m0_r, rd_resp_m1_r, rd_resp_m2_r, rd_resp_m3_r,
@@ -838,48 +849,63 @@ type TestWriteReq = ram::WriteReq<TEST_RAM_ADDR_WIDTH, literals_buffer::RAM_DATA
 type TestWriteResp = ram::WriteResp<TEST_RAM_ADDR_WIDTH>;
 type TestReadReq = ram::ReadReq<TEST_RAM_ADDR_WIDTH, literals_buffer::RAM_NUM_PARTITIONS>;
 type TestReadResp = ram::ReadResp<literals_buffer::RAM_DATA_WIDTH>;
+type TestMemData = uN[TEST_AXI_DATA_W];
 
-const TEST_CTRL: LiteralsPathCtrl[7] = [
-    LiteralsPathCtrl {data_conf: zero!<Streams>(), decompressed_size: u20:8, literals_type: LiteralType::RAW},
-    LiteralsPathCtrl {data_conf: zero!<Streams>(), decompressed_size: u20:4, literals_type: LiteralType::RLE},
-    LiteralsPathCtrl {data_conf: zero!<Streams>(), decompressed_size: u20:2, literals_type: LiteralType::RLE},
-    LiteralsPathCtrl {data_conf: zero!<Streams>(), decompressed_size: u20:15, literals_type: LiteralType::RAW},
-    LiteralsPathCtrl {data_conf: zero!<Streams>(), decompressed_size: u20:12, literals_type: LiteralType::RLE},
-    LiteralsPathCtrl {data_conf: zero!<Streams>(), decompressed_size: u20:0, literals_type: LiteralType::RLE},
-    LiteralsPathCtrl {data_conf: zero!<Streams>(), decompressed_size: u20:31, literals_type: LiteralType::RAW},
+const TEST_CTRL: CtrlReq[7] = [
+    CtrlReq {addr: TestAddr:0x0, literals_last: false},
+    CtrlReq {addr: TestAddr:0x10, literals_last: false},
+    CtrlReq {addr: TestAddr:0x20, literals_last: false},
+    CtrlReq {addr: TestAddr:0x30, literals_last: true},
+    CtrlReq {addr: TestAddr:0x100, literals_last: false},
+    CtrlReq {addr: TestAddr:0x200, literals_last: false},
+    CtrlReq {addr: TestAddr:0x300, literals_last: true},
 ];
 
-const TEST_DATA: LiteralsData[11] = [
-    // 0. RAW
-    LiteralsData {data: LitData:0x1657_3465_A6DB_5DB0, length: LitLength:8, last: false},
-    // 1. RLE
-    LiteralsData {data: LitData:0x23, length: LitLength:1, last: false},
-    // 2. RLE
-    LiteralsData {data: LitData:0x35, length: LitLength:1, last: false},
-    // 3. RAW
-    LiteralsData {data: LitData:0x4CFB_41C6_7B60_5370, length: LitLength:8, last: false},
-    LiteralsData {data: LitData:0x009B_0F9C_E1BA_A96D, length: LitLength:7, last: true},
-    // 4. RLE
-    LiteralsData {data: LitData:0x5A, length: LitLength:1, last: false},
-    // 5. RLE
-    LiteralsData {data: LitData:0xFF, length: LitLength:1, last: false},
-    // 6. RAW
-    LiteralsData {data: LitData:0x6094_3E96_1834_C247, length: LitLength:8, last: false},
-    LiteralsData {data: LitData:0xBC02_D0E8_D728_9ABE, length: LitLength:8, last: false},
-    LiteralsData {data: LitData:0xF864_C38B_E1FA_8D12, length: LitLength:8, last: false},
-    LiteralsData {data: LitData:0x0019_63F1_CE21_C294, length: LitLength:7, last: true},
+const TEST_MEMORY: TestMemData[12] = [
+    // Literals #0 (RAW; 8 bytes)
+    // Header: 0x08
+    TestMemData:0x5734_65A6_DB5D_B008,
+    TestMemData:0x16,
+
+    // Literals #1 (RLE; 4 bytes)
+    // Header: 0x84
+    TestMemData:0x2384,
+
+    // Literals #2 (RLE; 2 bytes)
+    // Header: 0x82
+    TestMemData:0x3582,
+
+    // Literals #3 (RAW; 15 bytes)
+    // Header: 0x0F
+    TestMemData:0xFB41_C67B_6053_700F,
+    TestMemData:0x9B0F_9CE1_BAA9_6D4C,
+
+    // Literals #4 (RLE; 12 bytes)
+    // Header: 0x8C
+    TestMemData:0x5A8C,
+
+    // Literals #5 (RLE; 0 bytes)
+    // Header: 0x80
+    TestMemData:0xFF80,
+
+    // Literals #6 (RAW; 31 bytes)
+    // Header: 0x1F
+    TestMemData:0x943E_9618_34C2_471F,
+    TestMemData:0x02D0_E8D7_289A_BE60,
+    TestMemData:0x64C3_8BE1_FA8D_12BC,
+    TestMemData:0x1963_F1CE_21C2_94F8
 ];
 
 const TEST_BUF_CTRL: LiteralsBufferCtrl[5] = [
     LiteralsBufferCtrl {length: u32:11, last: false},
-    LiteralsBufferCtrl {length: u32:2, last: false},
+    LiteralsBufferCtrl {length: u32:2 , last: false},
     LiteralsBufferCtrl {length: u32:16, last: true},
     LiteralsBufferCtrl {length: u32:11, last: false},
     LiteralsBufferCtrl {length: u32:32, last: true},
 ];
 
 const TEST_EXPECTED_LITERALS: SequenceExecutorPacket[11] = [
-    // ctrl 0
+    // Literals #0 (RAW)
     SequenceExecutorPacket {
         msg_type: SequenceExecutorMessageType::LITERAL,
         length: CopyOrMatchLength:8,
@@ -892,14 +918,14 @@ const TEST_EXPECTED_LITERALS: SequenceExecutorPacket[11] = [
         content: CopyOrMatchContent:0x23_2323,
         last: false
     },
-    // ctrl 1
+    // Literals #1 (RLE)
     SequenceExecutorPacket {
         msg_type: SequenceExecutorMessageType::LITERAL,
         length: CopyOrMatchLength:2,
         content: CopyOrMatchContent:0x35_23,
         last: false
     },
-    // ctrl 2
+    // Literals #2 (RLE)
     SequenceExecutorPacket {
         msg_type: SequenceExecutorMessageType::LITERAL,
         length: CopyOrMatchLength:8,
@@ -912,7 +938,7 @@ const TEST_EXPECTED_LITERALS: SequenceExecutorPacket[11] = [
         content: CopyOrMatchContent:0x9B0F_9CE1_BAA9_6D4C,
         last: true
     },
-    // ctrl 3
+    // Literals #3 (RAW)
     SequenceExecutorPacket {
         msg_type: SequenceExecutorMessageType::LITERAL,
         length: CopyOrMatchLength:8,
@@ -925,7 +951,10 @@ const TEST_EXPECTED_LITERALS: SequenceExecutorPacket[11] = [
         content: CopyOrMatchContent:0x5A_5A5A,
         last: false
     },
-    // ctrl 4
+    // Literals #4 (RLE)
+    // Literals #5 (RLE)
+    // EMPTY
+    // Literals #6 (RAW)
     SequenceExecutorPacket {
         msg_type: SequenceExecutorMessageType::LITERAL,
         length: CopyOrMatchLength:8,
@@ -954,20 +983,57 @@ const TEST_EXPECTED_LITERALS: SequenceExecutorPacket[11] = [
 
 #[test_proc]
 proc LiteralsDecoder_test {
+    type ReadReq = ram::ReadReq<RAM_ADDR_WIDTH, literals_buffer::RAM_NUM_PARTITIONS>;
+    type ReadResp = ram::ReadResp<literals_buffer::RAM_DATA_WIDTH>;
+    type WriteReq = ram::WriteReq<RAM_ADDR_WIDTH, literals_buffer::RAM_DATA_WIDTH, literals_buffer::RAM_NUM_PARTITIONS>;
+    type WriteResp = ram::WriteResp;
+    type MemAxiAr = axi::AxiAr<AXI_ADDR_W, AXI_ID_W>;
+    type MemAxiR = axi::AxiR<AXI_DATA_W, AXI_ID_W>;
+
+    type CtrlReq = LiteralsDecoderCtrlReq;
+    type CtrlResp = LiteralsDecoderCtrlResp;
+    type BufferCtrl = common::LiteralsBufferCtrl;
+    type BufferOut = common::SequenceExecutorPacket<common::SYMBOL_WIDTH>;
+
     terminator: chan<bool> out;
 
-    literals_ctrl_s: chan<LiteralsPathCtrl> out;
-    literals_data_s: chan<LiteralsData> out;
-    literals_buf_ctrl_s: chan<LiteralsBufferCtrl> out;
-    literals_r: chan<SequenceExecutorPacket> in;
+    // AXI Literals Header Decoder (manager)
+    lit_header_axi_ar_r: chan<MemAxiAr> in;
+    lit_header_axi_r_s: chan<MemAxiR> out;
+
+    // AXI Raw Literals Decoder (manager)
+    raw_lit_axi_ar_r: chan<MemAxiAr> in;
+    raw_lit_axi_r_s: chan<MemAxiR> out;
+
+    // AXI Huffman Literals Decoder (manager)
+    huffman_lit_axi_ar_r: chan<MemAxiAr> in;
+    huffman_lit_axi_r_s: chan<MemAxiR> out;
+
+    // Literals Decoder control
+    ctrl_req_s: chan<CtrlReq> out;
+    ctrl_resp_r: chan<CtrlResp> in;
+
+    // Output control
+    buf_ctrl_s: chan<BufferCtrl> out;
+    buf_out_r: chan<BufferOut> in;
 
     print_start_s: chan<()> out;
     print_finish_r: chan<()> in;
 
     config (terminator: chan<bool> out) {
-        let (literals_ctrl_s, literals_ctrl_r) = chan<LiteralsPathCtrl, u32:1>("literals_ctrl");
-        let (literals_buf_ctrl_s, literals_buf_ctrl_r) = chan<LiteralsBufferCtrl, u32:1>("literals_buf_ctrl");
-        let (literals_s, literals_r) = chan<SequenceExecutorPacket, u32:1>("literals");
+        let (lit_header_axi_ar_s, lit_header_axi_ar_r) = chan<MemAxiAr, CHANNEL_DEPTH>("lit_header_axi_ar");
+        let (lit_header_axi_r_s, lit_header_axi_r_r) = chan<MemAxiR, CHANNEL_DEPTH>("lit_header_axi_r");
+
+        let (raw_lit_axi_ar_s, raw_lit_axi_ar_r) = chan<MemAxiAr, CHANNEL_DEPTH>("raw_lit_axi_ar");
+        let (raw_lit_axi_r_s, raw_lit_axi_r_r) = chan<MemAxiR, CHANNEL_DEPTH>("raw_lit_axi_r");
+
+        let (huffman_lit_axi_ar_s, huffman_lit_axi_ar_r) = chan<MemAxiAr, CHANNEL_DEPTH>("huffman_lit_axi_ar");
+        let (huffman_lit_axi_r_s, huffman_lit_axi_r_r) = chan<MemAxiR, CHANNEL_DEPTH>("huffman_lit_axi_r");
+
+        let (ctrl_req_s, ctrl_req_r) = chan<CtrlReq, CHANNEL_DEPTH>("ctrl_req");
+        let (ctrl_resp_s, ctrl_resp_r) = chan<CtrlResp, CHANNEL_DEPTH>("ctrl_resp");
+        let (buf_ctrl_s, buf_ctrl_r) = chan<BufferCtrl, CHANNEL_DEPTH>("buf_ctrl");
+        let (buf_out_s, buf_out_r) = chan<BufferOut, CHANNEL_DEPTH>("buf_out");
 
         let (print_start_s, print_start_r) = chan<()>("print_start");
         let (print_finish_s, print_finish_r) = chan<()>("print_finish");
@@ -978,8 +1044,11 @@ proc LiteralsDecoder_test {
         let (ram_wr_resp_s, ram_wr_resp_r) = chan<TestWriteResp>[literals_buffer::RAM_NUM]("ram_wr_resp");
 
         spawn LiteralsDecoder<TEST_HISTORY_BUFFER_SIZE_KB>(
-            literals_ctrl_r,
-            literals_buf_ctrl_r, literals_s,
+            lit_header_axi_ar_s, lit_header_axi_r_r,
+            raw_lit_axi_ar_s, raw_lit_axi_r_r,
+            huffman_lit_axi_ar_s, huffman_lit_axi_r_r,
+            ctrl_req_r, ctrl_resp_s,
+            buf_ctrl_r, buf_out_s,
             ram_rd_req_s[0], ram_rd_req_s[1], ram_rd_req_s[2], ram_rd_req_s[3],
             ram_rd_req_s[4], ram_rd_req_s[5], ram_rd_req_s[6], ram_rd_req_s[7],
             ram_rd_resp_r[0], ram_rd_resp_r[1], ram_rd_resp_r[2], ram_rd_resp_r[3],
@@ -1028,6 +1097,54 @@ proc LiteralsDecoder_test {
             TEST_RAM_SIMULTANEOUS_READ_WRITE_BEHAVIOR, TEST_RAM_INITIALIZED>
             (ram_rd_req_r[7], ram_rd_resp_s[7], ram_wr_req_r[7], ram_wr_resp_s[7]);
 
+        // Mock RAM for Literals Header MemReader
+        let (ram_rd_req_header_s, ram_rd_req_header_r) = chan<RamRdReq>("ram_rd_req_header");
+        let (ram_rd_resp_header_s, ram_rd_resp_header_r) = chan<RamRdResp>("ram_rd_resp_header");
+        let (ram_wr_req_header_s, ram_wr_req_header_r) = chan<RamWrReq>("ram_wr_req_header");
+        let (ram_wr_resp_header_s, ram_wr_resp_header_r) = chan<RamWrResp>("ram_wr_resp_header");
+
+        spawn ram::RamModel<
+            TEST_RAM_DATA_W, TEST_RAM_SIZE, TEST_RAM_WORD_PARTITION_SIZE,
+            TEST_RAM_SIMULTANEOUS_READ_WRITE_BEHAVIOR, TEST_RAM_INITIALIZED,
+        > (ram_rd_req_header_r, ram_rd_resp_header_s, ram_wr_req_header_r, ram_wr_resp_header_s);
+
+        spawn axi_ram::AxiRamReader<
+            TEST_AXI_ADDR_W, TEST_AXI_DATA_W, TEST_AXI_DEST_W, TEST_AXI_ID_W,
+            TEST_RAM_SIZE, TEST_RAM_BASE_ADDR, TEST_RAM_DATA_W, TEST_RAM_ADDR_W,
+        >(lit_header_axi_ar_r, lit_header_axi_r_s, ram_rd_req_header_s, ram_rd_resp_header_r);
+
+        // Mock RAM for RawLiterals MemReader
+        let (ram_rd_req_raw_s, ram_rd_req_raw_r) = chan<RamRdReq>("ram_rd_req_raw");
+        let (ram_rd_resp_raw_s, ram_rd_resp_raw_r) = chan<RamRdResp>("ram_rd_resp_raw");
+        let (ram_wr_req_raw_s, ram_wr_req_raw_r) = chan<RamWrReq>("ram_wr_req_raw");
+        let (ram_wr_resp_raw_s, ram_wr_resp_raw_r) = chan<RamWrResp>("ram_wr_resp_raw");
+
+        spawn ram::RamModel<
+            TEST_RAM_DATA_W, TEST_RAM_SIZE, TEST_RAM_WORD_PARTITION_SIZE,
+            TEST_RAM_SIMULTANEOUS_READ_WRITE_BEHAVIOR, TEST_RAM_INITIALIZED,
+        > (ram_rd_req_raw_r, ram_rd_resp_raw_s, ram_wr_req_raw_r, ram_wr_resp_raw_s);
+
+        spawn axi_ram::AxiRamReader<
+            TEST_AXI_ADDR_W, TEST_AXI_DATA_W, TEST_AXI_DEST_W, TEST_AXI_ID_W,
+            TEST_RAM_SIZE, TEST_RAM_BASE_ADDR, TEST_RAM_DATA_W, TEST_RAM_ADDR_W,
+        >(raw_lit_axi_ar_r, raw_lit_axi_r_s, ram_rd_req_raw_s, ram_rd_resp_raw_r);
+
+        // Mock RAM for HuffmanLiteralsDecoder MemReader
+        let (ram_rd_req_huffman_s, ram_rd_req_huffman_r) = chan<RamRdReq>("ram_rd_req_huffman");
+        let (ram_rd_resp_huffman_s, ram_rd_resp_huffman_r) = chan<RamRdResp>("ram_rd_resp_huffman");
+        let (ram_wr_req_huffman_s, ram_wr_req_huffman_r) = chan<RamWrReq>("ram_wr_req_huffman");
+        let (ram_wr_resp_huffman_s, ram_wr_resp_huffman_r) = chan<RamWrResp>("ram_wr_resp_huffman");
+
+        spawn ram::RamModel<
+            TEST_RAM_DATA_W, TEST_RAM_SIZE, TEST_RAM_WORD_PARTITION_SIZE,
+            TEST_RAM_SIMULTANEOUS_READ_WRITE_BEHAVIOR, TEST_RAM_INITIALIZED,
+        > (ram_rd_req_huffman_r, ram_rd_resp_huffman_s, ram_wr_req_huffman_r, ram_wr_resp_huffman_s);
+
+        spawn axi_ram::AxiRamReader<
+            TEST_AXI_ADDR_W, TEST_AXI_DATA_W, TEST_AXI_DEST_W, TEST_AXI_ID_W,
+            TEST_RAM_SIZE, TEST_RAM_BASE_ADDR, TEST_RAM_DATA_W, TEST_RAM_ADDR_W,
+        >(huffman_lit_axi_ar_r, huffman_lit_axi_r_s, ram_rd_req_huffman_s, ram_rd_resp_huffman_r);
+
         (
             terminator,
             literals_ctrl_s, literals_data_s,
@@ -1040,6 +1157,62 @@ proc LiteralsDecoder_test {
 
     next (state: ()) {
         let tok = join();
+
+
+const TEST_CTRL: CtrlReq[7] = [
+    CtrlReq {addr: TestAddr:0x0, literals_last: false},
+    CtrlReq {addr: TestAddr:0x10, literals_last: false},
+    CtrlReq {addr: TestAddr:0x20, literals_last: false},
+    CtrlReq {addr: TestAddr:0x30, literals_last: true},
+    CtrlReq {addr: TestAddr:0x100, literals_last: false},
+    CtrlReq {addr: TestAddr:0x200, literals_last: false},
+    CtrlReq {addr: TestAddr:0x300, literals_last: true},
+];
+
+const TEST_MEMORY: TestMemData[12] = [
+    // Literals #0 (RAW; 8 bytes)
+    // Header: 0x08
+    TestMemData:0x5734_65A6_DB5D_B008,
+    TestMemData:0x16,
+
+    // Literals #1 (RLE; 4 bytes)
+    // Header: 0x84
+    TestMemData:0x2384,
+
+    // Literals #2 (RLE; 2 bytes)
+    // Header: 0x82
+    TestMemData:0x3582,
+
+    // Literals #3 (RAW; 15 bytes)
+    // Header: 0x0F
+    TestMemData:0xFB41_C67B_6053_700F,
+    TestMemData:0x9B0F_9CE1_BAA9_6D4C,
+
+    // Literals #4 (RLE; 12 bytes)
+    // Header: 0x8C
+    TestMemData:0x5A8C,
+
+    // Literals #5 (RLE; 0 bytes)
+    // Header: 0x80
+    TestMemData:0xFF80,
+
+    // Literals #6 (RAW; 31 bytes)
+    // Header: 0x1F
+    TestMemData:0x943E_9618_34C2_471F,
+    TestMemData:0x02D0_E8D7_289A_BE60,
+    TestMemData:0x64C3_8BE1_FA8D_12BC,
+    TestMemData:0x1963_F1CE_21C2_94F8
+        // TODO: Write test data to memory
+        let req = RamWrReq {
+            addr: TEST_CTRL[0]k,
+            data: frame.data[i] as uN[TEST_RAM_DATA_W],
+            mask: uN[TEST_RAM_NUM_PARTITIONS]:0xFF
+        };
+        let tok = send(tok, ram_wr_req_header_s, req);
+        let tok = send(tok, ram_wr_req_raw_s, req);
+        let tok = send(tok, ram_wr_req_huffman_s, req);
+
+
         // send literals
         let tok = for ((i, test_data), tok): ((u32, LiteralsData), token) in enumerate(TEST_DATA) {
             let tok = send(tok, literals_data_s, test_data);

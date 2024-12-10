@@ -25,6 +25,10 @@ import xls.modules.zstd.huffman_ctrl as ctrl;
 import xls.modules.zstd.memory.axi as axi;
 import xls.examples.ram;
 
+pub fn WeightPreScanMetaDataSize() -> u32 {
+    prescan::WeightPreScanMetaDataSize()
+}
+
 pub type HuffmanLiteralsDecoderReq = ctrl::HuffmanControlAndSequenceCtrl;
 pub type HuffmanLiteralsDecoderResp = ctrl::HuffmanControlAndSequenceResp;
 pub type HuffmanLiteralsDecoderStatus = ctrl::HuffmanControlAndSequenceStatus;
@@ -50,7 +54,7 @@ pub proc HuffmanLiteralsDecoder<AXI_DATA_W: u32, AXI_ADDR_W: u32, AXI_ID_W: u32,
         ctrl_r: chan<Ctrl> in,
         resp_s: chan<Resp> out,
         // output literals
-        decoded_literals_s: chan<common::LiteralsData> out,
+        decoded_literals_s: chan<common::LiteralsDataWithSync> out,
         // AXI interface
         axi_ar_s: chan<AxiAr> out,
         axi_r_r: chan<AxiR> in,
@@ -141,8 +145,8 @@ const INST_AXI_DATA_W = u32:32;
 const INST_AXI_ADDR_W = u32:32;
 const INST_AXI_ID_W = u32:32;
 
-const INST_RAM_ADDR_WIDTH = prescan::RAM_ADDR_WIDTH;
-const INST_RAM_ACCESS_WIDTH = prescan::RAM_ACCESS_WIDTH;
+pub const INST_RAM_ADDR_WIDTH = prescan::RAM_ADDR_WIDTH;
+pub const INST_RAM_ACCESS_WIDTH = prescan::RAM_ACCESS_WIDTH;
 
 proc HuffmanLiteralsDecoderInst {
     type Ctrl = HuffmanLiteralsDecoderReq<INST_AXI_ADDR_W>;
@@ -161,7 +165,7 @@ proc HuffmanLiteralsDecoderInst {
     config (
         ctrl_r: chan<Ctrl> in,
         resp_s: chan<Resp> out,
-        decoded_literals_s: chan<common::LiteralsData> out,
+        decoded_literals_s: chan<common::LiteralsDataWithSync> out,
         axi_ar_s: chan<AxiAr> out,
         axi_r_r: chan<AxiR> in,
         ram_read_req_s: chan<ReadReq> out,
@@ -209,7 +213,9 @@ type TestRamEntry = uN[TEST_RAM_ACCESS_WIDTH];
 const TEST_CTRL_0 = TestCtrl {
     base_addr: uN[TEST_AXI_ADDR_W]:0x0,
     len: uN[TEST_AXI_ADDR_W]:0x8,
-    new_config: true
+    new_config: true,
+    id: u32:0,
+    literals_last: false,
 };
 
 const TEST_DATA_LEN_0 = u32:64;
@@ -265,21 +271,27 @@ const TEST_WEIGHT_MEMORY_0 = TestRamEntry[32]:[
     TestRamEntry:0x_0__0__0__0__0__0__0__0, TestRamEntry:0x_0__0__0__0__0__0__1__0, // 0xFx
 ];
 
-const TEST_DECODED_LITERALS_0 = common::LiteralsData[3]:[
-    common::LiteralsData {
+const TEST_DECODED_LITERALS_0 = common::LiteralsDataWithSync[3]:[
+    common::LiteralsDataWithSync {
         data: common::LitData:0x458A_D147_47D2_8A47,
         length: common::LitLength:8,
         last: false,
+        id: u32:0,
+        literals_last: false,
     },
-    common::LiteralsData {
+    common::LiteralsDataWithSync {
         data: common::LitData:0x4141_8D47_8AD2_478A,
         length: common::LitLength:8,
         last: false,
+        id: u32:0,
+        literals_last: false,
     },
-    common::LiteralsData {
+    common::LiteralsDataWithSync {
         data: common::LitData:0x478A_41D2_478A,
         length: common::LitLength:6,
         last: true,
+        id: u32:0,
+        literals_last: false,
     },
 ];
 
@@ -287,7 +299,9 @@ const TEST_DECODED_LITERALS_0 = common::LiteralsData[3]:[
 const TEST_CTRL_1 = TestCtrl {
     base_addr: uN[TEST_AXI_ADDR_W]:0x20,
     len: uN[TEST_AXI_ADDR_W]:0x4,
-    new_config: false
+    new_config: false,
+    id: u32:1,
+    literals_last: true,
 };
 
 const TEST_DATA_LEN_1 = u32:32;
@@ -298,16 +312,20 @@ const TEST_DATA_1 = (
     u8:0b001_011_1_1
 );
 
-const TEST_DECODED_LITERALS_1 = common::LiteralsData[2]:[
-    common::LiteralsData {
+const TEST_DECODED_LITERALS_1 = common::LiteralsDataWithSync[2]:[
+    common::LiteralsDataWithSync {
         data: common::LitData:0x47AC_1247_4747_47D2,
         length: common::LitLength:8,
         last: false,
+        id: u32:1,
+        literals_last: true,
     },
-    common::LiteralsData {
+    common::LiteralsDataWithSync {
         data: common::LitData:0x8A,
         length: common::LitLength:1,
         last: true,
+        id: u32:1,
+        literals_last: true,
     },
 ];
 
@@ -321,7 +339,9 @@ const TEST_DECODED_LITERALS_1 = common::LiteralsData[2]:[
 const TEST_CTRL_2 = TestCtrl {
     base_addr: uN[TEST_AXI_ADDR_W]:0x0,
     len: uN[TEST_AXI_ADDR_W]:0x2,
-    new_config: true
+    new_config: true,
+    id: u32:0,
+    literals_last: false,
 };
 
 const TEST_DATA_LEN_2 = u32:16;
@@ -355,11 +375,13 @@ const TEST_WEIGHT_MEMORY_2 = TestRamEntry[32]:[
     TestRamEntry:0x_0__0__0__0__0__0__0__0, TestRamEntry:0x_0__0__0__0__0__0__0__0, // 0xFx
 ];
 
-const TEST_DECODED_LITERALS_2 = common::LiteralsData[1]:[
-    common::LiteralsData {
+const TEST_DECODED_LITERALS_2 = common::LiteralsDataWithSync[1]:[
+    common::LiteralsDataWithSync {
         data: common::LitData:0x0504_0100,
         length: common::LitLength:4,
         last: true,
+        id: u32:0,
+        literals_last: false,
     },
 ];
 #[test_proc]
@@ -374,7 +396,7 @@ proc HuffmanLiteralsDecoder_test {
 
     ctrl_s: chan<TestCtrl> out;
     resp_r: chan<TestResp> in;
-    decoded_literals_r: chan<common::LiteralsData> in;
+    decoded_literals_r: chan<common::LiteralsDataWithSync> in;
     axi_ar_r: chan<TestAxiAr> in;
     axi_r_s: chan<TestAxiR> out;
     ram_read_req_r: chan<TestReadReq> in;
@@ -383,7 +405,7 @@ proc HuffmanLiteralsDecoder_test {
     config (terminator: chan<bool> out) {
         let (ctrl_s, ctrl_r) = chan<TestCtrl>("ctrl");
         let (resp_s, resp_r) = chan<TestResp>("resp");
-        let (decoded_literals_s, decoded_literals_r) = chan<common::LiteralsData>("decoded_literals");
+        let (decoded_literals_s, decoded_literals_r) = chan<common::LiteralsDataWithSync>("decoded_literals");
         let (axi_ar_s, axi_ar_r) = chan<TestAxiAr>("axi_ar");
         let (axi_r_s, axi_r_r) = chan<TestAxiR>("axi_r");
         let (ram_read_req_s, ram_read_req_r) = chan<TestReadReq>("ram_read_req");
@@ -470,7 +492,7 @@ proc HuffmanLiteralsDecoder_test {
         }(tok);
 
         // receive decoded literals
-        let tok = for ((i, test_decoded_literals), tok):((u32, common::LiteralsData), token) in enumerate(TEST_DECODED_LITERALS_0) {
+        let tok = for ((i, test_decoded_literals), tok):((u32, common::LiteralsDataWithSync), token) in enumerate(TEST_DECODED_LITERALS_0) {
             let (tok, decoded_literals) = recv(tok, decoded_literals_r);
             trace_fmt!("Received #{} decoded literals {:#x}", i + u32:1, decoded_literals);
             assert_eq(test_decoded_literals, decoded_literals);
@@ -511,7 +533,7 @@ proc HuffmanLiteralsDecoder_test {
         }(tok);
 
         // receive decoded literals
-        let tok = for ((i, test_decoded_literals), tok):((u32, common::LiteralsData), token) in enumerate(TEST_DECODED_LITERALS_1) {
+        let tok = for ((i, test_decoded_literals), tok):((u32, common::LiteralsDataWithSync), token) in enumerate(TEST_DECODED_LITERALS_1) {
             let (tok, decoded_literals) = recv(tok, decoded_literals_r);
             trace_fmt!("Received #{} decoded literals {:#x}", i + u32:1, decoded_literals);
             assert_eq(test_decoded_literals, decoded_literals);
@@ -570,7 +592,7 @@ proc HuffmanLiteralsDecoder_test {
         }(tok);
 
         // receive decoded literals
-        let tok = for ((i, test_decoded_literals), tok):((u32, common::LiteralsData), token) in enumerate(TEST_DECODED_LITERALS_2) {
+        let tok = for ((i, test_decoded_literals), tok):((u32, common::LiteralsDataWithSync), token) in enumerate(TEST_DECODED_LITERALS_2) {
             let (tok, decoded_literals) = recv(tok, decoded_literals_r);
             trace_fmt!("Received #{} decoded literals {:#x}", i + u32:1, decoded_literals);
             assert_eq(test_decoded_literals, decoded_literals);

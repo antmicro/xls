@@ -34,13 +34,13 @@ pub struct HuffmanControlAndSequenceCtrl<AXI_ADDR_W: u32> {
     new_config: bool,
 }
 
-pub enum HuffmanControlAndSequenceCtrlStatus: u1 {
+pub enum HuffmanControlAndSequenceStatus: u1 {
     OKAY = 0,
     ERROR = 1,
 }
 
-pub struct HuffmanControlAndSequenceCtrlResp {
-    status: HuffmanControlAndSequenceCtrlStatus
+pub struct HuffmanControlAndSequenceResp {
+    status: HuffmanControlAndSequenceStatus
 }
 
 struct HuffmanControlAndSequenceState {
@@ -55,8 +55,11 @@ pub proc HuffmanControlAndSequence<AXI_ADDR_W: u32> {
     type State = HuffmanControlAndSequenceState;
     type FSM = HuffmanControlAndSequenceFSM;
     type Ctrl = HuffmanControlAndSequenceCtrl<AXI_ADDR_W>;
+    type Resp = HuffmanControlAndSequenceResp;
+    type Status = HuffmanControlAndSequenceStatus;
 
     ctrl_r: chan<Ctrl> in;
+    resp_s: chan<Resp> out;
 
     // prescan
     prescan_start_s: chan<bool> out;
@@ -76,6 +79,7 @@ pub proc HuffmanControlAndSequence<AXI_ADDR_W: u32> {
 
     config (
         ctrl_r: chan<Ctrl> in,
+        resp_s: chan<Resp> out,
         prescan_start_s: chan<bool> out,
         code_builder_start_s: chan<bool> out,
         axi_reader_ctrl_s: chan<AxiReaderCtrl> out,
@@ -84,7 +88,7 @@ pub proc HuffmanControlAndSequence<AXI_ADDR_W: u32> {
         decoder_done_r: chan<()> in,
     ) {
         (
-            ctrl_r,
+            ctrl_r, resp_s,
             prescan_start_s,
             code_builder_start_s,
             axi_reader_ctrl_s,
@@ -145,6 +149,8 @@ pub proc HuffmanControlAndSequence<AXI_ADDR_W: u32> {
             trace_fmt!("Received decoder done");
         } else {};
 
+        send_if(tok, resp_s, decoder_done_valid, Resp { status: Status::OKAY });
+
         if decoder_done_valid {
             State {
                 fsm: FSM::IDLE
@@ -165,6 +171,7 @@ proc HuffmanControlAndSequenceInst {
 
     config (
         ctrl_r: chan<HuffmanControlAndSequenceCtrl<INST_AXI_ADDR_W>> in,
+        resp_s: chan<HuffmanControlAndSequenceResp> out,
         prescan_start_s: chan<bool> out,
         code_builder_start_s: chan<bool> out,
         axi_reader_ctrl_s: chan<AxiReaderCtrl> out,
@@ -173,7 +180,7 @@ proc HuffmanControlAndSequenceInst {
         decoder_done_r: chan<()> in,
     ) {
         spawn HuffmanControlAndSequence<INST_AXI_ADDR_W>(
-            ctrl_r,
+            ctrl_r, resp_s,
             prescan_start_s,
             code_builder_start_s,
             axi_reader_ctrl_s,
@@ -194,6 +201,8 @@ const TEST_AXI_ADDR_W = u32:32;
 #[test_proc]
 proc HuffmanControlAndSequence_test {
     type Ctrl = HuffmanControlAndSequenceCtrl<INST_AXI_ADDR_W>;
+    type Resp = HuffmanControlAndSequenceResp;
+    type Status = HuffmanControlAndSequenceStatus;
     type AxiReaderCtrl = axi_reader::HuffmanAxiReaderCtrl<TEST_AXI_ADDR_W>;
     type DataPreprocessorStart = data_preprocessor::HuffmanDataPreprocessorStart;
     type DecoderStart = decoder::HuffmanDecoderStart;
@@ -201,6 +210,7 @@ proc HuffmanControlAndSequence_test {
     terminator: chan<bool> out;
 
     ctrl_s: chan<HuffmanControlAndSequenceCtrl<INST_AXI_ADDR_W>> out;
+    resp_r: chan<HuffmanControlAndSequenceResp> in;
     prescan_start_r: chan<bool> in;
     code_builder_start_r: chan<bool> in;
     axi_reader_ctrl_r: chan<AxiReaderCtrl> in;
@@ -210,6 +220,7 @@ proc HuffmanControlAndSequence_test {
 
     config (terminator: chan<bool> out) {
         let (ctrl_s, ctrl_r) = chan<Ctrl>("ctrl");
+        let (resp_s, resp_r) = chan<Resp>("resp");
         let (prescan_start_s, prescan_start_r) = chan<bool>("prescan_start");
         let (code_builder_start_s, code_builder_start_r) = chan<bool>("code_builder_start");
         let (axi_reader_ctrl_s, axi_reader_ctrl_r) = chan<AxiReaderCtrl>("axi_reader_ctrl");
@@ -218,7 +229,7 @@ proc HuffmanControlAndSequence_test {
         let (decoder_done_s, decoder_done_r) = chan<()>("decoder_done");
 
         spawn HuffmanControlAndSequence<INST_AXI_ADDR_W>(
-            ctrl_r,
+            ctrl_r, resp_s,
             prescan_start_s,
             code_builder_start_s,
             axi_reader_ctrl_s,
@@ -229,7 +240,7 @@ proc HuffmanControlAndSequence_test {
 
         (
             terminator,
-            ctrl_s,
+            ctrl_s, resp_r,
             prescan_start_r,
             code_builder_start_r,
             axi_reader_ctrl_r,
@@ -262,6 +273,8 @@ proc HuffmanControlAndSequence_test {
         assert_eq(DecoderStart {new_config: ctrl.new_config}, decoder_start);
 
         let tok = send(tok, decoder_done_s, ());
+        let (tok, resp) = recv(tok, resp_r);
+        assert_eq(Resp {status: Status::OKAY}, resp);
 
         // with new config
         let ctrl = Ctrl {
@@ -287,6 +300,7 @@ proc HuffmanControlAndSequence_test {
         assert_eq(DecoderStart {new_config: ctrl.new_config}, decoder_start);
 
         let tok = send(tok, decoder_done_s, ());
+        assert_eq(Resp {status: Status::OKAY}, resp);
 
         send(tok, terminator, true);
     }

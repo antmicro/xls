@@ -21,8 +21,9 @@ import xls.modules.zstd.common as common;
 import xls.modules.zstd.literals_block_header_dec as literals_block_header_dec;
 import xls.modules.zstd.literals_buffer as literals_buffer;
 //import xls.modules.zstd.literals_dispatcher as literals_dispatcher;
-import xls.modules.zstd.memory.mem_reader as mem_reader;
 import xls.modules.zstd.memory.axi as axi;
+import xls.modules.zstd.memory.axi_ram;
+import xls.modules.zstd.memory.mem_reader as mem_reader;
 import xls.modules.zstd.parallel_rams as parallel_rams;
 import xls.modules.zstd.ram_printer as ram_printer;
 import xls.modules.zstd.raw_literals_dec as raw_literals_dec;
@@ -66,7 +67,7 @@ struct LiteralsDecoderCtrlState<AXI_ADDR_W: u32> {
 }
 
 proc LiteralsDecoderCtrl<AXI_ADDR_W: u32> {
-    type CtrlReq = LiteralsDecoderCtrlReq;
+    type CtrlReq = LiteralsDecoderCtrlReq<AXI_ADDR_W>;
     type CtrlResp = LiteralsDecoderCtrlResp;
     type HeaderReq = literals_block_header_dec::LiteralsHeaderDecoderReq<AXI_ADDR_W>;
     type HeaderResp = literals_block_header_dec::LiteralsHeaderDecoderResp;
@@ -245,7 +246,9 @@ proc LiteralsDecoderCtrl<AXI_ADDR_W: u32> {
         let huffman_req = HuffmanReq {
             base_addr: literals_addr,
             len: header_resp.header.compressed_size as uN[AXI_ADDR_W],
-            new_config: huffman_new_config
+            new_config: huffman_new_config,
+            id: state.id,
+            literals_last: state.req.literals_last
         };
         let huffman_literals_type = header_resp.header.literal_type == LiteralsBlockType::COMP ||
                                     header_resp.header.literal_type == LiteralsBlockType::COMP_4 ||
@@ -358,6 +361,8 @@ proc LiteralsDecoderCtrlInst {
 }
 
 const TEST_AXI_ADDR_W = u32:16;
+const TEST_AXI_DATA_W = u32:64;
+
 #[test_proc]
 proc LiteralsDecoderCtrl_test {
     type CtrlReq = LiteralsDecoderCtrlReq<TEST_AXI_ADDR_W>;
@@ -597,6 +602,7 @@ proc LiteralsDecoder<
     HISTORY_BUFFER_SIZE_KB: u32,
     // AXI parameters
     AXI_DATA_W: u32, AXI_ADDR_W: u32, AXI_ID_W: u32, AXI_DEST_W: u32,
+    HUFFMAN_RAM_ADDR_WIDTH: u32, HUFFMAN_RAM_ACCESS_WIDTH: u32,
     RAM_SIZE: u32 = {parallel_rams::ram_size(HISTORY_BUFFER_SIZE_KB)},
     RAM_ADDR_WIDTH: u32 = {parallel_rams::ram_addr_width(HISTORY_BUFFER_SIZE_KB)},
 > {
@@ -607,10 +613,18 @@ proc LiteralsDecoder<
     type MemAxiAr = axi::AxiAr<AXI_ADDR_W, AXI_ID_W>;
     type MemAxiR = axi::AxiR<AXI_DATA_W, AXI_ID_W>;
 
-    type CtrlReq = LiteralsDecoderCtrlReq;
+    type CtrlReq = LiteralsDecoderCtrlReq<AXI_ADDR_W>;
     type CtrlResp = LiteralsDecoderCtrlResp;
     type BufferCtrl = common::LiteralsBufferCtrl;
     type BufferOut = common::SequenceExecutorPacket<common::SYMBOL_WIDTH>;
+
+    // TODO: make sure those can use the same parameters
+    type HuffmanWeightsReadReq    = ram::ReadReq<HUFFMAN_RAM_ADDR_WIDTH, u32:1>;
+    type HuffmanWeightsReadResp   = ram::ReadResp<HUFFMAN_RAM_ACCESS_WIDTH>;
+    type HuffmanPrescanReadReq    = ram::ReadReq<HUFFMAN_RAM_ADDR_WIDTH, u32:1>;
+    type HuffmanPrescanReadResp   = ram::ReadResp<{huffman_literals_dec::WeightPreScanMetaDataSize()}>;
+    type HuffmanPrescanWriteReq   = ram::WriteReq<HUFFMAN_RAM_ADDR_WIDTH, {huffman_literals_dec::WeightPreScanMetaDataSize()}, u32:1>;
+    type HuffmanPrescanWriteResp  = ram::WriteResp;
 
     config (
         // AXI Literals Header Decoder (manager)
@@ -665,7 +679,16 @@ proc LiteralsDecoder<
         wr_resp_m4_r: chan<WriteResp> in,
         wr_resp_m5_r: chan<WriteResp> in,
         wr_resp_m6_r: chan<WriteResp> in,
-        wr_resp_m7_r: chan<WriteResp> in
+        wr_resp_m7_r: chan<WriteResp> in,
+
+        // Huffman weights memory
+        huffman_lit_weights_mem_rd_req_s: chan<HuffmanWeightsReadReq> out,
+        huffman_lit_weights_mem_rd_resp_r: chan<HuffmanWeightsReadResp> in,
+        // Huffman prescan memory
+        huffman_lit_prescan_mem_rd_req_s: chan<HuffmanPrescanReadReq> out,
+        huffman_lit_prescan_mem_rd_resp_r: chan<HuffmanPrescanReadResp> in,
+        huffman_lit_prescan_mem_wr_req_s: chan<HuffmanPrescanWriteReq> out,
+        huffman_lit_prescan_mem_wr_resp_r: chan<HuffmanPrescanWriteResp> in,
     ) {
         type HeaderReq = literals_block_header_dec::LiteralsHeaderDecoderReq<AXI_ADDR_W>;
         type HeaderResp = literals_block_header_dec::LiteralsHeaderDecoderResp;
@@ -679,7 +702,6 @@ proc LiteralsDecoder<
         type MemReaderResp = mem_reader::MemReaderResp<AXI_DATA_W, AXI_ADDR_W>;
 
         const CHANNEL_DEPTH = u32:1;
-
         // Literals Header Decoder
         let (lit_header_mem_rd_req_s, lit_header_mem_rd_req_r) = chan<MemReaderReq, CHANNEL_DEPTH>("lit_header_mem_rd_req");
         let (lit_header_mem_rd_resp_s, lit_header_mem_rd_resp_r) = chan<MemReaderResp, CHANNEL_DEPTH>("lit_header_mem_rd_resp");
@@ -720,26 +742,20 @@ proc LiteralsDecoder<
         let (rle_lit_resp_s, rle_lit_resp_r) = chan<RleResp, CHANNEL_DEPTH>("rle_lit_resp");
         let (rle_lit_output_s, rle_lit_output_r) = chan<LiteralsDataWithSync, CHANNEL_DEPTH>("rle_lit_output");
 
-        spawn rle_literals_dec::RleLiteralsDecoder<AXI_DATA_W, AXI_ADDR_W>(
+        spawn rle_literals_dec::RleLiteralsDecoder<AXI_DATA_W>(
             rle_lit_req_r, rle_lit_resp_s, rle_lit_output_s
-        );
-
-        // Huffman Literals Decoder
-        let (huffman_lit_mem_rd_req_s, huffman_lit_mem_rd_req_r) = chan<MemReaderReq, CHANNEL_DEPTH>("huffman_lit_mem_rd_req");
-        let (huffman_lit_mem_rd_resp_s, huffman_lit_mem_rd_resp_r) = chan<MemReaderResp, CHANNEL_DEPTH>("huffman_lit_mem_rd_resp");
-
-        spawn mem_reader::MemReader<AXI_DATA_W, AXI_ADDR_W, AXI_DEST_W, AXI_ID_W, CHANNEL_DEPTH>(
-           huffman_lit_mem_rd_req_r, huffman_lit_mem_rd_resp_s,
-           huffman_lit_axi_ar_s, huffman_lit_axi_r_r
         );
 
         let (huffman_lit_req_s,  huffman_lit_req_r) = chan<HuffmanReq, CHANNEL_DEPTH>("huffman_lit_req");
         let (huffman_lit_resp_s, huffman_lit_resp_r) = chan<HuffmanResp, CHANNEL_DEPTH>("huffman_lit_resp");
         let (huffman_lit_output_s, huffman_lit_output_r) = chan<LiteralsDataWithSync, CHANNEL_DEPTH>("huffman_lit_output");
 
-        spawn huffman_literals_dec::HuffmanLiteralsDecoder<AXI_DATA_W, AXI_ADDR_W>(
+        spawn huffman_literals_dec::HuffmanLiteralsDecoder<AXI_DATA_W, AXI_ADDR_W, AXI_ID_W, HUFFMAN_RAM_ADDR_WIDTH, HUFFMAN_RAM_ACCESS_WIDTH>(
             huffman_lit_req_r, huffman_lit_resp_s, huffman_lit_output_s,
-            huffman_lit_mem_rd_req_s, huffman_lit_mem_rd_resp_r
+            huffman_lit_axi_ar_s, huffman_lit_axi_r_r,
+            huffman_lit_weights_mem_rd_req_s, huffman_lit_weights_mem_rd_resp_r,
+            huffman_lit_prescan_mem_rd_req_s, huffman_lit_prescan_mem_rd_resp_r,
+            huffman_lit_prescan_mem_wr_req_s, huffman_lit_prescan_mem_wr_resp_r,
         );
 
         // Literals Buffer
@@ -756,7 +772,7 @@ proc LiteralsDecoder<
             wr_resp_m4_r, wr_resp_m5_r, wr_resp_m6_r, wr_resp_m7_r,
         );
 
-        spawn LiteralsDecoderCtrl (
+        spawn LiteralsDecoderCtrl<AXI_ADDR_W> (
             lit_ctrl_req_r, lit_ctrl_resp_s,
             lit_header_req_s, lit_header_resp_r,
             raw_lit_req_s, raw_lit_resp_r,
@@ -774,17 +790,54 @@ proc LiteralsDecoder<
 
 const ZSTD_HISTORY_BUFFER_SIZE_KB: u32 = u32:64;
 const ZSTD_RAM_ADDR_WIDTH: u32 = parallel_rams::ram_addr_width(ZSTD_HISTORY_BUFFER_SIZE_KB);
+const INST_AXI_DATA_W:u32 = u32:64;
+const INST_AXI_ID_W:u32 = u32:4;
+const INST_AXI_DEST_W:u32 = u32:4;
+
+const INST_HUFFMAN_RAM_ADDR_WIDTH = huffman_literals_dec::INST_RAM_ADDR_WIDTH;
+const INST_HUFFMAN_RAM_ACCESS_WIDTH = huffman_literals_dec::INST_RAM_ACCESS_WIDTH;
 
 proc LiteralsDecoderInst {
     type ReadReq = ram::ReadReq<ZSTD_RAM_ADDR_WIDTH, literals_buffer::RAM_NUM_PARTITIONS>;
     type ReadResp = ram::ReadResp<literals_buffer::RAM_DATA_WIDTH>;
     type WriteReq = ram::WriteReq<ZSTD_RAM_ADDR_WIDTH, literals_buffer::RAM_DATA_WIDTH, literals_buffer::RAM_NUM_PARTITIONS>;
     type WriteResp = ram::WriteResp;
+    type MemAxiAr = axi::AxiAr<INST_AXI_ADDR_W, INST_AXI_ID_W>;
+    type MemAxiR = axi::AxiR<INST_AXI_DATA_W, INST_AXI_ID_W>;
+
+    type CtrlReq = LiteralsDecoderCtrlReq<INST_AXI_ADDR_W>;
+    type CtrlResp = LiteralsDecoderCtrlResp;
+    type BufferCtrl = common::LiteralsBufferCtrl;
+    type BufferOut = common::SequenceExecutorPacket<common::SYMBOL_WIDTH>;
+
+    type HuffmanWeightsReadReq    = ram::ReadReq<INST_HUFFMAN_RAM_ADDR_WIDTH, u32:1>;
+    type HuffmanWeightsReadResp   = ram::ReadResp<INST_HUFFMAN_RAM_ACCESS_WIDTH>;
+    type HuffmanPrescanReadReq    = ram::ReadReq<INST_HUFFMAN_RAM_ADDR_WIDTH, u32:1>;
+    type HuffmanPrescanReadResp   = ram::ReadResp<{huffman_literals_dec::WeightPreScanMetaDataSize()}>;
+    type HuffmanPrescanWriteReq   = ram::WriteReq<INST_HUFFMAN_RAM_ADDR_WIDTH, {huffman_literals_dec::WeightPreScanMetaDataSize()}, u32:1>;
+    type HuffmanPrescanWriteResp  = ram::WriteResp;
 
     config (
-        literals_ctrl_r: chan<LiteralsPathCtrl> in,
-        literals_buf_ctrl_r: chan<LiteralsBufferCtrl> in,
-        literals_s: chan<SequenceExecutorPacket> out,
+        // AXI Literals Header Decoder (manager)
+        lit_header_axi_ar_s: chan<MemAxiAr> out,
+        lit_header_axi_r_r: chan<MemAxiR> in,
+
+        // AXI Raw Literals Decoder (manager)
+        raw_lit_axi_ar_s: chan<MemAxiAr> out,
+        raw_lit_axi_r_r: chan<MemAxiR> in,
+
+        // AXI Huffman Literals Decoder (manager)
+        huffman_lit_axi_ar_s: chan<MemAxiAr> out,
+        huffman_lit_axi_r_r: chan<MemAxiR> in,
+
+        // Literals Decoder control
+        lit_ctrl_req_r: chan<CtrlReq> in,
+        lit_ctrl_resp_s: chan<CtrlResp> out,
+
+        // Literals Decoder output control
+        lit_buf_ctrl_r: chan<BufferCtrl> in,
+        lit_buf_out_s: chan<BufferOut> out,
+
         rd_req_m0_s: chan<ReadReq> out,
         rd_req_m1_s: chan<ReadReq> out,
         rd_req_m2_s: chan<ReadReq> out,
@@ -816,11 +869,26 @@ proc LiteralsDecoderInst {
         wr_resp_m4_r: chan<WriteResp> in,
         wr_resp_m5_r: chan<WriteResp> in,
         wr_resp_m6_r: chan<WriteResp> in,
-        wr_resp_m7_r: chan<WriteResp> in
+        wr_resp_m7_r: chan<WriteResp> in,
+
+        // Huffman weights memory
+        huffman_lit_weights_mem_rd_req_s: chan<HuffmanWeightsReadReq> out,
+        huffman_lit_weights_mem_rd_resp_r: chan<HuffmanWeightsReadResp> in,
+        // Huffman prescan memory
+        huffman_lit_prescan_mem_rd_req_s: chan<HuffmanPrescanReadReq> out,
+        huffman_lit_prescan_mem_rd_resp_r: chan<HuffmanPrescanReadResp> in,
+        huffman_lit_prescan_mem_wr_req_s: chan<HuffmanPrescanWriteReq> out,
+        huffman_lit_prescan_mem_wr_resp_r: chan<HuffmanPrescanWriteResp> in
     ) {
-        spawn LiteralsDecoder<ZSTD_HISTORY_BUFFER_SIZE_KB> (
-            literals_ctrl_r,
-            literals_buf_ctrl_r, literals_s,
+        spawn LiteralsDecoder<ZSTD_HISTORY_BUFFER_SIZE_KB,
+            INST_AXI_DATA_W, INST_AXI_ADDR_W, INST_AXI_ID_W, INST_AXI_DEST_W,
+            INST_HUFFMAN_RAM_ADDR_WIDTH, INST_HUFFMAN_RAM_ACCESS_WIDTH
+            > (
+            lit_header_axi_ar_s, lit_header_axi_r_r,
+            raw_lit_axi_ar_s, raw_lit_axi_r_r,
+            huffman_lit_axi_ar_s, huffman_lit_axi_r_r,
+            lit_ctrl_req_r, lit_ctrl_resp_s,
+            lit_buf_ctrl_r, lit_buf_out_s,
             rd_req_m0_s, rd_req_m1_s, rd_req_m2_s, rd_req_m3_s,
             rd_req_m4_s, rd_req_m5_s, rd_req_m6_s, rd_req_m7_s,
             rd_resp_m0_r, rd_resp_m1_r, rd_resp_m2_r, rd_resp_m3_r,
@@ -829,6 +897,9 @@ proc LiteralsDecoderInst {
             wr_req_m4_s, wr_req_m5_s, wr_req_m6_s, wr_req_m7_s,
             wr_resp_m0_r, wr_resp_m1_r, wr_resp_m2_r, wr_resp_m3_r,
             wr_resp_m4_r, wr_resp_m5_r, wr_resp_m6_r, wr_resp_m7_r,
+            huffman_lit_weights_mem_rd_req_s, huffman_lit_weights_mem_rd_resp_r,
+            huffman_lit_prescan_mem_rd_req_s, huffman_lit_prescan_mem_rd_resp_r,
+            huffman_lit_prescan_mem_wr_req_s, huffman_lit_prescan_mem_wr_resp_r,
         );
     }
 
@@ -837,63 +908,353 @@ proc LiteralsDecoderInst {
     next (state: ()) {}
 }
 
-// RAM related constants common for tests
-const TEST_HISTORY_BUFFER_SIZE_KB = u32:1;
-const TEST_RAM_SIZE = parallel_rams::ram_size(TEST_HISTORY_BUFFER_SIZE_KB);
-const TEST_RAM_ADDR_WIDTH = parallel_rams::ram_addr_width(TEST_HISTORY_BUFFER_SIZE_KB);
-const TEST_RAM_INITIALIZED = true;
-const TEST_RAM_SIMULTANEOUS_READ_WRITE_BEHAVIOR = ram::SimultaneousReadWriteBehavior::READ_BEFORE_WRITE;
+// Parameters for the AXI bus connecting LiteralsBlockHeaderDecoder,
+// RawLiteralsDecoder and HuffmanLiteralsDecoder to the system memory
+const TEST_AXI_RAM_ADDR_W:u32 = u32:16;
+const TEST_AXI_RAM_DATA_W:u32 = u32:64;
+const TEST_AXI_RAM_ID_W:u32 = u32:4;
+const TEST_AXI_RAM_DEST_W:u32 = u32:4;
 
-type TestRamAddr = bits[TEST_RAM_ADDR_WIDTH];
-type TestWriteReq = ram::WriteReq<TEST_RAM_ADDR_WIDTH, literals_buffer::RAM_DATA_WIDTH, literals_buffer::RAM_NUM_PARTITIONS>;
-type TestWriteResp = ram::WriteResp<TEST_RAM_ADDR_WIDTH>;
-type TestReadReq = ram::ReadReq<TEST_RAM_ADDR_WIDTH, literals_buffer::RAM_NUM_PARTITIONS>;
-type TestReadResp = ram::ReadResp<literals_buffer::RAM_DATA_WIDTH>;
-type TestMemData = uN[TEST_AXI_DATA_W];
+// Parameters for RamModels used for mocking the system memory for
+// the LiteralsBlockHeaderDecoder, RawLiteralsDecoder and HuffmanLiteralsDecoder
+const TEST_AXI_RAM_MODEL_DATA_WIDTH:u32 = u32:64;
+const TEST_AXI_RAM_MODEL_SIZE:u32 = u32:16384;
+const TEST_AXI_RAM_MODEL_ADDR_WIDTH:u32 = std::clog2(TEST_AXI_RAM_MODEL_SIZE);
+const TEST_AXI_RAM_MODEL_WORD_PARTITION_SIZE:u32 = u32:8;
+const TEST_AXI_RAM_MODEL_SIMULTANEOUS_READ_WRITE_BEHAVIOR = ram::SimultaneousReadWriteBehavior::READ_BEFORE_WRITE;
+const TEST_AXI_RAM_MODEL_INITIALIZED = true;
+const TEST_AXI_RAM_MODEL_ASSERT_VALID_READ = true;
 
+// Parameters for RamModels used for mocking the LiteralsBuffer internal memory
+const TEST_LITERALS_BUFFER_RAM_MODEL_DATA_WIDTH:u32 = u32:64;
+const TEST_LITERALS_BUFFER_RAM_MODEL_SIZE:u32 = u32:16384;
+const TEST_LITERALS_BUFFER_RAM_MODEL_ADDR_WIDTH:u32 = std::clog2(TEST_LITERALS_BUFFER_RAM_MODEL_SIZE);
+const TEST_LITERALS_BUFFER_RAM_MODEL_WORD_PARTITION_SIZE:u32 = u32:8;
+const TEST_LITERALS_BUFFER_RAM_MODEL_SIMULTANEOUS_READ_WRITE_BEHAVIOR = ram::SimultaneousReadWriteBehavior::READ_BEFORE_WRITE;
+const TEST_LITERALS_BUFFER_RAM_MODEL_INITIALIZED = true;
+const TEST_LITERALS_BUFFER_RAM_MODEL_ASSERT_VALID_READ = true;
+
+// Parameters for RamModels used for mocking the HuffmanLiteralsDecoder prescan weights memory
+const TEST_HUFFMAN_PRESCAN_RAM_MODEL_DATA_WIDTH:u32 = u32:64;
+const TEST_HUFFMAN_PRESCAN_RAM_MODEL_SIZE:u32 = u32:16384;
+const TEST_HUFFMAN_PRESCAN_RAM_MODEL_ADDR_WIDTH:u32 = std::clog2(TEST_HUFFMAN_PRESCAN_RAM_MODEL_SIZE);
+const TEST_HUFFMAN_PRESCAN_RAM_MODEL_WORD_PARTITION_SIZE:u32 = u32:8;
+const TEST_HUFFMAN_PRESCAN_RAM_MODEL_SIMULTANEOUS_READ_WRITE_BEHAVIOR = ram::SimultaneousReadWriteBehavior::READ_BEFORE_WRITE;
+const TEST_HUFFMAN_PRESCAN_RAM_MODEL_INITIALIZED = true;
+const TEST_HUFFMAN_PRESCAN_RAM_MODEL_ASSERT_VALID_READ = true;
+
+// Parameters for RamModels used for mocking the HuffmanLiteralsDecoder internal weights memory
+const TEST_HUFFMAN_WEIGHTS_RAM_MODEL_DATA_WIDTH:u32 = u32:64;
+const TEST_HUFFMAN_WEIGHTS_RAM_MODEL_SIZE:u32 = u32:16384;
+const TEST_HUFFMAN_WEIGHTS_RAM_MODEL_ADDR_WIDTH:u32 = std::clog2(TEST_HUFFMAN_WEIGHTS_RAM_MODEL_SIZE);
+const TEST_HUFFMAN_WEIGHTS_RAM_MODEL_WORD_PARTITION_SIZE:u32 = u32:8;
+const TEST_HUFFMAN_WEIGHTS_RAM_MODEL_SIMULTANEOUS_READ_WRITE_BEHAVIOR = ram::SimultaneousReadWriteBehavior::READ_BEFORE_WRITE;
+const TEST_HUFFMAN_WEIGHTS_RAM_MODEL_INITIALIZED = true;
+const TEST_HUFFMAN_WEIGHTS_RAM_MODEL_ASSERT_VALID_READ = true;
+
+#[test_proc]
+proc LiteralsDecoder_test {
+    // LiteralsBuffer internal memory
+    type LiteralsBufferRamRdReq = ram::ReadReq<TEST_LITERALS_BUFFER_RAM_MODEL_ADDR_WIDTH, TEST_LITERALS_BUFFER_RAM_MODEL_NUM_PARTITIONS>;
+    type LiteralsBufferRamRdResp = ram::ReadResp<TEST_LITERALS_BUFFER_RAM_MODEL_DATA_WIDTH>;
+    type LiteralsBufferRamWrReq = ram::WriteReq<TEST_LITERALS_BUFFER_RAM_MODEL_ADDR_WIDTH, TEST_LITERALS_BUFFER_RAM_MODEL_DATA_WIDTH, TEST_LITERALS_BUFFER_RAM_MODEL_NUM_PARTITIONS>;
+    type LiteralsBufferRamWrResp = ram::WriteResp;
+
+    // System bus
+    type MemAxiR = axi::AxiR<TEST_AXI_RAM_DATA_W, TEST_AXI_RAM_ID_W>;
+    type MemAxiAr = axi::AxiAr<TEST_AXI_RAM_ADDR_W, TEST_AXI_RAM_ID_W>;
+
+    // System bus external memory
+    type AxiRamRdReq = ram::ReadReq<TEST_AXI_RAM_MODEL_ADDR_WIDTH, TEST_AXI_RAM_MODEL_NUM_PARTITIONS>;
+    type AxiRamRdResp = ram::ReadResp<TEST_AXI_RAM_MODEL_DATA_WIDTH>;
+    type AxiRamWrReq = ram::WriteReq<TEST_AXI_RAM_MODEL_ADDR_WIDTH, TEST_AXI_RAM_MODEL_DATA_WIDTH, TEST_AXI_RAM_MODEL_NUM_PARTITIONS>;
+    type AxiRamWrResp = ram::WriteResp;
+
+    // Huffman weights internal memory
+    type HuffmanWeightsRamRdReq   = ram::ReadReq<TEST_HUFFMAN_WEIGHTS_RAM_MODEL_ADDR_WIDTH, TEST_HUFFMAN_WEIGHTS_RAM_MODEL_NUM_PARTITIONS>;
+    type HuffmanWeightsRamRdResp  = ram::ReadResp<TEST_HUFFMAN_WEIGHTS_RAM_MODEL_DATA_WIDTH>;
+    type HuffmanWeightsRamWrReq  = ram::WriteReq<TEST_HUFFMAN_WEIGHTS_RAM_MODEL_ADDR_WIDTH, TEST_HUFFMAN_WEIGHTS_RAM_MODEL_DATA_WIDTH, TEST_HUFFMAN_WEIGHTS_RAM_MODEL_NUM_PARTITIONS>;
+    type HuffmanWeightsRamWrResp = ram::WriteResp;
+
+    // Huffman prescan internal memory
+    type HuffmanPrescanRamRdReq   = ram::ReadReq<TEST_HUFFMAN_PRESCAN_RAM_MODEL_ADDR_WIDTH, TEST_HUFFMAN_PRESCAN_RAM_MODEL_NUM_PARTITIONS>;
+    type HuffmanPrescanRamRdResp  = ram::ReadResp<TEST_HUFFMAN_PRESCAN_RAM_MODEL_DATA_WIDTH>;
+    type HuffmanPrescanRamWrReq  = ram::WriteReq<TEST_HUFFMAN_PRESCAN_RAM_MODEL_ADDR_WIDTH, TEST_HUFFMAN_PRESCAN_RAM_MODEL_DATA_WIDTH, TEST_HUFFMAN_PRESCAN_RAM_MODEL_NUM_PARTITIONS>;
+    type HuffmanPrescanRamWrResp = ram::WriteResp;
+
+    // Control and output
+    type CtrlReq = LiteralsDecoderCtrlReq<TEST_AXI_RAM_ADDR_W>;
+    type CtrlResp = LiteralsDecoderCtrlResp;
+    type BufferCtrl = common::LiteralsBufferCtrl;
+    type BufferOut = common::SequenceExecutorPacket<common::SYMBOL_WIDTH>;
+
+    type AxiRamData = uN[TEST_AXI_RAM_DATA_W];
+    type AxiRamAddr = uN[TEST_AXI_RAM_ADDR_W];
+    type AxiRamMask = uN[TEST_AXI_RAM_NUM_PARTITIONS];
+
+    terminator: chan<bool> out;
+
+    // AXI Literals Header Decoder (manager)
+    lit_header_axi_ar_r: chan<MemAxiAr> in;
+    lit_header_axi_r_s: chan<MemAxiR> out;
+
+    // AXI Raw Literals Decoder (manager)
+    raw_lit_axi_ar_r: chan<MemAxiAr> in;
+    raw_lit_axi_r_s: chan<MemAxiR> out;
+
+    // AXI Huffman Literals Decoder (manager)
+    huffman_lit_axi_ar_r: chan<MemAxiAr> in;
+    huffman_lit_axi_r_s: chan<MemAxiR> out;
+
+    // Literals Decoder control
+    ctrl_req_s: chan<CtrlReq> out;
+    ctrl_resp_r: chan<CtrlResp> in;
+
+    // Output control
+    buf_ctrl_s: chan<BufferCtrl> out;
+    buf_out_r: chan<BufferOut> in;
+
+    print_start_s: chan<()> out;
+    print_finish_r: chan<()> in;
+
+    ram_wr_req_header_s : chan<AxiRamWrReq> out;
+    ram_wr_resp_header_r : chan<AxiRamWrResp> in;
+    ram_wr_req_raw_s : chan<AxiRamWrReq> out;
+    ram_wr_resp_raw_r : chan<AxiRamWrResp> in;
+    ram_wr_req_huffman_s : chan<AxiRamWrReq> out;
+    ram_wr_resp_huffman_r : chan<AxiRamWrResp> in;
+
+    huffman_lit_weights_mem_wr_req_s: chan<HuffmanWeightsRamWrReq> out;
+    huffman_lit_weights_mem_wr_resp_r: chan<HuffmanWeightsRamWrResp> in;
+
+    config (terminator: chan<bool> out) {
+        let (lit_header_axi_ar_s, lit_header_axi_ar_r) = chan<MemAxiAr>("lit_header_axi_ar");
+        let (lit_header_axi_r_s, lit_header_axi_r_r) = chan<MemAxiR>("lit_header_axi_r");
+
+        let (raw_lit_axi_ar_s, raw_lit_axi_ar_r) = chan<MemAxiAr>("raw_lit_axi_ar");
+        let (raw_lit_axi_r_s, raw_lit_axi_r_r) = chan<MemAxiR>("raw_lit_axi_r");
+
+        let (huffman_lit_axi_ar_s, huffman_lit_axi_ar_r) = chan<MemAxiAr>("huffman_lit_axi_ar");
+        let (huffman_lit_axi_r_s, huffman_lit_axi_r_r) = chan<MemAxiR>("huffman_lit_axi_r");
+
+        let (ctrl_req_s, ctrl_req_r) = chan<CtrlReq>("ctrl_req");
+        let (ctrl_resp_s, ctrl_resp_r) = chan<CtrlResp>("ctrl_resp");
+        let (buf_ctrl_s, buf_ctrl_r) = chan<BufferCtrl>("buf_ctrl");
+        let (buf_out_s, buf_out_r) = chan<BufferOut>("buf_out");
+
+        let (print_start_s, print_start_r) = chan<()>("print_start");
+        let (print_finish_s, print_finish_r) = chan<()>("print_finish");
+
+        let (ram_rd_req_s,  ram_rd_req_r) = chan<LiteralsBufferRamRdReq>[literals_buffer::RAM_NUM]("ram_rd_req");
+        let (ram_rd_resp_s, ram_rd_resp_r) = chan<LiteralsBufferRamRdResp>[literals_buffer::RAM_NUM]("ram_rd_resp");
+        let (ram_wr_req_s,  ram_wr_req_r) = chan<LiteralsBufferRamWrReq>[literals_buffer::RAM_NUM]("ram_wr_req");
+        let (ram_wr_resp_s, ram_wr_resp_r) = chan<LiteralsBufferRamWrResp>[literals_buffer::RAM_NUM]("ram_wr_resp");
+
+        let (huffman_lit_weights_mem_rd_req_s, huffman_lit_weights_mem_rd_req_r) = chan<HuffmanWeightsRamRdReq>("huffman_lit_weights_mem_rd_req");
+        let (huffman_lit_weights_mem_rd_resp_s, huffman_lit_weights_mem_rd_resp_r) = chan<HuffmanWeightsRamRdResp>("huffman_lit_weights_mem_rd_resp");
+        let (huffman_lit_weights_mem_wr_req_s, huffman_lit_weights_mem_wr_req_r) = chan<HuffmanWeightsRamWrReq>("huffman_lit_weights_mem_wr_req");
+        let (huffman_lit_weights_mem_wr_resp_s, huffman_lit_weights_mem_wr_resp_r) = chan<HuffmanWeightsRamWrResp>("huffman_lit_weights_mem_wr_resp");
+        let (huffman_lit_prescan_mem_rd_req_s, huffman_lit_prescan_mem_rd_req_r) = chan<HuffmanPrescanRamRdReq>("huffman_lit_prescan_mem_rd_req");
+        let (huffman_lit_prescan_mem_rd_resp_s, huffman_lit_prescan_mem_rd_resp_r) = chan<HuffmanPrescanRamRdResp>("huffman_lit_prescan_mem_rd_resp");
+        let (huffman_lit_prescan_mem_wr_req_s, huffman_lit_prescan_mem_wr_req_r) = chan<HuffmanPrescanRamWrReq>("huffman_lit_prescan_mem_wr_req");
+        let (huffman_lit_prescan_mem_wr_resp_s, huffman_lit_prescan_mem_wr_resp_r) = chan<HuffmanPrescanRamWrResp>("huffman_lit_prescan_mem_wr_resp");
+
+        spawn LiteralsDecoder<
+            TEST_HISTORY_BUFFER_SIZE_KB,
+            TEST_AXI_RAM_DATA_W, TEST_AXI_RAM_ADDR_W, TEST_AXI_RAM_ID_W, TEST_AXI_RAM_DEST_W,
+            TEST_HUFFMAN_RAM_ADDR_WIDTH, TEST_HUFFMAN_RAM_ACCESS_WIDTH
+            > (
+            lit_header_axi_ar_s, lit_header_axi_r_r,
+            raw_lit_axi_ar_s, raw_lit_axi_r_r,
+            huffman_lit_axi_ar_s, huffman_lit_axi_r_r,
+            ctrl_req_r, ctrl_resp_s,
+            buf_ctrl_r, buf_out_s,
+            ram_rd_req_s[0], ram_rd_req_s[1], ram_rd_req_s[2], ram_rd_req_s[3],
+            ram_rd_req_s[4], ram_rd_req_s[5], ram_rd_req_s[6], ram_rd_req_s[7],
+            ram_rd_resp_r[0], ram_rd_resp_r[1], ram_rd_resp_r[2], ram_rd_resp_r[3],
+            ram_rd_resp_r[4], ram_rd_resp_r[5], ram_rd_resp_r[6], ram_rd_resp_r[7],
+            ram_wr_req_s[0], ram_wr_req_s[1], ram_wr_req_s[2], ram_wr_req_s[3],
+            ram_wr_req_s[4], ram_wr_req_s[5], ram_wr_req_s[6], ram_wr_req_s[7],
+            ram_wr_resp_r[0], ram_wr_resp_r[1], ram_wr_resp_r[2], ram_wr_resp_r[3],
+            ram_wr_resp_r[4], ram_wr_resp_r[5], ram_wr_resp_r[6], ram_wr_resp_r[7],
+            huffman_lit_weights_mem_rd_req_s, huffman_lit_weights_mem_rd_resp_r,
+            huffman_lit_prescan_mem_rd_req_s, huffman_lit_prescan_mem_rd_resp_r,
+            huffman_lit_prescan_mem_wr_req_s, huffman_lit_prescan_mem_wr_resp_r,
+        );
+
+        spawn ram_printer::RamPrinter<
+            literals_buffer::RAM_DATA_WIDTH, TEST_RAM_SIZE, literals_buffer::RAM_NUM_PARTITIONS,
+            TEST_RAM_ADDR_WIDTH, literals_buffer::RAM_NUM>
+            (print_start_r, print_finish_s, ram_rd_req_s, ram_rd_resp_r);
+
+        spawn ram::RamModel<
+            literals_buffer::RAM_DATA_WIDTH, TEST_RAM_SIZE, literals_buffer::RAM_WORD_PARTITION_SIZE,
+            TEST_RAM_SIMULTANEOUS_READ_WRITE_BEHAVIOR, TEST_RAM_INITIALIZED>
+            (ram_rd_req_r[0], ram_rd_resp_s[0], ram_wr_req_r[0], ram_wr_resp_s[0]);
+        spawn ram::RamModel<
+            literals_buffer::RAM_DATA_WIDTH, TEST_RAM_SIZE, literals_buffer::RAM_WORD_PARTITION_SIZE,
+            TEST_RAM_SIMULTANEOUS_READ_WRITE_BEHAVIOR, TEST_RAM_INITIALIZED>
+            (ram_rd_req_r[1], ram_rd_resp_s[1], ram_wr_req_r[1], ram_wr_resp_s[1]);
+        spawn ram::RamModel<
+            literals_buffer::RAM_DATA_WIDTH, TEST_RAM_SIZE, literals_buffer::RAM_WORD_PARTITION_SIZE,
+            TEST_RAM_SIMULTANEOUS_READ_WRITE_BEHAVIOR, TEST_RAM_INITIALIZED>
+            (ram_rd_req_r[2], ram_rd_resp_s[2], ram_wr_req_r[2], ram_wr_resp_s[2]);
+        spawn ram::RamModel<
+            literals_buffer::RAM_DATA_WIDTH, TEST_RAM_SIZE, literals_buffer::RAM_WORD_PARTITION_SIZE,
+            TEST_RAM_SIMULTANEOUS_READ_WRITE_BEHAVIOR, TEST_RAM_INITIALIZED>
+            (ram_rd_req_r[3], ram_rd_resp_s[3], ram_wr_req_r[3], ram_wr_resp_s[3]);
+        spawn ram::RamModel<
+            literals_buffer::RAM_DATA_WIDTH, TEST_RAM_SIZE, literals_buffer::RAM_WORD_PARTITION_SIZE,
+            TEST_RAM_SIMULTANEOUS_READ_WRITE_BEHAVIOR, TEST_RAM_INITIALIZED>
+            (ram_rd_req_r[4], ram_rd_resp_s[4], ram_wr_req_r[4], ram_wr_resp_s[4]);
+        spawn ram::RamModel<
+            literals_buffer::RAM_DATA_WIDTH, TEST_RAM_SIZE, literals_buffer::RAM_WORD_PARTITION_SIZE,
+            TEST_RAM_SIMULTANEOUS_READ_WRITE_BEHAVIOR, TEST_RAM_INITIALIZED>
+            (ram_rd_req_r[5], ram_rd_resp_s[5], ram_wr_req_r[5], ram_wr_resp_s[5]);
+        spawn ram::RamModel<
+            literals_buffer::RAM_DATA_WIDTH, TEST_RAM_SIZE, literals_buffer::RAM_WORD_PARTITION_SIZE,
+            TEST_RAM_SIMULTANEOUS_READ_WRITE_BEHAVIOR, TEST_RAM_INITIALIZED>
+            (ram_rd_req_r[6], ram_rd_resp_s[6], ram_wr_req_r[6], ram_wr_resp_s[6]);
+        spawn ram::RamModel<
+            literals_buffer::RAM_DATA_WIDTH, TEST_RAM_SIZE, literals_buffer::RAM_WORD_PARTITION_SIZE,
+            TEST_RAM_SIMULTANEOUS_READ_WRITE_BEHAVIOR, TEST_RAM_INITIALIZED>
+            (ram_rd_req_r[7], ram_rd_resp_s[7], ram_wr_req_r[7], ram_wr_resp_s[7]);
+
+        // Mock RAM for Literals Header MemReader
+        let (ram_rd_req_header_s, ram_rd_req_header_r) = chan<AxiRamRdReq>("ram_rd_req_header");
+        let (ram_rd_resp_header_s, ram_rd_resp_header_r) = chan<AxiRamRdResp>("ram_rd_resp_header");
+        let (ram_wr_req_header_s, ram_wr_req_header_r) = chan<AxiRamWrReq>("ram_wr_req_header");
+        let (ram_wr_resp_header_s, ram_wr_resp_header_r) = chan<AxiRamWrResp>("ram_wr_resp_header");
+
+        spawn ram::RamModel<
+            TEST_AXI_RAM_DATA_W, TEST_AXI_RAM_SIZE, TEST_AXI_RAM_WORD_PARTITION_SIZE,
+            TEST_AXI_RAM_SIMULTANEOUS_READ_WRITE_BEHAVIOR, TEST_AXI_RAM_INITIALIZED, TEST_AXI_RAM_ASSERT_VALID_READ, TEST_AXI_RAM_ADDR_W
+        > (ram_rd_req_header_r, ram_rd_resp_header_s, ram_wr_req_header_r, ram_wr_resp_header_s);
+
+        spawn axi_ram::AxiRamReader<
+            TEST_AXI_RAM_ADDR_W, TEST_AXI_RAM_DATA_W,
+            TEST_AXI_RAM_DEST_W, TEST_AXI_RAM_ID_W, TEST_RAM_SIZE
+            >(
+                lit_header_axi_ar_r, lit_header_axi_r_s,
+                ram_rd_req_header_s, ram_rd_resp_header_r
+            );
+
+        // Mock RAM for RawLiterals MemReader
+        let (ram_rd_req_raw_s, ram_rd_req_raw_r) = chan<AxiRamRdReq>("ram_rd_req_raw");
+        let (ram_rd_resp_raw_s, ram_rd_resp_raw_r) = chan<AxiRamRdResp>("ram_rd_resp_raw");
+        let (ram_wr_req_raw_s, ram_wr_req_raw_r) = chan<AxiRamWrReq>("ram_wr_req_raw");
+        let (ram_wr_resp_raw_s, ram_wr_resp_raw_r) = chan<AxiRamWrResp>("ram_wr_resp_raw");
+
+        spawn ram::RamModel<
+            TEST_AXI_RAM_DATA_W, TEST_AXI_RAM_SIZE, TEST_AXI_RAM_WORD_PARTITION_SIZE,
+            TEST_AXI_RAM_SIMULTANEOUS_READ_WRITE_BEHAVIOR, TEST_AXI_RAM_INITIALIZED, TEST_AXI_RAM_ASSERT_VALID_READ, TEST_AXI_RAM_ADDR_W,
+        > (ram_rd_req_raw_r, ram_rd_resp_raw_s, ram_wr_req_raw_r, ram_wr_resp_raw_s);
+
+        spawn axi_ram::AxiRamReader<
+            TEST_AXI_RAM_ADDR_W, TEST_AXI_RAM_DATA_W,
+            TEST_AXI_RAM_DEST_W, TEST_AXI_RAM_ID_W, TEST_RAM_SIZE
+            >(
+                raw_lit_axi_ar_r, raw_lit_axi_r_s,
+                ram_rd_req_raw_s, ram_rd_resp_raw_r
+            );
+
+        // Mock RAM for HuffmanLiteralsDecoder MemReader
+        let (ram_rd_req_huffman_s, ram_rd_req_huffman_r) = chan<AxiRamRdReq>("ram_rd_req_huffman");
+        let (ram_rd_resp_huffman_s, ram_rd_resp_huffman_r) = chan<AxiRamRdResp>("ram_rd_resp_huffman");
+        let (ram_wr_req_huffman_s, ram_wr_req_huffman_r) = chan<AxiRamWrReq>("ram_wr_req_huffman");
+        let (ram_wr_resp_huffman_s, ram_wr_resp_huffman_r) = chan<AxiRamWrResp>("ram_wr_resp_huffman");
+
+        spawn ram::RamModel<
+            TEST_AXI_RAM_DATA_W, TEST_AXI_RAM_SIZE, TEST_AXI_RAM_WORD_PARTITION_SIZE,
+            TEST_AXI_RAM_SIMULTANEOUS_READ_WRITE_BEHAVIOR, TEST_AXI_RAM_INITIALIZED, TEST_AXI_RAM_ASSERT_VALID_READ, TEST_AXI_RAM_ADDR_W,
+        > (ram_rd_req_huffman_r, ram_rd_resp_huffman_s, ram_wr_req_huffman_r, ram_wr_resp_huffman_s);
+
+        spawn axi_ram::AxiRamReader<
+            TEST_AXI_RAM_ADDR_W, TEST_AXI_RAM_DATA_W,
+            TEST_AXI_RAM_DEST_W, TEST_AXI_RAM_ID_W, TEST_RAM_SIZE
+            >(
+                huffman_lit_axi_ar_r, huffman_lit_axi_r_s,
+                ram_rd_req_huffman_s, ram_rd_resp_huffman_r
+            );
+
+        // Huffman weigths memory
+        spawn ram::RamModel<
+            TEST_AXI_RAM_DATA_W, TEST_AXI_RAM_SIZE, TEST_AXI_RAM_WORD_PARTITION_SIZE,
+            TEST_AXI_RAM_SIMULTANEOUS_READ_WRITE_BEHAVIOR, TEST_AXI_RAM_INITIALIZED, TEST_AXI_RAM_ASSERT_VALID_READ, TEST_AXI_RAM_ADDR_W,
+        > (
+            huffman_lit_weights_mem_rd_req_r, huffman_lit_weights_mem_rd_resp_s,
+            huffman_lit_weights_mem_wr_req_r, huffman_lit_weights_mem_wr_resp_s
+        );
+
+        // Huffman prescan memory
+        spawn ram::RamModel<
+            TEST_AXI_RAM_DATA_W, TEST_AXI_RAM_SIZE, TEST_AXI_RAM_WORD_PARTITION_SIZE,
+            TEST_AXI_RAM_SIMULTANEOUS_READ_WRITE_BEHAVIOR, TEST_AXI_RAM_INITIALIZED, TEST_AXI_RAM_ASSERT_VALID_READ, TEST_AXI_RAM_ADDR_W,
+        > (
+            huffman_lit_prescan_mem_rd_req_r, huffman_lit_prescan_mem_rd_resp_s,
+            huffman_lit_prescan_mem_wr_req_r, huffman_lit_prescan_mem_wr_resp_s
+        );
+
+        (
+            terminator,
+            lit_header_axi_ar_r, lit_header_axi_r_s,
+            raw_lit_axi_ar_r, raw_lit_axi_r_s,
+            huffman_lit_axi_ar_r, huffman_lit_axi_r_s,
+            ctrl_req_s, ctrl_resp_r,
+            buf_ctrl_s, buf_out_r,
+            print_start_s, print_finish_r,
+            ram_wr_req_header_s, ram_wr_resp_header_r,
+            ram_wr_req_raw_s, ram_wr_resp_raw_r,
+            ram_wr_req_huffman_s, ram_wr_resp_huffman_r,
+        )
+    }
+
+    init { }
+
+    next (state: ()) {
 const TEST_CTRL: CtrlReq[7] = [
-    CtrlReq {addr: TestAddr:0x0, literals_last: false},
-    CtrlReq {addr: TestAddr:0x10, literals_last: false},
-    CtrlReq {addr: TestAddr:0x20, literals_last: false},
-    CtrlReq {addr: TestAddr:0x30, literals_last: true},
-    CtrlReq {addr: TestAddr:0x100, literals_last: false},
-    CtrlReq {addr: TestAddr:0x200, literals_last: false},
-    CtrlReq {addr: TestAddr:0x300, literals_last: true},
+    CtrlReq {addr: AxiRamAddr:0x0, literals_last: false},
+    CtrlReq {addr: AxiRamAddr:0x10, literals_last: false},
+    CtrlReq {addr: AxiRamAddr:0x20, literals_last: false},
+    CtrlReq {addr: AxiRamAddr:0x30, literals_last: true},
+    CtrlReq {addr: AxiRamAddr:0x100, literals_last: false},
+    CtrlReq {addr: AxiRamAddr:0x200, literals_last: false},
+    CtrlReq {addr: AxiRamAddr:0x300, literals_last: true},
 ];
 
-const TEST_MEMORY: TestMemData[12] = [
+const TEST_MEMORY: AxiRamWrReq[12] = [
     // Literals #0 (RAW; 8 bytes)
     // Header: 0x08
-    TestMemData:0x5734_65A6_DB5D_B008,
-    TestMemData:0x16,
+    AxiRamWrReq { addr: AxiRamAddr:0x0, data: AxiRamData:0x5734_65A6_DB5D_B008, mask: AxiRamMask:0xFF },
+    AxiRamWrReq { addr: AxiRamAddr:0x8, data: AxiRamData:0x16, mask: AxiRamMask:0xFF },
 
     // Literals #1 (RLE; 4 bytes)
     // Header: 0x84
-    TestMemData:0x2384,
+    AxiRamWrReq { addr: AxiRamAddr:0x10, data: AxiRamData:0x2384, mask: AxiRamMask:0xFF },
 
     // Literals #2 (RLE; 2 bytes)
     // Header: 0x82
-    TestMemData:0x3582,
+    AxiRamWrReq { addr: AxiRamAddr:0x20, data: AxiRamData:0x3582, mask: AxiRamMask:0xFF },
 
     // Literals #3 (RAW; 15 bytes)
     // Header: 0x0F
-    TestMemData:0xFB41_C67B_6053_700F,
-    TestMemData:0x9B0F_9CE1_BAA9_6D4C,
+    AxiRamWrReq { addr: AxiRamAddr:0x30, data: AxiRamData:0xFB41_C67B_6053_700F, mask: AxiRamMask:0xFF },
+    AxiRamWrReq { addr: AxiRamAddr:0x38, data: AxiRamData:0x9B0F_9CE1_BAA9_6D4C, mask: AxiRamMask:0xFF },
 
     // Literals #4 (RLE; 12 bytes)
     // Header: 0x8C
-    TestMemData:0x5A8C,
+    AxiRamWrReq { addr: AxiRamAddr:0x100, data: AxiRamData:0x5A8C, mask: AxiRamMask:0xFF },
 
     // Literals #5 (RLE; 0 bytes)
     // Header: 0x80
-    TestMemData:0xFF80,
+    AxiRamWrReq { addr: AxiRamAddr:0x200, data: AxiRamData:0xFF80, mask: AxiRamMask:0xFF },
 
     // Literals #6 (RAW; 31 bytes)
     // Header: 0x1F
-    TestMemData:0x943E_9618_34C2_471F,
-    TestMemData:0x02D0_E8D7_289A_BE60,
-    TestMemData:0x64C3_8BE1_FA8D_12BC,
-    TestMemData:0x1963_F1CE_21C2_94F8
+    AxiRamWrReq { addr: AxiRamAddr:0x300, data: AxiRamData:0x943E_9618_34C2_471F, mask: AxiRamMask:0xFF },
+    AxiRamWrReq { addr: AxiRamAddr:0x308, data: AxiRamData:0x02D0_E8D7_289A_BE60, mask: AxiRamMask:0xFF },
+    AxiRamWrReq { addr: AxiRamAddr:0x310, data: AxiRamData:0x64C3_8BE1_FA8D_12BC, mask: AxiRamMask:0xFF },
+    AxiRamWrReq { addr: AxiRamAddr:0x318, data: AxiRamData:0x1963_F1CE_21C2_94F8, mask: AxiRamMask:0xFF },
 ];
 
 const TEST_BUF_CTRL: LiteralsBufferCtrl[5] = [
@@ -981,270 +1342,49 @@ const TEST_EXPECTED_LITERALS: SequenceExecutorPacket[11] = [
     },
 ];
 
-#[test_proc]
-proc LiteralsDecoder_test {
-    type ReadReq = ram::ReadReq<RAM_ADDR_WIDTH, literals_buffer::RAM_NUM_PARTITIONS>;
-    type ReadResp = ram::ReadResp<literals_buffer::RAM_DATA_WIDTH>;
-    type WriteReq = ram::WriteReq<RAM_ADDR_WIDTH, literals_buffer::RAM_DATA_WIDTH, literals_buffer::RAM_NUM_PARTITIONS>;
-    type WriteResp = ram::WriteResp;
-    type MemAxiAr = axi::AxiAr<AXI_ADDR_W, AXI_ID_W>;
-    type MemAxiR = axi::AxiR<AXI_DATA_W, AXI_ID_W>;
-
-    type CtrlReq = LiteralsDecoderCtrlReq;
-    type CtrlResp = LiteralsDecoderCtrlResp;
-    type BufferCtrl = common::LiteralsBufferCtrl;
-    type BufferOut = common::SequenceExecutorPacket<common::SYMBOL_WIDTH>;
-
-    terminator: chan<bool> out;
-
-    // AXI Literals Header Decoder (manager)
-    lit_header_axi_ar_r: chan<MemAxiAr> in;
-    lit_header_axi_r_s: chan<MemAxiR> out;
-
-    // AXI Raw Literals Decoder (manager)
-    raw_lit_axi_ar_r: chan<MemAxiAr> in;
-    raw_lit_axi_r_s: chan<MemAxiR> out;
-
-    // AXI Huffman Literals Decoder (manager)
-    huffman_lit_axi_ar_r: chan<MemAxiAr> in;
-    huffman_lit_axi_r_s: chan<MemAxiR> out;
-
-    // Literals Decoder control
-    ctrl_req_s: chan<CtrlReq> out;
-    ctrl_resp_r: chan<CtrlResp> in;
-
-    // Output control
-    buf_ctrl_s: chan<BufferCtrl> out;
-    buf_out_r: chan<BufferOut> in;
-
-    print_start_s: chan<()> out;
-    print_finish_r: chan<()> in;
-
-    config (terminator: chan<bool> out) {
-        let (lit_header_axi_ar_s, lit_header_axi_ar_r) = chan<MemAxiAr, CHANNEL_DEPTH>("lit_header_axi_ar");
-        let (lit_header_axi_r_s, lit_header_axi_r_r) = chan<MemAxiR, CHANNEL_DEPTH>("lit_header_axi_r");
-
-        let (raw_lit_axi_ar_s, raw_lit_axi_ar_r) = chan<MemAxiAr, CHANNEL_DEPTH>("raw_lit_axi_ar");
-        let (raw_lit_axi_r_s, raw_lit_axi_r_r) = chan<MemAxiR, CHANNEL_DEPTH>("raw_lit_axi_r");
-
-        let (huffman_lit_axi_ar_s, huffman_lit_axi_ar_r) = chan<MemAxiAr, CHANNEL_DEPTH>("huffman_lit_axi_ar");
-        let (huffman_lit_axi_r_s, huffman_lit_axi_r_r) = chan<MemAxiR, CHANNEL_DEPTH>("huffman_lit_axi_r");
-
-        let (ctrl_req_s, ctrl_req_r) = chan<CtrlReq, CHANNEL_DEPTH>("ctrl_req");
-        let (ctrl_resp_s, ctrl_resp_r) = chan<CtrlResp, CHANNEL_DEPTH>("ctrl_resp");
-        let (buf_ctrl_s, buf_ctrl_r) = chan<BufferCtrl, CHANNEL_DEPTH>("buf_ctrl");
-        let (buf_out_s, buf_out_r) = chan<BufferOut, CHANNEL_DEPTH>("buf_out");
-
-        let (print_start_s, print_start_r) = chan<()>("print_start");
-        let (print_finish_s, print_finish_r) = chan<()>("print_finish");
-
-        let (ram_rd_req_s,  ram_rd_req_r) = chan<TestReadReq>[literals_buffer::RAM_NUM]("ram_rd_req");
-        let (ram_rd_resp_s, ram_rd_resp_r) = chan<TestReadResp>[literals_buffer::RAM_NUM]("ram_rd_resp");
-        let (ram_wr_req_s,  ram_wr_req_r) = chan<TestWriteReq>[literals_buffer::RAM_NUM]("ram_wr_req");
-        let (ram_wr_resp_s, ram_wr_resp_r) = chan<TestWriteResp>[literals_buffer::RAM_NUM]("ram_wr_resp");
-
-        spawn LiteralsDecoder<TEST_HISTORY_BUFFER_SIZE_KB>(
-            lit_header_axi_ar_s, lit_header_axi_r_r,
-            raw_lit_axi_ar_s, raw_lit_axi_r_r,
-            huffman_lit_axi_ar_s, huffman_lit_axi_r_r,
-            ctrl_req_r, ctrl_resp_s,
-            buf_ctrl_r, buf_out_s,
-            ram_rd_req_s[0], ram_rd_req_s[1], ram_rd_req_s[2], ram_rd_req_s[3],
-            ram_rd_req_s[4], ram_rd_req_s[5], ram_rd_req_s[6], ram_rd_req_s[7],
-            ram_rd_resp_r[0], ram_rd_resp_r[1], ram_rd_resp_r[2], ram_rd_resp_r[3],
-            ram_rd_resp_r[4], ram_rd_resp_r[5], ram_rd_resp_r[6], ram_rd_resp_r[7],
-            ram_wr_req_s[0], ram_wr_req_s[1], ram_wr_req_s[2], ram_wr_req_s[3],
-            ram_wr_req_s[4], ram_wr_req_s[5], ram_wr_req_s[6], ram_wr_req_s[7],
-            ram_wr_resp_r[0], ram_wr_resp_r[1], ram_wr_resp_r[2], ram_wr_resp_r[3],
-            ram_wr_resp_r[4], ram_wr_resp_r[5], ram_wr_resp_r[6], ram_wr_resp_r[7]
-        );
-
-        spawn ram_printer::RamPrinter<
-            literals_buffer::RAM_DATA_WIDTH, TEST_RAM_SIZE, literals_buffer::RAM_NUM_PARTITIONS,
-            TEST_RAM_ADDR_WIDTH, literals_buffer::RAM_NUM>
-            (print_start_r, print_finish_s, ram_rd_req_s, ram_rd_resp_r);
-
-        spawn ram::RamModel<
-            literals_buffer::RAM_DATA_WIDTH, TEST_RAM_SIZE, literals_buffer::RAM_WORD_PARTITION_SIZE,
-            TEST_RAM_SIMULTANEOUS_READ_WRITE_BEHAVIOR, TEST_RAM_INITIALIZED>
-            (ram_rd_req_r[0], ram_rd_resp_s[0], ram_wr_req_r[0], ram_wr_resp_s[0]);
-        spawn ram::RamModel<
-            literals_buffer::RAM_DATA_WIDTH, TEST_RAM_SIZE, literals_buffer::RAM_WORD_PARTITION_SIZE,
-            TEST_RAM_SIMULTANEOUS_READ_WRITE_BEHAVIOR, TEST_RAM_INITIALIZED>
-            (ram_rd_req_r[1], ram_rd_resp_s[1], ram_wr_req_r[1], ram_wr_resp_s[1]);
-        spawn ram::RamModel<
-            literals_buffer::RAM_DATA_WIDTH, TEST_RAM_SIZE, literals_buffer::RAM_WORD_PARTITION_SIZE,
-            TEST_RAM_SIMULTANEOUS_READ_WRITE_BEHAVIOR, TEST_RAM_INITIALIZED>
-            (ram_rd_req_r[2], ram_rd_resp_s[2], ram_wr_req_r[2], ram_wr_resp_s[2]);
-        spawn ram::RamModel<
-            literals_buffer::RAM_DATA_WIDTH, TEST_RAM_SIZE, literals_buffer::RAM_WORD_PARTITION_SIZE,
-            TEST_RAM_SIMULTANEOUS_READ_WRITE_BEHAVIOR, TEST_RAM_INITIALIZED>
-            (ram_rd_req_r[3], ram_rd_resp_s[3], ram_wr_req_r[3], ram_wr_resp_s[3]);
-        spawn ram::RamModel<
-            literals_buffer::RAM_DATA_WIDTH, TEST_RAM_SIZE, literals_buffer::RAM_WORD_PARTITION_SIZE,
-            TEST_RAM_SIMULTANEOUS_READ_WRITE_BEHAVIOR, TEST_RAM_INITIALIZED>
-            (ram_rd_req_r[4], ram_rd_resp_s[4], ram_wr_req_r[4], ram_wr_resp_s[4]);
-        spawn ram::RamModel<
-            literals_buffer::RAM_DATA_WIDTH, TEST_RAM_SIZE, literals_buffer::RAM_WORD_PARTITION_SIZE,
-            TEST_RAM_SIMULTANEOUS_READ_WRITE_BEHAVIOR, TEST_RAM_INITIALIZED>
-            (ram_rd_req_r[5], ram_rd_resp_s[5], ram_wr_req_r[5], ram_wr_resp_s[5]);
-        spawn ram::RamModel<
-            literals_buffer::RAM_DATA_WIDTH, TEST_RAM_SIZE, literals_buffer::RAM_WORD_PARTITION_SIZE,
-            TEST_RAM_SIMULTANEOUS_READ_WRITE_BEHAVIOR, TEST_RAM_INITIALIZED>
-            (ram_rd_req_r[6], ram_rd_resp_s[6], ram_wr_req_r[6], ram_wr_resp_s[6]);
-        spawn ram::RamModel<
-            literals_buffer::RAM_DATA_WIDTH, TEST_RAM_SIZE, literals_buffer::RAM_WORD_PARTITION_SIZE,
-            TEST_RAM_SIMULTANEOUS_READ_WRITE_BEHAVIOR, TEST_RAM_INITIALIZED>
-            (ram_rd_req_r[7], ram_rd_resp_s[7], ram_wr_req_r[7], ram_wr_resp_s[7]);
-
-        // Mock RAM for Literals Header MemReader
-        let (ram_rd_req_header_s, ram_rd_req_header_r) = chan<RamRdReq>("ram_rd_req_header");
-        let (ram_rd_resp_header_s, ram_rd_resp_header_r) = chan<RamRdResp>("ram_rd_resp_header");
-        let (ram_wr_req_header_s, ram_wr_req_header_r) = chan<RamWrReq>("ram_wr_req_header");
-        let (ram_wr_resp_header_s, ram_wr_resp_header_r) = chan<RamWrResp>("ram_wr_resp_header");
-
-        spawn ram::RamModel<
-            TEST_RAM_DATA_W, TEST_RAM_SIZE, TEST_RAM_WORD_PARTITION_SIZE,
-            TEST_RAM_SIMULTANEOUS_READ_WRITE_BEHAVIOR, TEST_RAM_INITIALIZED,
-        > (ram_rd_req_header_r, ram_rd_resp_header_s, ram_wr_req_header_r, ram_wr_resp_header_s);
-
-        spawn axi_ram::AxiRamReader<
-            TEST_AXI_ADDR_W, TEST_AXI_DATA_W, TEST_AXI_DEST_W, TEST_AXI_ID_W,
-            TEST_RAM_SIZE, TEST_RAM_BASE_ADDR, TEST_RAM_DATA_W, TEST_RAM_ADDR_W,
-        >(lit_header_axi_ar_r, lit_header_axi_r_s, ram_rd_req_header_s, ram_rd_resp_header_r);
-
-        // Mock RAM for RawLiterals MemReader
-        let (ram_rd_req_raw_s, ram_rd_req_raw_r) = chan<RamRdReq>("ram_rd_req_raw");
-        let (ram_rd_resp_raw_s, ram_rd_resp_raw_r) = chan<RamRdResp>("ram_rd_resp_raw");
-        let (ram_wr_req_raw_s, ram_wr_req_raw_r) = chan<RamWrReq>("ram_wr_req_raw");
-        let (ram_wr_resp_raw_s, ram_wr_resp_raw_r) = chan<RamWrResp>("ram_wr_resp_raw");
-
-        spawn ram::RamModel<
-            TEST_RAM_DATA_W, TEST_RAM_SIZE, TEST_RAM_WORD_PARTITION_SIZE,
-            TEST_RAM_SIMULTANEOUS_READ_WRITE_BEHAVIOR, TEST_RAM_INITIALIZED,
-        > (ram_rd_req_raw_r, ram_rd_resp_raw_s, ram_wr_req_raw_r, ram_wr_resp_raw_s);
-
-        spawn axi_ram::AxiRamReader<
-            TEST_AXI_ADDR_W, TEST_AXI_DATA_W, TEST_AXI_DEST_W, TEST_AXI_ID_W,
-            TEST_RAM_SIZE, TEST_RAM_BASE_ADDR, TEST_RAM_DATA_W, TEST_RAM_ADDR_W,
-        >(raw_lit_axi_ar_r, raw_lit_axi_r_s, ram_rd_req_raw_s, ram_rd_resp_raw_r);
-
-        // Mock RAM for HuffmanLiteralsDecoder MemReader
-        let (ram_rd_req_huffman_s, ram_rd_req_huffman_r) = chan<RamRdReq>("ram_rd_req_huffman");
-        let (ram_rd_resp_huffman_s, ram_rd_resp_huffman_r) = chan<RamRdResp>("ram_rd_resp_huffman");
-        let (ram_wr_req_huffman_s, ram_wr_req_huffman_r) = chan<RamWrReq>("ram_wr_req_huffman");
-        let (ram_wr_resp_huffman_s, ram_wr_resp_huffman_r) = chan<RamWrResp>("ram_wr_resp_huffman");
-
-        spawn ram::RamModel<
-            TEST_RAM_DATA_W, TEST_RAM_SIZE, TEST_RAM_WORD_PARTITION_SIZE,
-            TEST_RAM_SIMULTANEOUS_READ_WRITE_BEHAVIOR, TEST_RAM_INITIALIZED,
-        > (ram_rd_req_huffman_r, ram_rd_resp_huffman_s, ram_wr_req_huffman_r, ram_wr_resp_huffman_s);
-
-        spawn axi_ram::AxiRamReader<
-            TEST_AXI_ADDR_W, TEST_AXI_DATA_W, TEST_AXI_DEST_W, TEST_AXI_ID_W,
-            TEST_RAM_SIZE, TEST_RAM_BASE_ADDR, TEST_RAM_DATA_W, TEST_RAM_ADDR_W,
-        >(huffman_lit_axi_ar_r, huffman_lit_axi_r_s, ram_rd_req_huffman_s, ram_rd_resp_huffman_r);
-
-        (
-            terminator,
-            literals_ctrl_s, literals_data_s,
-            literals_buf_ctrl_s, literals_r,
-            print_start_s, print_finish_r,
-        )
-    }
-
-    init { }
-
-    next (state: ()) {
         let tok = join();
 
 
-const TEST_CTRL: CtrlReq[7] = [
-    CtrlReq {addr: TestAddr:0x0, literals_last: false},
-    CtrlReq {addr: TestAddr:0x10, literals_last: false},
-    CtrlReq {addr: TestAddr:0x20, literals_last: false},
-    CtrlReq {addr: TestAddr:0x30, literals_last: true},
-    CtrlReq {addr: TestAddr:0x100, literals_last: false},
-    CtrlReq {addr: TestAddr:0x200, literals_last: false},
-    CtrlReq {addr: TestAddr:0x300, literals_last: true},
-];
-
-const TEST_MEMORY: TestMemData[12] = [
-    // Literals #0 (RAW; 8 bytes)
-    // Header: 0x08
-    TestMemData:0x5734_65A6_DB5D_B008,
-    TestMemData:0x16,
-
-    // Literals #1 (RLE; 4 bytes)
-    // Header: 0x84
-    TestMemData:0x2384,
-
-    // Literals #2 (RLE; 2 bytes)
-    // Header: 0x82
-    TestMemData:0x3582,
-
-    // Literals #3 (RAW; 15 bytes)
-    // Header: 0x0F
-    TestMemData:0xFB41_C67B_6053_700F,
-    TestMemData:0x9B0F_9CE1_BAA9_6D4C,
-
-    // Literals #4 (RLE; 12 bytes)
-    // Header: 0x8C
-    TestMemData:0x5A8C,
-
-    // Literals #5 (RLE; 0 bytes)
-    // Header: 0x80
-    TestMemData:0xFF80,
-
-    // Literals #6 (RAW; 31 bytes)
-    // Header: 0x1F
-    TestMemData:0x943E_9618_34C2_471F,
-    TestMemData:0x02D0_E8D7_289A_BE60,
-    TestMemData:0x64C3_8BE1_FA8D_12BC,
-    TestMemData:0x1963_F1CE_21C2_94F8
-        // TODO: Write test data to memory
-        let req = RamWrReq {
-            addr: TEST_CTRL[0]k,
-            data: frame.data[i] as uN[TEST_RAM_DATA_W],
-            mask: uN[TEST_RAM_NUM_PARTITIONS]:0xFF
-        };
-        let tok = send(tok, ram_wr_req_header_s, req);
-        let tok = send(tok, ram_wr_req_raw_s, req);
-        let tok = send(tok, ram_wr_req_huffman_s, req);
-
-
-        // send literals
-        let tok = for ((i, test_data), tok): ((u32, LiteralsData), token) in enumerate(TEST_DATA) {
-            let tok = send(tok, literals_data_s, test_data);
-            trace_fmt!("Sent #{} literals data, {:#x}", i + u32:1, test_data);
+        let tok = for ((i, mem_req), tok):((u32, AxiRamWrReq), token) in enumerate(TEST_MEMORY) {
+            let tok = send(tok, ram_wr_req_header_s, mem_req);
+            let tok = send(tok, ram_wr_req_raw_s, mem_req);
+            let tok = send(tok, ram_wr_req_huffman_s, mem_req);
             tok
         }(tok);
 
-        // send ctrl
-        let tok = for ((i, test_ctrl), tok): ((u32, LiteralsPathCtrl), token) in enumerate(TEST_CTRL) {
-            let tok = send(tok, literals_ctrl_s, test_ctrl);
-            trace_fmt!("Sent #{} literals ctrl, {:#x}", i + u32:1, test_ctrl);
-            tok
-        }(tok);
 
-        // send buffer ctrl
-        let tok = for ((i, test_buf_ctrl), tok): ((u32, LiteralsBufferCtrl), token) in enumerate(TEST_BUF_CTRL) {
-            let tok = send(tok, literals_buf_ctrl_s, test_buf_ctrl);
-            trace_fmt!("Sent #{} ctrl {:#x}", i + u32:1, test_buf_ctrl);
-            tok
-        }(tok);
+        //// send literals
+        //let tok = for ((i, test_data), tok): ((u32, LiteralsData), token) in enumerate(TEST_DATA) {
+        //    let tok = send(tok, literals_data_s, test_data);
+        //    trace_fmt!("Sent #{} literals data, {:#x}", i + u32:1, test_data);
+        //    tok
+        //}(tok);
 
-        // receive and check packets
-        let tok = for ((i, test_exp_literals), tok): ((u32, SequenceExecutorPacket), token) in enumerate(TEST_EXPECTED_LITERALS) {
-            let (tok, literals) = recv(tok, literals_r);
-            trace_fmt!("Received #{} literals packet {:#x}", i + u32:1, literals);
-            assert_eq(test_exp_literals, literals);
-            tok
-        }(tok);
+        //// send ctrl
+        //let tok = for ((i, test_ctrl), tok): ((u32, LiteralsPathCtrl), token) in enumerate(TEST_CTRL) {
+        //    let tok = send(tok, literals_ctrl_s, test_ctrl);
+        //    trace_fmt!("Sent #{} literals ctrl, {:#x}", i + u32:1, test_ctrl);
+        //    tok
+        //}(tok);
 
-        // print RAM content
-        let tok = send(tok, print_start_s, ());
-        let (tok, _) = recv(tok, print_finish_r);
+        //// send buffer ctrl
+        //let tok = for ((i, test_buf_ctrl), tok): ((u32, LiteralsBufferCtrl), token) in enumerate(TEST_BUF_CTRL) {
+        //    let tok = send(tok, literals_buf_ctrl_s, test_buf_ctrl);
+        //    trace_fmt!("Sent #{} ctrl {:#x}", i + u32:1, test_buf_ctrl);
+        //    tok
+        //}(tok);
+
+        //// receive and check packets
+        //let tok = for ((i, test_exp_literals), tok): ((u32, SequenceExecutorPacket), token) in enumerate(TEST_EXPECTED_LITERALS) {
+        //    let (tok, literals) = recv(tok, literals_r);
+        //    trace_fmt!("Received #{} literals packet {:#x}", i + u32:1, literals);
+        //    assert_eq(test_exp_literals, literals);
+        //    tok
+        //}(tok);
+
+        //// print RAM content
+        //let tok = send(tok, print_start_s, ());
+        //let (tok, _) = recv(tok, print_finish_r);
 
         send(tok, terminator, true);
     }

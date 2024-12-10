@@ -141,9 +141,9 @@ pub proc HuffmanLiteralsDecoder<AXI_DATA_W: u32, AXI_ADDR_W: u32, AXI_ID_W: u32,
     next (state: ()) { }
 }
 
-const INST_AXI_DATA_W = u32:32;
-const INST_AXI_ADDR_W = u32:32;
-const INST_AXI_ID_W = u32:32;
+const INST_AXI_DATA_W = u32:64;
+const INST_AXI_ADDR_W = u32:16;
+const INST_AXI_ID_W = u32:4;
 
 pub const INST_RAM_ADDR_WIDTH = prescan::RAM_ADDR_WIDTH;
 pub const INST_RAM_ACCESS_WIDTH = prescan::RAM_ACCESS_WIDTH;
@@ -196,8 +196,8 @@ const TEST_AXI_DATA_W = u32:32;
 const TEST_AXI_ADDR_W = u32:32;
 const TEST_AXI_ID_W = u32:32;
 
-const TEST_RAM_ADDR_WIDTH = prescan::RAM_ADDR_WIDTH;
-const TEST_RAM_ACCESS_WIDTH = prescan::RAM_ACCESS_WIDTH;
+pub const TEST_RAM_ADDR_WIDTH = prescan::RAM_ADDR_WIDTH;
+pub const TEST_RAM_ACCESS_WIDTH = prescan::RAM_ACCESS_WIDTH;
 
 type TestCtrl = HuffmanLiteralsDecoderReq<TEST_AXI_ADDR_W>;
 type TestResp = HuffmanLiteralsDecoderResp;

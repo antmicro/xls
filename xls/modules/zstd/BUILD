@@ -2394,8 +2394,11 @@ xls_dslx_library(
     ],
     deps = [
         "//xls/examples:ram_dslx",
+        "//xls/modules/zstd/memory:axi_dslx",
+        "//xls/modules/zstd/memory:axi_ram_dslx",
+        "//xls/modules/zstd/memory:mem_reader_dslx",
         ":common_dslx",
-        #":literals_buffer_dslx",
+        ":literals_buffer_dslx",
         ":literals_block_header_dec_dslx",
         #":literals_dispatcher_dslx",
         ":parallel_rams_dslx",

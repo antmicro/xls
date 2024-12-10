@@ -26,8 +26,8 @@ import xls.modules.zstd.memory.axi as axi;
 import xls.examples.ram;
 
 pub type HuffmanLiteralsDecoderReq = ctrl::HuffmanControlAndSequenceCtrl;
-pub type HuffmanLiteralsDecoderResp = ctrl::HuffmanControlAndSequenceCtrlResp;
-pub type HuffmanLiteralsDecoderStatus = ctrl::HuffmanControlAndSequenceCtrlStatus;
+pub type HuffmanLiteralsDecoderResp = ctrl::HuffmanControlAndSequenceResp;
+pub type HuffmanLiteralsDecoderStatus = ctrl::HuffmanControlAndSequenceStatus;
 
 pub proc HuffmanLiteralsDecoder<AXI_DATA_W: u32, AXI_ADDR_W: u32, AXI_ID_W: u32, RAM_ADDR_WIDTH: u32, RAM_ACCESS_WIDTH: u32> {
     type AxiR = axi::AxiR<AXI_DATA_W, AXI_ID_W>;
@@ -42,10 +42,13 @@ pub proc HuffmanLiteralsDecoder<AXI_DATA_W: u32, AXI_ADDR_W: u32, AXI_ID_W: u32,
     type PrescanInternalReadResp   = ram::ReadResp<{prescan::WeightPreScanMetaDataSize()}>;
     type PrescanInternalWriteReq   = ram::WriteReq<RAM_ADDR_WIDTH, {prescan::WeightPreScanMetaDataSize()}, u32:1>;
     type PrescanInternalWriteResp  = ram::WriteResp;
+    type Ctrl = HuffmanLiteralsDecoderReq<AXI_ADDR_W>;
+    type Resp = HuffmanLiteralsDecoderResp;
 
     config (
         // ctrl
-        ctrl_r: chan<ctrl::HuffmanControlAndSequenceCtrl> in,
+        ctrl_r: chan<Ctrl> in,
+        resp_s: chan<Resp> out,
         // output literals
         decoded_literals_s: chan<common::LiteralsData> out,
         // AXI interface
@@ -81,7 +84,7 @@ pub proc HuffmanLiteralsDecoder<AXI_DATA_W: u32, AXI_ADDR_W: u32, AXI_ID_W: u32,
         );
 
         spawn ctrl::HuffmanControlAndSequence<AXI_ADDR_W>(
-            ctrl_r,
+            ctrl_r, resp_s,
             prescan_start_s,
             code_builder_start_s,
             axi_reader_ctrl_s,
@@ -148,7 +151,8 @@ const INST_RAM_ADDR_WIDTH = prescan::RAM_ADDR_WIDTH;
 const INST_RAM_ACCESS_WIDTH = prescan::RAM_ACCESS_WIDTH;
 
 proc HuffmanLiteralsDecoderInst {
-    type Ctrl = ctrl::HuffmanControlAndSequenceCtrl<INST_AXI_ADDR_W>;
+    type Ctrl = HuffmanLiteralsDecoderReq<INST_AXI_ADDR_W>;
+    type Resp = HuffmanLiteralsDecoderResp;
     type AxiR = axi::AxiR<INST_AXI_DATA_W, INST_AXI_ID_W>;
     type AxiAr = axi::AxiAr<INST_AXI_ADDR_W, INST_AXI_ID_W>;
 
@@ -157,6 +161,7 @@ proc HuffmanLiteralsDecoderInst {
 
     config (
         ctrl_r: chan<Ctrl> in,
+        resp_s: chan<Resp> out,
         decoded_literals_s: chan<common::LiteralsData> out,
         axi_ar_s: chan<AxiAr> out,
         axi_r_r: chan<AxiR> in,
@@ -164,7 +169,7 @@ proc HuffmanLiteralsDecoderInst {
         ram_read_resp_r: chan<ReadResp> in,
     ) {
         spawn HuffmanLiteralsDecoder<INST_AXI_DATA_W, INST_AXI_ADDR_W, INST_AXI_ID_W, INST_RAM_ADDR_WIDTH, INST_RAM_ACCESS_WIDTH>(
-            ctrl_r,
+            ctrl_r, resp_s,
             decoded_literals_s,
             axi_ar_s,
             axi_r_r,
@@ -185,7 +190,8 @@ const TEST_AXI_ID_W = u32:32;
 const TEST_RAM_ADDR_WIDTH = prescan::RAM_ADDR_WIDTH;
 const TEST_RAM_ACCESS_WIDTH = prescan::RAM_ACCESS_WIDTH;
 
-type TestCtrl = ctrl::HuffmanControlAndSequenceCtrl<TEST_AXI_ADDR_W>;
+type TestCtrl = HuffmanLiteralsDecoderReq<TEST_AXI_ADDR_W>;
+type TestResp = HuffmanLiteralsDecoderResp;
 type TestAxiR = axi::AxiR<TEST_AXI_DATA_W, TEST_AXI_ID_W>;
 type TestAxiAr = axi::AxiAr<TEST_AXI_ADDR_W, TEST_AXI_ID_W>;
 
@@ -353,9 +359,12 @@ const TEST_DECODED_LITERALS_2 = common::LiteralsData[1]:[
 ];
 #[test_proc]
 proc HuffmanLiteralsDecoder_test {
+    type Status = HuffmanLiteralsDecoderStatus;
+
     terminator: chan<bool> out;
 
     ctrl_s: chan<TestCtrl> out;
+    resp_r: chan<TestResp> in;
     decoded_literals_r: chan<common::LiteralsData> in;
     axi_ar_r: chan<TestAxiAr> in;
     axi_r_s: chan<TestAxiR> out;
@@ -364,6 +373,7 @@ proc HuffmanLiteralsDecoder_test {
 
     config (terminator: chan<bool> out) {
         let (ctrl_s, ctrl_r) = chan<TestCtrl>("ctrl");
+        let (resp_s, resp_r) = chan<TestResp>("resp");
         let (decoded_literals_s, decoded_literals_r) = chan<common::LiteralsData>("decoded_literals");
         let (axi_ar_s, axi_ar_r) = chan<TestAxiAr>("axi_ar");
         let (axi_r_s, axi_r_r) = chan<TestAxiR>("axi_r");
@@ -371,14 +381,14 @@ proc HuffmanLiteralsDecoder_test {
         let (ram_read_resp_s, ram_read_resp_r) = chan<TestReadResp>("ram_read_resp");
 
         spawn HuffmanLiteralsDecoder<TEST_AXI_DATA_W, TEST_AXI_ADDR_W, TEST_AXI_ID_W, TEST_RAM_ADDR_WIDTH, TEST_RAM_ACCESS_WIDTH>(
-            ctrl_r, decoded_literals_s,
+            ctrl_r, resp_s, decoded_literals_s,
             axi_ar_s, axi_r_r,
             ram_read_req_s, ram_read_resp_r,
         );
 
         (
             terminator,
-            ctrl_s, decoded_literals_r,
+            ctrl_s, resp_r, decoded_literals_r,
             axi_ar_r, axi_r_s,
             ram_read_req_r, ram_read_resp_s,
         )
@@ -445,6 +455,9 @@ proc HuffmanLiteralsDecoder_test {
             tok
         }(tok);
 
+        let (tok, resp) = recv(tok, resp_r);
+        assert_eq(TestResp {status: Status::OKAY}, resp);
+
         trace_fmt!("Test Case #2");
         // send ctrl
         let tok = send(tok, ctrl_s, TEST_CTRL_1);
@@ -482,6 +495,9 @@ proc HuffmanLiteralsDecoder_test {
             assert_eq(test_decoded_literals, decoded_literals);
             tok
         }(tok);
+
+        let (tok, resp) = recv(tok, resp_r);
+        assert_eq(TestResp {status: Status::OKAY}, resp);
 
         trace_fmt!("Test Case #3");
         // send ctrl
@@ -538,6 +554,9 @@ proc HuffmanLiteralsDecoder_test {
             assert_eq(test_decoded_literals, decoded_literals);
             tok
         }(tok);
+
+        let (tok, resp) = recv(tok, resp_r);
+        assert_eq(TestResp {status: Status::OKAY}, resp);
 
         send(tok, terminator, true);
     }

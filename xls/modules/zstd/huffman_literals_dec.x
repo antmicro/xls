@@ -54,9 +54,6 @@ pub proc HuffmanLiteralsDecoder<AXI_DATA_W: u32, AXI_ADDR_W: u32, AXI_ID_W: u32,
         // weight memory
         ram_read_req_s: chan<ReadReq> out,
         ram_read_resp_r: chan<ReadResp> in,
-        // code builder loopback
-        weights_pow_sum_loopback_s: chan<uN[hcommon::MAX_WEIGHT + u32:2]> out,
-        weights_pow_sum_loopback_r: chan<uN[hcommon::MAX_WEIGHT + u32:2]> in,
     ) {
         let (prescan_start_s, prescan_start_r) = chan<bool, u32:1>("prescan_start");
         let (code_builder_start_s, code_builder_start_r) = chan<bool, u32:1>("code_buider");
@@ -69,6 +66,8 @@ pub proc HuffmanLiteralsDecoder<AXI_DATA_W: u32, AXI_ADDR_W: u32, AXI_ID_W: u32,
         let (lookahead_config_s, lookahead_config_r) = chan<hcommon::CodeBuilderToPreDecoderOutput, u32:1>("lookahead_config");
         let (axi_data_s, axi_data_r) = chan<axi_reader::HuffmanAxiReaderData, u32:1>("axi_data");
         let (preprocessed_data_s, preprocessed_data_r) = chan<data_preprocessor::HuffmanDataPreprocessorData, u32:1>("preprocessed_data");
+        // code builder loopback
+        let (weights_pow_sum_loopback_s, weights_pow_sum_loopback_r) = chan<uN[hcommon::MAX_WEIGHT + u32:2], u32:1>("weights_pow_sum_loopback");
 
         // prescan internal memory
         let (prescan_internal_ram_write_req_s, prescan_internal_ram_write_req_r) = chan<PrescanInternalWriteReq, u32:1>("prescan_internal_ram_write_req");
@@ -163,8 +162,6 @@ proc HuffmanLiteralsDecoderInst {
         axi_r_r: chan<AxiR> in,
         ram_read_req_s: chan<ReadReq> out,
         ram_read_resp_r: chan<ReadResp> in,
-        weights_pow_sum_loopback_s: chan<uN[hcommon::MAX_WEIGHT + u32:2]> out,
-        weights_pow_sum_loopback_r: chan<uN[hcommon::MAX_WEIGHT + u32:2]> in,
     ) {
         spawn HuffmanLiteralsDecoder<INST_AXI_DATA_W, INST_AXI_ADDR_W, INST_AXI_ID_W, INST_RAM_ADDR_WIDTH, INST_RAM_ACCESS_WIDTH>(
             ctrl_r,
@@ -173,8 +170,6 @@ proc HuffmanLiteralsDecoderInst {
             axi_r_r,
             ram_read_req_s,
             ram_read_resp_r,
-            weights_pow_sum_loopback_s,
-            weights_pow_sum_loopback_r,
         );
     }
 
@@ -374,13 +369,11 @@ proc HuffmanLiteralsDecoder_test {
         let (axi_r_s, axi_r_r) = chan<TestAxiR>("axi_r");
         let (ram_read_req_s, ram_read_req_r) = chan<TestReadReq>("ram_read_req");
         let (ram_read_resp_s, ram_read_resp_r) = chan<TestReadResp>("ram_read_resp");
-        let (weights_pow_sum_loopback_s, weights_pow_sum_loopback_r) = chan<uN[hcommon::MAX_WEIGHT + u32:2]>("weights_pow_sum_loopback");
 
         spawn HuffmanLiteralsDecoder<TEST_AXI_DATA_W, TEST_AXI_ADDR_W, TEST_AXI_ID_W, TEST_RAM_ADDR_WIDTH, TEST_RAM_ACCESS_WIDTH>(
             ctrl_r, decoded_literals_s,
             axi_ar_s, axi_r_r,
             ram_read_req_s, ram_read_resp_r,
-            weights_pow_sum_loopback_s, weights_pow_sum_loopback_r,
         );
 
         (

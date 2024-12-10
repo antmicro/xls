@@ -57,6 +57,11 @@ pub proc HuffmanLiteralsDecoder<AXI_DATA_W: u32, AXI_ADDR_W: u32, AXI_ID_W: u32,
         // weight memory
         ram_read_req_s: chan<ReadReq> out,
         ram_read_resp_r: chan<ReadResp> in,
+        // prescan memory
+        prescan_internal_ram_read_req_s: chan<PrescanInternalReadReq> out,
+        prescan_internal_ram_read_resp_r: chan<PrescanInternalReadResp> in,
+        prescan_internal_ram_write_req_s: chan<PrescanInternalWriteReq> out,
+        prescan_internal_ram_write_resp_r: chan<PrescanInternalWriteResp> in,
     ) {
         let (prescan_start_s, prescan_start_r) = chan<bool, u32:1>("prescan_start");
         let (code_builder_start_s, code_builder_start_r) = chan<bool, u32:1>("code_buider");
@@ -71,17 +76,6 @@ pub proc HuffmanLiteralsDecoder<AXI_DATA_W: u32, AXI_ADDR_W: u32, AXI_ID_W: u32,
         let (preprocessed_data_s, preprocessed_data_r) = chan<data_preprocessor::HuffmanDataPreprocessorData, u32:1>("preprocessed_data");
         // code builder loopback
         let (weights_pow_sum_loopback_s, weights_pow_sum_loopback_r) = chan<uN[hcommon::MAX_WEIGHT + u32:2], u32:1>("weights_pow_sum_loopback");
-
-        // prescan internal memory
-        let (prescan_internal_ram_write_req_s, prescan_internal_ram_write_req_r) = chan<PrescanInternalWriteReq, u32:1>("prescan_internal_ram_write_req");
-        let (prescan_internal_ram_write_resp_s, prescan_internal_ram_write_resp_r) = chan<PrescanInternalWriteResp, u32:1>("prescan_internal_ram_write_resp");
-        let (prescan_internal_ram_read_req_s, prescan_internal_ram_read_req_r) = chan<PrescanInternalReadReq, u32:1>("prescan_internal_ram_read_req");
-        let (prescan_internal_ram_read_resp_s, prescan_internal_ram_read_resp_r) = chan<PrescanInternalReadResp, u32:1>("prescan_internal_ram_read_resp");
-
-        spawn ram::RamModel<{prescan::WeightPreScanMetaDataSize()}, prescan::RAM_SIZE, {prescan::WeightPreScanMetaDataSize()}>(
-            prescan_internal_ram_read_req_r, prescan_internal_ram_read_resp_s,
-            prescan_internal_ram_write_req_r, prescan_internal_ram_write_resp_s,
-        );
 
         spawn ctrl::HuffmanControlAndSequence<AXI_ADDR_W>(
             ctrl_r, resp_s,
@@ -159,6 +153,11 @@ proc HuffmanLiteralsDecoderInst {
     type ReadReq  = ram::ReadReq<INST_RAM_ADDR_WIDTH, u32:1>;
     type ReadResp = ram::ReadResp<INST_RAM_ACCESS_WIDTH>;
 
+    type PrescanInternalReadReq    = ram::ReadReq<INST_RAM_ADDR_WIDTH, u32:1>;
+    type PrescanInternalReadResp   = ram::ReadResp<{prescan::WeightPreScanMetaDataSize()}>;
+    type PrescanInternalWriteReq   = ram::WriteReq<INST_RAM_ADDR_WIDTH, {prescan::WeightPreScanMetaDataSize()}, u32:1>;
+    type PrescanInternalWriteResp  = ram::WriteResp;
+
     config (
         ctrl_r: chan<Ctrl> in,
         resp_s: chan<Resp> out,
@@ -167,6 +166,10 @@ proc HuffmanLiteralsDecoderInst {
         axi_r_r: chan<AxiR> in,
         ram_read_req_s: chan<ReadReq> out,
         ram_read_resp_r: chan<ReadResp> in,
+        prescan_internal_ram_read_req_s: chan<PrescanInternalReadReq> out,
+        prescan_internal_ram_read_resp_r: chan<PrescanInternalReadResp> in,
+        prescan_internal_ram_write_req_s: chan<PrescanInternalWriteReq> out,
+        prescan_internal_ram_write_resp_r: chan<PrescanInternalWriteResp> in,
     ) {
         spawn HuffmanLiteralsDecoder<INST_AXI_DATA_W, INST_AXI_ADDR_W, INST_AXI_ID_W, INST_RAM_ADDR_WIDTH, INST_RAM_ACCESS_WIDTH>(
             ctrl_r, resp_s,
@@ -175,6 +178,8 @@ proc HuffmanLiteralsDecoderInst {
             axi_r_r,
             ram_read_req_s,
             ram_read_resp_r,
+            prescan_internal_ram_read_req_s, prescan_internal_ram_read_resp_r,
+            prescan_internal_ram_write_req_s, prescan_internal_ram_write_resp_r,
         );
     }
 
@@ -360,6 +365,10 @@ const TEST_DECODED_LITERALS_2 = common::LiteralsData[1]:[
 #[test_proc]
 proc HuffmanLiteralsDecoder_test {
     type Status = HuffmanLiteralsDecoderStatus;
+    type PrescanInternalReadReq    = ram::ReadReq<TEST_RAM_ADDR_WIDTH, u32:1>;
+    type PrescanInternalReadResp   = ram::ReadResp<{prescan::WeightPreScanMetaDataSize()}>;
+    type PrescanInternalWriteReq   = ram::WriteReq<TEST_RAM_ADDR_WIDTH, {prescan::WeightPreScanMetaDataSize()}, u32:1>;
+    type PrescanInternalWriteResp  = ram::WriteResp;
 
     terminator: chan<bool> out;
 
@@ -380,10 +389,23 @@ proc HuffmanLiteralsDecoder_test {
         let (ram_read_req_s, ram_read_req_r) = chan<TestReadReq>("ram_read_req");
         let (ram_read_resp_s, ram_read_resp_r) = chan<TestReadResp>("ram_read_resp");
 
+        // prescan internal memory
+        let (prescan_internal_ram_write_req_s, prescan_internal_ram_write_req_r) = chan<PrescanInternalWriteReq, u32:1>("prescan_internal_ram_write_req");
+        let (prescan_internal_ram_write_resp_s, prescan_internal_ram_write_resp_r) = chan<PrescanInternalWriteResp, u32:1>("prescan_internal_ram_write_resp");
+        let (prescan_internal_ram_read_req_s, prescan_internal_ram_read_req_r) = chan<PrescanInternalReadReq, u32:1>("prescan_internal_ram_read_req");
+        let (prescan_internal_ram_read_resp_s, prescan_internal_ram_read_resp_r) = chan<PrescanInternalReadResp, u32:1>("prescan_internal_ram_read_resp");
+
         spawn HuffmanLiteralsDecoder<TEST_AXI_DATA_W, TEST_AXI_ADDR_W, TEST_AXI_ID_W, TEST_RAM_ADDR_WIDTH, TEST_RAM_ACCESS_WIDTH>(
             ctrl_r, resp_s, decoded_literals_s,
             axi_ar_s, axi_r_r,
             ram_read_req_s, ram_read_resp_r,
+            prescan_internal_ram_read_req_s, prescan_internal_ram_read_resp_r,
+            prescan_internal_ram_write_req_s, prescan_internal_ram_write_resp_r,
+        );
+
+        spawn ram::RamModel<{prescan::WeightPreScanMetaDataSize()}, prescan::RAM_SIZE, {prescan::WeightPreScanMetaDataSize()}>(
+            prescan_internal_ram_read_req_r, prescan_internal_ram_read_resp_s,
+            prescan_internal_ram_write_req_r, prescan_internal_ram_write_resp_s,
         );
 
         (

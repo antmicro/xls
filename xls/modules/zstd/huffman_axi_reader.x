@@ -33,17 +33,13 @@ struct HuffmanAxiReaderState<AXI_DATA_W: u32, AXI_ADDR_W: u32> {
 }
 
 pub proc HuffmanAxiReader<AXI_DATA_W: u32, AXI_ADDR_W: u32, AXI_ID_W: u32> {
-    // FIXME: Replace hard-coded values with proc params AXI_DATA_W, AXI_ID_W
-    type AxiR = axi::AxiR<u32:32, u32:32>;
-    // FIXME: Replace hard-coded values with proc params AXI_ADDR_W, AXI_ID_W
-    type AxiAr = axi::AxiAr<u32:32, u32:32>;
+    type AxiAr = axi::AxiAr<AXI_ADDR_W, AXI_ID_W>;
+    type AxiR = axi::AxiR<AXI_DATA_W, AXI_ID_W>;
 
-    // FIXME: Replace hard-coded values with proc params AXI_ADDR_W
-    type Ctrl = HuffmanAxiReaderCtrl<u32:32>;
+    type Ctrl = HuffmanAxiReaderCtrl<AXI_ADDR_W>;
     type Data = HuffmanAxiReaderData;
 
-    // FIXME: Replace hard-coded values with proc params AXI_DATA_W, AXI_ADDR_W
-    type State = HuffmanAxiReaderState<u32:32, u32:32>;
+    type State = HuffmanAxiReaderState<AXI_DATA_W, AXI_ADDR_W>;
 
     ctrl_r: chan<Ctrl> in;
     axi_r_r: chan<AxiR> in;
@@ -127,9 +123,9 @@ pub proc HuffmanAxiReader<AXI_DATA_W: u32, AXI_ADDR_W: u32, AXI_ID_W: u32> {
     }
 }
 
-const INST_AXI_DATA_W = u32:32;
-const INST_AXI_ADDR_W = u32:32;
-const INST_AXI_ID_W = u32:32;
+const INST_AXI_DATA_W = u32:64;
+const INST_AXI_ADDR_W = u32:16;
+const INST_AXI_ID_W = u32:4;
 
 proc HuffmanAxiReaderInst {
     type InstHuffmanAxiReaderCtrl = HuffmanAxiReaderCtrl<INST_AXI_ADDR_W>;
@@ -156,9 +152,9 @@ proc HuffmanAxiReaderInst {
     next (state: ()) { }
 }
 
-const TEST_AXI_DATA_W = u32:32;
-const TEST_AXI_ADDR_W = u32:32;
-const TEST_AXI_ID_W = u32:32;
+const TEST_AXI_DATA_W = u32:64;
+const TEST_AXI_ADDR_W = u32:16;
+const TEST_AXI_ID_W = u32:4;
 
 type TestHuffmanAxiReaderCtrl = HuffmanAxiReaderCtrl<TEST_AXI_ADDR_W>;
 

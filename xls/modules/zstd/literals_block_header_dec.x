@@ -167,22 +167,21 @@ pub proc LiteralsHeaderDecoder<AXI_DATA_W: u32, AXI_ADDR_W: u32> {
     type MemReaderResp = mem_reader::MemReaderResp<AXI_DATA_W, AXI_ADDR_W>;
     type MemReaderStatus = mem_reader::MemReaderStatus;
 
-    mem_rd_req_s: chan<MemReaderReq> out;
-    mem_rd_resp_r: chan<MemReaderResp> in;
-
     req_r: chan<Req> in;
     resp_s: chan<Resp> out;
+
+    mem_rd_req_s: chan<MemReaderReq> out;
+    mem_rd_resp_r: chan<MemReaderResp> in;
 
     init {}
 
     config(
-        mem_rd_req_s: chan<MemReaderReq> out,
-        mem_rd_resp_r: chan<MemReaderResp> in,
-
         req_r: chan<Req> in,
         resp_s: chan<Resp> out,
+        mem_rd_req_s: chan<MemReaderReq> out,
+        mem_rd_resp_r: chan<MemReaderResp> in,
     ) {
-        (mem_rd_req_s, mem_rd_resp_r, req_r, resp_s)
+        (req_r, resp_s, mem_rd_req_s, mem_rd_resp_r)
     }
 
     next(state: ()) {
@@ -226,10 +225,10 @@ proc LiteralsHeaderDecoderTest {
 
     terminator: chan<bool> out;
 
-    mem_rd_req_r: chan<MemReaderReq> in;
-    mem_rd_resp_s: chan<MemReaderResp> out;
     req_s: chan<Req> out;
     resp_r: chan<Resp> in;
+    mem_rd_req_r: chan<MemReaderReq> in;
+    mem_rd_resp_s: chan<MemReaderResp> out;
 
     init {}
 
@@ -242,13 +241,13 @@ proc LiteralsHeaderDecoderTest {
         let (resp_s, resp_r) = chan<Resp>("resp");
 
         spawn LiteralsHeaderDecoder<TEST_AXI_DATA_W, TEST_AXI_ADDR_W> (
-            mem_rd_req_s, mem_rd_resp_r, req_r, resp_s
+            req_r, resp_s, mem_rd_req_s, mem_rd_resp_r
         );
 
         (
             terminator,
+            req_s, resp_r,
             mem_rd_req_r, mem_rd_resp_s,
-            req_s, resp_r
         )
     }
 
@@ -414,25 +413,25 @@ proc LiteralsHeaderDecoderInst {
     type ReaderReq = mem_reader::MemReaderReq<u32:16>;
     type ReaderResp = mem_reader::MemReaderResp<u32:64, u32:16>;
 
-    reader_req_s: chan<ReaderReq> out;
-    reader_resp_r: chan<ReaderResp> in;
-
     decode_req_r: chan<Req> in;
     decode_resp_s: chan<Resp> out;
 
+    reader_req_s: chan<ReaderReq> out;
+    reader_resp_r: chan<ReaderResp> in;
+
     config(
-        reader_req_s: chan<ReaderReq> out,
-        reader_resp_r: chan<ReaderResp> in,
         decode_req_r: chan<Req> in,
         decode_resp_s: chan<Resp> out,
+        reader_req_s: chan<ReaderReq> out,
+        reader_resp_r: chan<ReaderResp> in,
     ) {
         spawn LiteralsHeaderDecoder<u32:64, u32:16>(
-            reader_req_s,
-            reader_resp_r,
             decode_req_r,
-            decode_resp_s
+            decode_resp_s,
+            reader_req_s,
+            reader_resp_r
         );
-        (reader_req_s, reader_resp_r, decode_req_r, decode_resp_s)
+        (decode_req_r, decode_resp_s, reader_req_s, reader_resp_r)
     }
 
     init {}

@@ -17,6 +17,7 @@ import std;
 import xls.examples.ram;
 import xls.modules.zstd.memory.axi;
 import xls.modules.zstd.memory.mem_reader;
+import xls.modules.zstd.memory.axi_ram;
 import xls.modules.zstd.fse_table_creator;
 import xls.modules.zstd.refilling_shift_buffer;
 import xls.modules.zstd.fse_proba_freq_dec;
@@ -199,6 +200,16 @@ const TESTCASE: u8[21] = [u8:0x32,u8:0x19,u8:0x08,u8:0x62,u8:0x20,u8:0x86,u8:0x6
 
 const TEST_AXI_DATA_WIDTH = u32:64;
 const TEST_AXI_ADDR_WIDTH = u32:32;
+const TEST_AXI_ID_WIDTH = u32:8;
+const TEST_AXI_DEST_WIDTH = u32:8;
+
+const TEST_CASE_RAM_DATA_WIDTH = u32:64;
+const TEST_CASE_RAM_SIZE = u32:256;
+const TEST_CASE_RAM_ADDR_WIDTH = std::clog2(TEST_CASE_RAM_SIZE);
+const TEST_CASE_RAM_WORD_PARTITION_SIZE = TEST_CASE_RAM_DATA_WIDTH;
+const TEST_CASE_RAM_NUM_PARTITIONS = ram::num_partitions(
+    TEST_CASE_RAM_WORD_PARTITION_SIZE, TEST_CASE_RAM_DATA_WIDTH);
+const TEST_CASE_RAM_BASE_ADDR = u32:0;
 
 const TEST_DPD_RAM_DATA_WIDTH = u32:16;
 const TEST_DPD_RAM_SIZE = u32:256;
@@ -246,7 +257,17 @@ proc FseLookupDecoderTest {
     type TmpRamWrReq = ram::WriteReq<TEST_TMP_RAM_ADDR_WIDTH, TEST_TMP_RAM_DATA_WIDTH, TEST_TMP_RAM_NUM_PARTITIONS>;
     type TmpRamWrResp = ram::WriteResp;
 
+    type TestcaseRamRdReq = ram::ReadReq<TEST_CASE_RAM_ADDR_WIDTH, TEST_CASE_RAM_NUM_PARTITIONS>;
+    type TestcaseRamRdResp = ram::ReadResp<TEST_CASE_RAM_DATA_WIDTH>;
+    type TestcaseRamWrReq = ram::WriteReq<TEST_CASE_RAM_ADDR_WIDTH, TEST_CASE_RAM_DATA_WIDTH, TEST_CASE_RAM_NUM_PARTITIONS>;
+    type TestcaseRamWrResp = ram::WriteResp;
+
+    type AxiR = axi::AxiR<TEST_AXI_DATA_WIDTH, TEST_AXI_ID_WIDTH>;
+    type AxiAr = axi::AxiAr<TEST_AXI_ADDR_WIDTH, TEST_AXI_ID_WIDTH>;
+
     terminator: chan<bool> out;
+    req_s: chan<Req> out;
+    resp_r: chan<Resp> in;
 
     config(terminator: chan<bool> out) {
         let (req_s, req_r) = chan<Req>("req");
@@ -269,6 +290,10 @@ proc FseLookupDecoderTest {
         let (fse_wr_req_s, fse_wr_req_r) = chan<FseRamWrReq>("fse_wr_req");
         let (fse_wr_resp_s, fse_wr_resp_r) = chan<FseRamWrResp>("fse_wr_resp");
 
+        let (testcase_rd_req_s, testcase_rd_req_r) = chan<TestcaseRamRdReq>("testcase_rd_req");
+        let (testcase_rd_resp_s, testcase_rd_resp_r) = chan<TestcaseRamRdResp>("testcase_rd_resp");
+        let (_, testcase_wr_req_r) = chan<TestcaseRamWrReq>("testcase_wr_req");
+        let (testcase_wr_resp_s, _) = chan<TestcaseRamWrResp>("testcase_wr_resp");
 
         spawn FseLookupDecoder<
             TEST_AXI_DATA_WIDTH, TEST_AXI_ADDR_WIDTH,
@@ -294,16 +319,36 @@ proc FseLookupDecoderTest {
             fse_wr_resp_r,
         );
 
-        // TODO:
-        // - rams
-        //   - dpd
-        //   - tmp
-        //   - fse
-        //   - FSE data
-        // - axi ram reader for FSE data
-        // - mem reader for fse lookup decoder
+        spawn ram::RamModel<
+            TEST_DPD_RAM_DATA_WIDTH, TEST_DPD_RAM_SIZE, TEST_DPD_RAM_WORD_PARTITION_SIZE,
+        >(dpd_rd_req_r, dpd_rd_resp_s, dpd_wr_req_r, dpd_wr_resp_s);
+
+        spawn ram::RamModel<
+            TEST_FSE_RAM_DATA_WIDTH, TEST_FSE_RAM_SIZE, TEST_FSE_RAM_WORD_PARTITION_SIZE,
+        >(fse_rd_req_r, fse_rd_resp_s, fse_wr_req_r, fse_wr_resp_s);
+
+        spawn ram::RamModel<
+            TEST_TMP_RAM_DATA_WIDTH, TEST_TMP_RAM_SIZE, TEST_TMP_RAM_WORD_PARTITION_SIZE,
+        >(tmp_rd_req_r, tmp_rd_resp_s, tmp_wr_req_r, tmp_wr_resp_s);
+
+        spawn ram::RamModel<
+            TEST_CASE_RAM_DATA_WIDTH, TEST_CASE_RAM_SIZE, TEST_CASE_RAM_WORD_PARTITION_SIZE,
+        >(testcase_rd_req_r, testcase_rd_resp_s, testcase_wr_req_r, testcase_wr_resp_s);
+
+        let (testcase_axi_r_s, testcase_axi_r_r) = chan<AxiR>("testcase_axi_r");
+        let (testcase_axi_ar_s, testcase_axi_ar_r) = chan<AxiAr>("testcase_axi_ar");
+
+        spawn axi_ram::AxiRamReader<
+            TEST_AXI_ADDR_WIDTH, TEST_AXI_DATA_WIDTH, TEST_AXI_DEST_WIDTH, TEST_AXI_ID_WIDTH,
+            TEST_CASE_RAM_SIZE, TEST_CASE_RAM_BASE_ADDR, TEST_CASE_RAM_DATA_WIDTH,
+            TEST_CASE_RAM_ADDR_WIDTH, TEST_CASE_RAM_NUM_PARTITIONS,
+        >(testcase_axi_ar_r, testcase_axi_r_s, testcase_rd_req_s, testcase_rd_resp_r);
+
+        spawn mem_reader::MemReader<
+            TEST_AXI_DATA_WIDTH, TEST_AXI_ADDR_WIDTH, TEST_AXI_DEST_WIDTH, TEST_AXI_ID_WIDTH
+        >(mem_rd_req_r, mem_rd_resp_s, testcase_axi_ar_s, testcase_axi_r_r);
         
-        (terminator,)
+        (terminator, req_s, resp_r)
     }
 
     init {}

@@ -32,6 +32,8 @@ pub struct HuffmanControlAndSequenceCtrl<AXI_ADDR_W: u32> {
     base_addr: uN[AXI_ADDR_W],
     len: uN[AXI_ADDR_W],
     new_config: bool,
+    id: u32,
+    literals_last: bool,
 }
 
 pub enum HuffmanControlAndSequenceStatus: u1 {
@@ -141,6 +143,8 @@ pub proc HuffmanControlAndSequence<AXI_ADDR_W: u32> {
         });
         send_if(tok, decoder_start_s, ctrl_valid, DecoderStart {
             new_config: new_config,
+            id: ctrl.id,  // sending only if ctrl is valid
+            literals_last: ctrl.literals_last,
         });
 
         // receive done
@@ -260,6 +264,8 @@ proc HuffmanControlAndSequence_test {
             base_addr: uN[TEST_AXI_ADDR_W]:0x1,
             len: uN[TEST_AXI_ADDR_W]:0x2,
             new_config: false,
+            id: u32:10,
+            literals_last: true,
         };
         let tok = send(tok, ctrl_s, ctrl);
 
@@ -270,7 +276,7 @@ proc HuffmanControlAndSequence_test {
         assert_eq(DataPreprocessorStart {new_config: ctrl.new_config}, data_preprocess_start);
 
         let (tok, decoder_start) = recv(tok, decoder_start_r);
-        assert_eq(DecoderStart {new_config: ctrl.new_config}, decoder_start);
+        assert_eq(DecoderStart {new_config: ctrl.new_config, id: ctrl.id, literals_last: ctrl.literals_last }, decoder_start);
 
         let tok = send(tok, decoder_done_s, ());
         let (tok, resp) = recv(tok, resp_r);
@@ -281,6 +287,8 @@ proc HuffmanControlAndSequence_test {
             base_addr: uN[TEST_AXI_ADDR_W]:0x1,
             len: uN[TEST_AXI_ADDR_W]:0x2,
             new_config: true,
+            id: u32:0,
+            literals_last: false,
         };
         let tok = send(tok, ctrl_s, ctrl);
 
@@ -297,7 +305,7 @@ proc HuffmanControlAndSequence_test {
         assert_eq(DataPreprocessorStart {new_config: ctrl.new_config}, data_preprocess_start);
 
         let (tok, decoder_start) = recv(tok, decoder_start_r);
-        assert_eq(DecoderStart {new_config: ctrl.new_config}, decoder_start);
+        assert_eq(DecoderStart {new_config: ctrl.new_config, id: ctrl.id, literals_last: ctrl.literals_last }, decoder_start);
 
         let tok = send(tok, decoder_done_s, ());
         assert_eq(Resp {status: Status::OKAY}, resp);

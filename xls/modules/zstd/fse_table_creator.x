@@ -38,7 +38,7 @@ enum Status : u4 {
     GET_STATE_DESC = 9,
     SET_STATE_DESC = 10,
     SEND_FINISH = 11,
-    FINISH = 12,
+    START_ITERATING_POS = 12,
 }
 
 struct FseTableCreatorState {
@@ -243,15 +243,16 @@ pub proc FseTableCreator<
         );
         let (tok6, _) = recv_if(tok6, tmp_wr_resp_r, handle_positive_prob_write_state_desc, TmpRamWriteResp {});
 
-        let inner_for_get_pos = (state.status == Status::INNER_FOR_GET_POS);
+        let inner_for_start_counting = state.status == Status::START_ITERATING_POS;
         let negative_proba_count = (u16:1 << state.accuracy_log) - state.high_threshold;
-        let tok7 = send_if( tok0, it_ctrl_s, inner_for_get_pos,
+        let tok7 = send_if( tok0, it_ctrl_s, inner_for_start_counting,
             IterCtrl {
                 accuracy_log: checked_cast<AccuracyLog>(state.accuracy_log),
                 negative_proba_count: checked_cast<SymbolCount>(negative_proba_count),
             }
         );
-        let (tok7, pos) = recv_if(tok7, it_index_r, inner_for_get_pos, zero!<IterIndex>());
+        let inner_for_get_pos = (state.status == Status::INNER_FOR_GET_POS);
+        let (_, pos) = recv_if(tok0, it_index_r, inner_for_get_pos, zero!<IterIndex>());
 
         let inner_for_write_sym = state.status == Status::INNER_FOR_WRITE_SYM;
         let tok4 = send_if( tok0, fse_wr_req_s, inner_for_write_sym,
@@ -316,6 +317,8 @@ pub proc FseTableCreator<
         let send_finish = state.status == Status::SEND_FINISH;
         let tok11 = send_if(tok0, fse_table_finish_s, send_finish, ());
 
+        trace_fmt!("fse lookup state: {:#x}", state);
+
         if state.req && (
                state.status == Status::TEST_NEGATIVE_PROB ||
                state.status == Status::TEST_POSITIVE_PROB ||
@@ -341,7 +344,7 @@ pub proc FseTableCreator<
                         if next_idx < state.num_symbs {
                             State { status: Status::TEST_NEGATIVE_PROB, req: true, idx: next_idx, ..state }
                         } else {
-                            State { status: Status::TEST_POSITIVE_PROB, req: true, idx: u16:0, ..state }
+                            State { status: Status::START_ITERATING_POS, req: true, idx: u16:0, ..state }
                         }
                     }
                 },
@@ -351,8 +354,11 @@ pub proc FseTableCreator<
                     if next_idx < state.num_symbs {
                         State { status: Status::TEST_NEGATIVE_PROB, req: true, idx: next_idx, high_threshold: decreased_high_threshold, ..state }
                     } else {
-                        State { status: Status::TEST_POSITIVE_PROB, req: true, idx: u16:0, high_threshold: decreased_high_threshold, ..state }
+                        State { status: Status::START_ITERATING_POS, req: true, idx: u16:0, high_threshold: decreased_high_threshold, ..state }
                     }
+                },
+                Status::START_ITERATING_POS => {
+                    State { status: Status::TEST_POSITIVE_PROB, ..state }
                 },
                 Status::TEST_POSITIVE_PROB => {
                     if dpd_resp.data as s16 > s16:0 {
@@ -407,8 +413,7 @@ pub proc FseTableCreator<
                         State { status: Status::SEND_FINISH, ..state }
                     }
                 },
-                Status::SEND_FINISH => { State { status: Status::FINISH, ..state } },
-                Status::FINISH => { state },
+                Status::SEND_FINISH => { State { status: Status::RECEIVE_START, ..zero!<State>() } },
                 _ => fail!("impossible_case", zero!<State>()),
             }
         }

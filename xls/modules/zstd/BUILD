@@ -1438,26 +1438,26 @@ py_test(
     ],
 )
 
-#xls_dslx_library(
-#    name = "fse_lookup_dec_dslx",
-#    srcs = [
-#        "fse_lookup_dec.x",
-#    ],
-#    deps = [
-#        "//xls/examples:ram_dslx",
-#        "//xls/modules/zstd/memory:axi_dslx",
-#        "//xls/modules/zstd/memory:axi_ram_dslx",
-#        "//xls/modules/zstd:fse_table_creator_dslx",
-#        "//xls/modules/zstd:refilling_shift_buffer_dslx",
-#        "//xls/modules/zstd:fse_proba_freq_dec_dslx",
-#        "//xls/modules/shift_buffer:shift_buffer_dslx",
-#    ]
-#)
-#
-#xls_dslx_test(
-#    name = "fse_lookup_dec_dslx_test",
-#    library = ":fse_lookup_dec_dslx",
-#)
+xls_dslx_library(
+    name = "fse_lookup_dec_dslx",
+    srcs = [
+        "fse_lookup_dec.x",
+    ],
+    deps = [
+        "//xls/examples:ram_dslx",
+        "//xls/modules/zstd/memory:axi_dslx",
+        "//xls/modules/zstd/memory:axi_ram_dslx",
+        "//xls/modules/zstd:fse_table_creator_dslx",
+        "//xls/modules/zstd:refilling_shift_buffer_dslx",
+        "//xls/modules/zstd:fse_proba_freq_dec_dslx",
+        "//xls/modules/shift_buffer:shift_buffer_dslx",
+    ]
+)
+
+xls_dslx_test(
+    name = "fse_lookup_dec_dslx_test",
+    library = ":fse_lookup_dec_dslx",
+)
 
 xls_dslx_library(
     name = "fse_table_iterator_dslx",

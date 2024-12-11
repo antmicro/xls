@@ -274,8 +274,8 @@ proc FseDecoder {
         let state = if do_read_bits & buf_data_valid {
             FseDecoderState {
                 sent_buf_ctrl: false,
-                read_bits: math::logshiftl(buf_data.payload.data as u16, state.read_bits_length) | state.read_bits,
-                read_bits_length: state.read_bits_length + buf_data.payload.length,
+                read_bits: math::logshiftl(buf_data.data as u16, state.read_bits_length) | state.read_bits,
+                read_bits_length: state.read_bits_length + buf_data.length,
                 ..state
             }
         } else { state };
@@ -743,129 +743,129 @@ const TEST_CTRL = FseDecoderCtrl[2]:[
 
 const TEST_DATA_0 = ShiftBufferOutput[48]:[
     // init states
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b11111, length: u7:5, last: false}, status: ShiftBufferStatus::OK},
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b101, length: u7:5, last: false}, status: ShiftBufferStatus::OK},
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b10, length: u7:5, last: false}, status: ShiftBufferStatus::OK},
+    ShiftBufferOutput {data: u64:0b11111, length: u7:5},
+    ShiftBufferOutput {data: u64:0b101, length: u7:5},
+    ShiftBufferOutput {data: u64:0b10, length: u7:5},
     // symbols (seq #0)
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b0, length: u7:0, last: false}, status: ShiftBufferStatus::OK},
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b0, length: u7:0, last: false}, status: ShiftBufferStatus::OK},
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b0, length: u7:0, last: false}, status: ShiftBufferStatus::OK},
+    ShiftBufferOutput {data: u64:0b0, length: u7:0},
+    ShiftBufferOutput {data: u64:0b0, length: u7:0},
+    ShiftBufferOutput {data: u64:0b0, length: u7:0},
     // state update
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b0, length: u7:1, last: false}, status: ShiftBufferStatus::OK},
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b0, length: u7:1, last: false}, status: ShiftBufferStatus::OK},
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b100, length: u7:3, last: false}, status: ShiftBufferStatus::OK},
+    ShiftBufferOutput {data: u64:0b0, length: u7:1},
+    ShiftBufferOutput {data: u64:0b0, length: u7:1},
+    ShiftBufferOutput {data: u64:0b100, length: u7:3},
     // symbols (seq #1)
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b10, length: u7:2, last: false}, status: ShiftBufferStatus::OK},
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b0, length: u7:0, last: false}, status: ShiftBufferStatus::OK},
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b0, length: u7:0, last: false}, status: ShiftBufferStatus::OK},
+    ShiftBufferOutput {data: u64:0b10, length: u7:2},
+    ShiftBufferOutput {data: u64:0b0, length: u7:0},
+    ShiftBufferOutput {data: u64:0b0, length: u7:0},
     // state update
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b0, length: u7:1, last: false}, status: ShiftBufferStatus::OK},
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b110, length: u7:3, last: false}, status: ShiftBufferStatus::OK},
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b10, length: u7:2, last: false}, status: ShiftBufferStatus::OK},
+    ShiftBufferOutput {data: u64:0b0, length: u7:1},
+    ShiftBufferOutput {data: u64:0b110, length: u7:3},
+    ShiftBufferOutput {data: u64:0b10, length: u7:2},
     // symbols (seq #2)
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b0, length: u7:3, last: false}, status: ShiftBufferStatus::OK},
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b0, length: u7:0, last: false}, status: ShiftBufferStatus::OK},
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b0, length: u7:0, last: false}, status: ShiftBufferStatus::OK},
+    ShiftBufferOutput {data: u64:0b0, length: u7:3},
+    ShiftBufferOutput {data: u64:0b0, length: u7:0},
+    ShiftBufferOutput {data: u64:0b0, length: u7:0},
     // state update
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b10, length: u7:2, last: false}, status: ShiftBufferStatus::OK},
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b0, length: u7:0, last: false}, status: ShiftBufferStatus::OK},
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b0, length: u7:1, last: false}, status: ShiftBufferStatus::OK},
+    ShiftBufferOutput {data: u64:0b10, length: u7:2},
+    ShiftBufferOutput {data: u64:0b0, length: u7:0},
+    ShiftBufferOutput {data: u64:0b0, length: u7:1},
     // symbols (seq #3)
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b11, length: u7:3, last: false}, status: ShiftBufferStatus::OK},
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b0, length: u7:0, last: false}, status: ShiftBufferStatus::OK},
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b0, length: u7:0, last: false}, status: ShiftBufferStatus::OK},
+    ShiftBufferOutput {data: u64:0b11, length: u7:3},
+    ShiftBufferOutput {data: u64:0b0, length: u7:0},
+    ShiftBufferOutput {data: u64:0b0, length: u7:0},
     // state update
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b0, length: u7:0, last: false}, status: ShiftBufferStatus::OK},
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b0, length: u7:1, last: false}, status: ShiftBufferStatus::OK},
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b0, length: u7:1, last: false}, status: ShiftBufferStatus::OK},
+    ShiftBufferOutput {data: u64:0b0, length: u7:0},
+    ShiftBufferOutput {data: u64:0b0, length: u7:1},
+    ShiftBufferOutput {data: u64:0b0, length: u7:1},
     // symbols (seq #4)
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b0, length: u7:4, last: false}, status: ShiftBufferStatus::OK},
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b0, length: u7:0, last: false}, status: ShiftBufferStatus::OK},
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b0, length: u7:0, last: false}, status: ShiftBufferStatus::OK},
+    ShiftBufferOutput {data: u64:0b0, length: u7:4},
+    ShiftBufferOutput {data: u64:0b0, length: u7:0},
+    ShiftBufferOutput {data: u64:0b0, length: u7:0},
     // state update
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b1, length: u7:1, last: false}, status: ShiftBufferStatus::OK},
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b0, length: u7:0, last: false}, status: ShiftBufferStatus::OK},
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b0, length: u7:3, last: false}, status: ShiftBufferStatus::OK},
+    ShiftBufferOutput {data: u64:0b1, length: u7:1},
+    ShiftBufferOutput {data: u64:0b0, length: u7:0},
+    ShiftBufferOutput {data: u64:0b0, length: u7:3},
     // symbols (seq #5)
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b101, length: u7:3, last: false}, status: ShiftBufferStatus::OK},
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b0, length: u7:0, last: false}, status: ShiftBufferStatus::OK},
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b0, length: u7:0, last: false}, status: ShiftBufferStatus::OK},
+    ShiftBufferOutput {data: u64:0b101, length: u7:3},
+    ShiftBufferOutput {data: u64:0b0, length: u7:0},
+    ShiftBufferOutput {data: u64:0b0, length: u7:0},
     // state update
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b0, length: u7:0, last: false}, status: ShiftBufferStatus::OK},
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b0, length: u7:1, last: false}, status: ShiftBufferStatus::OK},
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b1, length: u7:1, last: false}, status: ShiftBufferStatus::OK},
+    ShiftBufferOutput {data: u64:0b0, length: u7:0},
+    ShiftBufferOutput {data: u64:0b0, length: u7:1},
+    ShiftBufferOutput {data: u64:0b1, length: u7:1},
     // symbols (seq #6)
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b11, length: u7:2, last: false}, status: ShiftBufferStatus::OK},
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b0, length: u7:0, last: false}, status: ShiftBufferStatus::OK},
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b0, length: u7:0, last: false}, status: ShiftBufferStatus::OK},
+    ShiftBufferOutput {data: u64:0b11, length: u7:2},
+    ShiftBufferOutput {data: u64:0b0, length: u7:0},
+    ShiftBufferOutput {data: u64:0b0, length: u7:0},
     // state update
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b0, length: u7:0, last: false}, status: ShiftBufferStatus::OK},
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b0, length: u7:2, last: false}, status: ShiftBufferStatus::OK},
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b0, length: u7:2, last: false}, status: ShiftBufferStatus::OK},
+    ShiftBufferOutput {data: u64:0b0, length: u7:0},
+    ShiftBufferOutput {data: u64:0b0, length: u7:2},
+    ShiftBufferOutput {data: u64:0b0, length: u7:2},
     // symbols (seq #7)
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b1000, length: u7:4, last: false}, status: ShiftBufferStatus::OK},
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b0, length: u7:0, last: false}, status: ShiftBufferStatus::OK},
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b0, length: u7:0, last: true}, status: ShiftBufferStatus::OK},
+    ShiftBufferOutput {data: u64:0b1000, length: u7:4},
+    ShiftBufferOutput {data: u64:0b0, length: u7:0},
+    ShiftBufferOutput {data: u64:0b0, length: u7:0},
     // no state update for last sequence
 ];
 
 const TEST_DATA_1 = ShiftBufferOutput[42]:[
     // init states
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b10000, length: u7:5, last: false}, status: ShiftBufferStatus::OK},
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b1110, length: u7:5, last: false}, status: ShiftBufferStatus::OK},
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b11001, length: u7:6, last: false}, status: ShiftBufferStatus::OK},
+    ShiftBufferOutput {data: u64:0b10000, length: u7:5},
+    ShiftBufferOutput {data: u64:0b1110, length: u7:5},
+    ShiftBufferOutput {data: u64:0b11001, length: u7:6},
     // symbols (seq #0)
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b0, length: u7:2, last: false}, status: ShiftBufferStatus::OK},
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b0, length: u7:0, last: false}, status: ShiftBufferStatus::OK},
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b0, length: u7:0, last: false}, status: ShiftBufferStatus::OK},
+    ShiftBufferOutput {data: u64:0b0, length: u7:2},
+    ShiftBufferOutput {data: u64:0b0, length: u7:0},
+    ShiftBufferOutput {data: u64:0b0, length: u7:0},
     // state update
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b110, length: u7:3, last: false}, status: ShiftBufferStatus::OK},
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b0, length: u7:5, last: false}, status: ShiftBufferStatus::OK},
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b1110, length: u7:5, last: false}, status: ShiftBufferStatus::OK},
+    ShiftBufferOutput {data: u64:0b110, length: u7:3},
+    ShiftBufferOutput {data: u64:0b0, length: u7:5},
+    ShiftBufferOutput {data: u64:0b1110, length: u7:5},
     // symbols (seq #1)
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b10, length: u7:2, last: false}, status: ShiftBufferStatus::OK},
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b0, length: u7:0, last: false}, status: ShiftBufferStatus::OK},
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b0, length: u7:0, last: false}, status: ShiftBufferStatus::OK},
+    ShiftBufferOutput {data: u64:0b10, length: u7:2},
+    ShiftBufferOutput {data: u64:0b0, length: u7:0},
+    ShiftBufferOutput {data: u64:0b0, length: u7:0},
     // state update
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b10, length: u7:2, last: false}, status: ShiftBufferStatus::OK},
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b1, length: u7:6, last: false}, status: ShiftBufferStatus::OK},
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b101, length: u7:5, last: false}, status: ShiftBufferStatus::OK},
+    ShiftBufferOutput {data: u64:0b10, length: u7:2},
+    ShiftBufferOutput {data: u64:0b1, length: u7:6},
+    ShiftBufferOutput {data: u64:0b101, length: u7:5},
     // symbols (seq #2)
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b110, length: u7:3, last: false}, status: ShiftBufferStatus::OK},
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b0, length: u7:0, last: false}, status: ShiftBufferStatus::OK},
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b0, length: u7:0, last: false}, status: ShiftBufferStatus::OK},
+    ShiftBufferOutput {data: u64:0b110, length: u7:3},
+    ShiftBufferOutput {data: u64:0b0, length: u7:0},
+    ShiftBufferOutput {data: u64:0b0, length: u7:0},
     // state update
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b11, length: u7:2, last: false}, status: ShiftBufferStatus::OK},
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b1, length: u7:4, last: false}, status: ShiftBufferStatus::OK},
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b10011, length: u7:5, last: false}, status: ShiftBufferStatus::OK},
+    ShiftBufferOutput {data: u64:0b11, length: u7:2},
+    ShiftBufferOutput {data: u64:0b1, length: u7:4},
+    ShiftBufferOutput {data: u64:0b10011, length: u7:5},
     // symbols (seq #3)
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b11, length: u7:4, last: false}, status: ShiftBufferStatus::OK},
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b0, length: u7:0, last: false}, status: ShiftBufferStatus::OK},
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b0, length: u7:0, last: false}, status: ShiftBufferStatus::OK},
+    ShiftBufferOutput {data: u64:0b11, length: u7:4},
+    ShiftBufferOutput {data: u64:0b0, length: u7:0},
+    ShiftBufferOutput {data: u64:0b0, length: u7:0},
     // state update
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b0, length: u7:2, last: false}, status: ShiftBufferStatus::OK},
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b1, length: u7:4, last: false}, status: ShiftBufferStatus::OK},
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b0, length: u7:5, last: false}, status: ShiftBufferStatus::OK},
+    ShiftBufferOutput {data: u64:0b0, length: u7:2},
+    ShiftBufferOutput {data: u64:0b1, length: u7:4},
+    ShiftBufferOutput {data: u64:0b0, length: u7:5},
     // symbols (seq #4)
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b0, length: u7:0, last: false}, status: ShiftBufferStatus::OK},
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b0, length: u7:0, last: false}, status: ShiftBufferStatus::OK},
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b0, length: u7:0, last: false}, status: ShiftBufferStatus::OK},
+    ShiftBufferOutput {data: u64:0b0, length: u7:0},
+    ShiftBufferOutput {data: u64:0b0, length: u7:0},
+    ShiftBufferOutput {data: u64:0b0, length: u7:0},
     // state update
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b10, length: u7:3, last: false}, status: ShiftBufferStatus::OK},
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b0, length: u7:4, last: false}, status: ShiftBufferStatus::OK},
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b1010, length: u7:5, last: false}, status: ShiftBufferStatus::OK},
+    ShiftBufferOutput {data: u64:0b10, length: u7:3},
+    ShiftBufferOutput {data: u64:0b0, length: u7:4},
+    ShiftBufferOutput {data: u64:0b1010, length: u7:5},
     // symbols (seq #5)
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b1110, length: u7:5, last: false}, status: ShiftBufferStatus::OK},
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b0, length: u7:0, last: false}, status: ShiftBufferStatus::OK},
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b0, length: u7:0, last: false}, status: ShiftBufferStatus::OK},
+    ShiftBufferOutput {data: u64:0b1110, length: u7:5},
+    ShiftBufferOutput {data: u64:0b0, length: u7:0},
+    ShiftBufferOutput {data: u64:0b0, length: u7:0},
     // state update
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b0, length: u7:1, last: false}, status: ShiftBufferStatus::OK},
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b11, length: u7:6, last: false}, status: ShiftBufferStatus::OK},
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b10011, length: u7:5, last: false}, status: ShiftBufferStatus::OK},
+    ShiftBufferOutput {data: u64:0b0, length: u7:1},
+    ShiftBufferOutput {data: u64:0b11, length: u7:6},
+    ShiftBufferOutput {data: u64:0b10011, length: u7:5},
     // symbols (seq #6)
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b10, length: u7:4, last: false}, status: ShiftBufferStatus::OK},
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b0, length: u7:0, last: false}, status: ShiftBufferStatus::OK},
-    ShiftBufferOutput {payload: ShiftBufferPacket {data: u64:0b0, length: u7:0, last: true}, status: ShiftBufferStatus::OK},
+    ShiftBufferOutput {data: u64:0b10, length: u7:4},
+    ShiftBufferOutput {data: u64:0b0, length: u7:0},
+    ShiftBufferOutput {data: u64:0b0, length: u7:0},
     // no state update for last sequence
 ];
 
@@ -1119,7 +1119,7 @@ proc FseDecoderTest {
                 let tok = for ((i, data), tok): ((u32, ShiftBufferOutput), token) in enumerate(TEST_DATA_0) {
                     let (tok, buf_ctrl) = recv(tok, shift_buffer_ctrl_r);
                     trace_fmt!("Received #{} buf ctrl {:#x}", i + u32:1, buf_ctrl);
-                    assert_eq(ShiftBufferCtrl {length: data.payload.length}, buf_ctrl);
+                    assert_eq(ShiftBufferCtrl {length: data.length}, buf_ctrl);
                     let tok = send(tok, shift_buffer_out_data_s, data);
                     trace_fmt!("Sent #{} buf data {:#x}", i + u32:1, data);
                     tok
@@ -1142,7 +1142,7 @@ proc FseDecoderTest {
                 let tok = for ((i, data), tok): ((u32, ShiftBufferOutput), token) in enumerate(TEST_DATA_1) {
                     let (tok, buf_ctrl) = recv(tok, shift_buffer_ctrl_r);
                     trace_fmt!("Received #{} buf ctrl {:#x}", i + u32:1, buf_ctrl);
-                    assert_eq(ShiftBufferCtrl {length: data.payload.length}, buf_ctrl);
+                    assert_eq(ShiftBufferCtrl {length: data.length}, buf_ctrl);
                     let tok = send(tok, shift_buffer_out_data_s, data);
                     trace_fmt!("Sent #{} buf data {:#x}", i + u32:1, data);
                     tok

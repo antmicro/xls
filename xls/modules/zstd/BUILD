@@ -1554,7 +1554,7 @@ xls_dslx_verilog(
     library = ":fse_table_creator_dslx",
     opt_ir_args = {
         "inline_procs": "true",
-        "top": "__fse_table_creator__FseTableCreatorInst__FseTableCreator_0__8_16_1_256_16_8_48_3_256_16_8_16_1_256_16_next",
+        "top": "__fse_table_creator__FseTableCreatorInst__FseTableCreator_0__8_16_1_8_48_3_8_16_1_next",
     },
     verilog_file = "fse_table_creator.v",
 )

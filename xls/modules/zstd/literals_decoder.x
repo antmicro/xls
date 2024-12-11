@@ -602,13 +602,20 @@ proc LiteralsDecoder<
     HISTORY_BUFFER_SIZE_KB: u32,
     // AXI parameters
     AXI_DATA_W: u32, AXI_ADDR_W: u32, AXI_ID_W: u32, AXI_DEST_W: u32,
-    HUFFMAN_RAM_ADDR_WIDTH: u32, HUFFMAN_RAM_ACCESS_WIDTH: u32,
-    RAM_SIZE: u32 = {parallel_rams::ram_size(HISTORY_BUFFER_SIZE_KB)},
+    HUFFMAN_WEIGHTS_RAM_ADDR_WIDTH: u32 = {prescan::RAM_ADDR_WIDTH},
+    HUFFMAN_WEIGHTS_RAM_DATA_WIDTH: u32 = {prescan::RAM_ACCESS_WIDTH},
+    HUFFMAN_WEIGHTS_RAM_NUM_PARTITIONS: u32 = {u32:1},
+    HUFFMAN_PRESCAN_RAM_ADDR_WIDTH: u32 = {prescan::RAM_ADDR_WIDTH},
+    HUFFMAN_PRESCAN_RAM_DATA_WIDTH: u32 = {prescan::WeightPreScanMetaDataSize()},
+    HUFFMAN_PRESCAN_RAM_NUM_PARTITIONS: u32 = {u32:1},
+    LITERALS_BUFFER_RAM_ADDR_WIDTH: u32 = {prescan::RAM_ADDR_WIDTH},
+    LITERALS_BUFFER_RAM_DATA_WIDTH: u32 = {prescan::WeightPreScanMetaDataSize()},
+    LITERALS_BUFFER_RAM_NUM_PARTITIONS: u32 = {u32:1},
     RAM_ADDR_WIDTH: u32 = {parallel_rams::ram_addr_width(HISTORY_BUFFER_SIZE_KB)},
 > {
-    type ReadReq = ram::ReadReq<RAM_ADDR_WIDTH, literals_buffer::RAM_NUM_PARTITIONS>;
-    type ReadResp = ram::ReadResp<literals_buffer::RAM_DATA_WIDTH>;
-    type WriteReq = ram::WriteReq<RAM_ADDR_WIDTH, literals_buffer::RAM_DATA_WIDTH, literals_buffer::RAM_NUM_PARTITIONS>;
+    type ReadReq = ram::ReadReq<LITERALS_BUFFER_RAM_ADDR_WIDTH, LITERALS_BUFFER_RAM_NUM_PARTITIONS>;
+    type ReadResp = ram::ReadResp<LITERALS_BUFFER_RAM_DATA_WIDTH>;
+    type WriteReq = ram::WriteReq<LITERALS_BUFFER_RAM_ADDR_WIDTH, LITERALS_BUFFER_RAM_DATA_WIDTH, LITERALS_BUFFER_RAM_NUM_PARTITIONS>;
     type WriteResp = ram::WriteResp;
     type MemAxiAr = axi::AxiAr<AXI_ADDR_W, AXI_ID_W>;
     type MemAxiR = axi::AxiR<AXI_DATA_W, AXI_ID_W>;
@@ -750,7 +757,11 @@ proc LiteralsDecoder<
         let (huffman_lit_resp_s, huffman_lit_resp_r) = chan<HuffmanResp, CHANNEL_DEPTH>("huffman_lit_resp");
         let (huffman_lit_output_s, huffman_lit_output_r) = chan<LiteralsDataWithSync, CHANNEL_DEPTH>("huffman_lit_output");
 
-        spawn huffman_literals_dec::HuffmanLiteralsDecoder<AXI_DATA_W, AXI_ADDR_W, AXI_ID_W, HUFFMAN_RAM_ADDR_WIDTH, HUFFMAN_RAM_ACCESS_WIDTH>(
+        spawn huffman_literals_dec::HuffmanLiteralsDecoder<
+            AXI_DATA_W, AXI_ADDR_W, AXI_ID_W,
+            HUFFMAN_WEIGHTS_RAM_ADDR_WIDTH, HUFFMAN_WEIGHTS_RAM_DATA_WIDTH, HUFFMAN_WEIGHTS_RAM_NUM_PARTITIONS,
+            HUFFMAN_PRESCAN_RAM_ADDR_WIDTH, HUFFMAN_PRESCAN_RAM_DATA_WIDTH, HUFFMAN_PRESCAN_RAM_NUM_PARTITIONS
+        >(
             huffman_lit_req_r, huffman_lit_resp_s, huffman_lit_output_s,
             huffman_lit_axi_ar_s, huffman_lit_axi_r_r,
             huffman_lit_weights_mem_rd_req_s, huffman_lit_weights_mem_rd_resp_r,
@@ -794,8 +805,12 @@ const INST_AXI_DATA_W:u32 = u32:64;
 const INST_AXI_ID_W:u32 = u32:4;
 const INST_AXI_DEST_W:u32 = u32:4;
 
-const INST_HUFFMAN_RAM_ADDR_WIDTH = huffman_literals_dec::INST_RAM_ADDR_WIDTH;
-const INST_HUFFMAN_RAM_ACCESS_WIDTH = huffman_literals_dec::INST_RAM_ACCESS_WIDTH;
+const INST_HUFFMAN_WEIGHTS_RAM_ADDR_WIDTH = huffman_literals_dec::INST_WEIGHTS_RAM_ADDR_WIDTH;
+const INST_HUFFMAN_WEIGHTS_RAM_DATA_WIDTH = huffman_literals_dec::INST_WEIGHTS_RAM_DATA_WIDTH;
+const INST_HUFFMAN_WEIGHTS_RAM_NUM_PARTITIONS = huffman_literals_dec::INST_WEIGHTS_RAM_NUM_PARTITIONS;
+const INST_HUFFMAN_PRESCAN_RAM_ADDR_WIDTH = huffman_literals_dec::INST_PRESCAN_RAM_ADDR_WIDTH;
+const INST_HUFFMAN_PRESCAN_RAM_DATA_WIDTH = huffman_literals_dec::INST_PRESCAN_RAM_DATA_WIDTH;
+const INST_HUFFMAN_PRESCAN_RAM_NUM_PARTITIONS = huffman_literals_dec::INST_PRESCAN_RAM_NUM_PARTITIONS;
 
 proc LiteralsDecoderInst {
     type ReadReq = ram::ReadReq<ZSTD_RAM_ADDR_WIDTH, literals_buffer::RAM_NUM_PARTITIONS>;
@@ -810,11 +825,11 @@ proc LiteralsDecoderInst {
     type BufferCtrl = common::LiteralsBufferCtrl;
     type BufferOut = common::SequenceExecutorPacket<common::SYMBOL_WIDTH>;
 
-    type HuffmanWeightsReadReq    = ram::ReadReq<INST_HUFFMAN_RAM_ADDR_WIDTH, u32:1>;
-    type HuffmanWeightsReadResp   = ram::ReadResp<INST_HUFFMAN_RAM_ACCESS_WIDTH>;
-    type HuffmanPrescanReadReq    = ram::ReadReq<INST_HUFFMAN_RAM_ADDR_WIDTH, u32:1>;
-    type HuffmanPrescanReadResp   = ram::ReadResp<{huffman_literals_dec::WeightPreScanMetaDataSize()}>;
-    type HuffmanPrescanWriteReq   = ram::WriteReq<INST_HUFFMAN_RAM_ADDR_WIDTH, {huffman_literals_dec::WeightPreScanMetaDataSize()}, u32:1>;
+    type HuffmanWeightsReadReq    = ram::ReadReq<INST_HUFFMAN_WEIGHTS_RAM_ADDR_WIDTH, INST_HUFFMAN_WEIGHTS_NUM_PARTITIONS>;
+    type HuffmanWeightsReadResp   = ram::ReadResp<INST_HUFFMAN_WEIGHTS_RAM_DATA_WIDTH>;
+    type HuffmanPrescanReadReq    = ram::ReadReq<INST_HUFFMAN_PRESCAN_RAM_ADDR_WIDTH, INST_HUFFMAN_WEIGHTS_NUM_PARTITIONS>;
+    type HuffmanPrescanReadResp   = ram::ReadResp<INST_HUFFMAN_PRESCAN_RAM_DATA_WIDTH>;
+    type HuffmanPrescanWriteReq   = ram::WriteReq<INST_HUFFMAN_RAM_ADDR_WIDTH, INST_HUFFMAN_PRESCAN_RAM_DATA_WIDTH, INST_HUFFMAN_PRESCAN_RAM_NUM_PARTITIONS>;
     type HuffmanPrescanWriteResp  = ram::WriteResp;
 
     config (
@@ -882,7 +897,8 @@ proc LiteralsDecoderInst {
     ) {
         spawn LiteralsDecoder<ZSTD_HISTORY_BUFFER_SIZE_KB,
             INST_AXI_DATA_W, INST_AXI_ADDR_W, INST_AXI_ID_W, INST_AXI_DEST_W,
-            INST_HUFFMAN_RAM_ADDR_WIDTH, INST_HUFFMAN_RAM_ACCESS_WIDTH
+            INST_HUFFMAN_WEIGHTS_RAM_ADDR_WIDTH, INST_HUFFMAN_WEIGHTS_RAM_DATA_WIDTH, INST_HUFFMAN_WEIGHTS_RAM_NUM_PARTITIONS,
+            INST_HUFFMAN_PRESCAN_RAM_ADDR_WIDTH, INST_HUFFMAN_PRESCAN_RAM_DATA_WIDTH, INST_HUFFMAN_PRESCAN_RAM_NUM_PARTITIONS
             > (
             lit_header_axi_ar_s, lit_header_axi_r_r,
             raw_lit_axi_ar_s, raw_lit_axi_r_r,
@@ -908,6 +924,8 @@ proc LiteralsDecoderInst {
     next (state: ()) {}
 }
 
+const TEST_HISTORY_BUFFER_SIZE_KB:u32 = u32:64;
+
 // Parameters for the AXI bus connecting LiteralsBlockHeaderDecoder,
 // RawLiteralsDecoder and HuffmanLiteralsDecoder to the system memory
 const TEST_AXI_RAM_ADDR_W:u32 = u32:16;
@@ -921,6 +939,7 @@ const TEST_AXI_RAM_MODEL_DATA_WIDTH:u32 = u32:64;
 const TEST_AXI_RAM_MODEL_SIZE:u32 = u32:16384;
 const TEST_AXI_RAM_MODEL_ADDR_WIDTH:u32 = std::clog2(TEST_AXI_RAM_MODEL_SIZE);
 const TEST_AXI_RAM_MODEL_WORD_PARTITION_SIZE:u32 = u32:8;
+const TEST_AXI_RAM_MODEL_NUM_PARTITIONS:u32 = ram::num_partitions(TEST_AXI_RAM_MODEL_WORD_PARTITION_SIZE, TEST_AXI_RAM_MODEL_DATA_WIDTH);
 const TEST_AXI_RAM_MODEL_SIMULTANEOUS_READ_WRITE_BEHAVIOR = ram::SimultaneousReadWriteBehavior::READ_BEFORE_WRITE;
 const TEST_AXI_RAM_MODEL_INITIALIZED = true;
 const TEST_AXI_RAM_MODEL_ASSERT_VALID_READ = true;
@@ -930,6 +949,7 @@ const TEST_LITERALS_BUFFER_RAM_MODEL_DATA_WIDTH:u32 = u32:64;
 const TEST_LITERALS_BUFFER_RAM_MODEL_SIZE:u32 = u32:16384;
 const TEST_LITERALS_BUFFER_RAM_MODEL_ADDR_WIDTH:u32 = std::clog2(TEST_LITERALS_BUFFER_RAM_MODEL_SIZE);
 const TEST_LITERALS_BUFFER_RAM_MODEL_WORD_PARTITION_SIZE:u32 = u32:8;
+const TEST_LITERALS_BUFFER_RAM_MODEL_NUM_PARTITIONS:u32 = ram::num_partitions(TEST_LITERALS_BUFFER_RAM_MODEL_WORD_PARTITION_SIZE, TEST_LITERALS_BUFFER_RAM_MODEL_DATA_WIDTH);
 const TEST_LITERALS_BUFFER_RAM_MODEL_SIMULTANEOUS_READ_WRITE_BEHAVIOR = ram::SimultaneousReadWriteBehavior::READ_BEFORE_WRITE;
 const TEST_LITERALS_BUFFER_RAM_MODEL_INITIALIZED = true;
 const TEST_LITERALS_BUFFER_RAM_MODEL_ASSERT_VALID_READ = true;
@@ -939,6 +959,7 @@ const TEST_HUFFMAN_PRESCAN_RAM_MODEL_DATA_WIDTH:u32 = u32:64;
 const TEST_HUFFMAN_PRESCAN_RAM_MODEL_SIZE:u32 = u32:16384;
 const TEST_HUFFMAN_PRESCAN_RAM_MODEL_ADDR_WIDTH:u32 = std::clog2(TEST_HUFFMAN_PRESCAN_RAM_MODEL_SIZE);
 const TEST_HUFFMAN_PRESCAN_RAM_MODEL_WORD_PARTITION_SIZE:u32 = u32:8;
+const TEST_HUFFMAN_PRESCAN_RAM_MODEL_NUM_PARTITIONS:u32 = ram::num_partitions(TEST_HUFFMAN_PRESCAN_RAM_MODEL_WORD_PARTITION_SIZE, TEST_HUFFMAN_PRESCAN_RAM_MODEL_DATA_WIDTH);
 const TEST_HUFFMAN_PRESCAN_RAM_MODEL_SIMULTANEOUS_READ_WRITE_BEHAVIOR = ram::SimultaneousReadWriteBehavior::READ_BEFORE_WRITE;
 const TEST_HUFFMAN_PRESCAN_RAM_MODEL_INITIALIZED = true;
 const TEST_HUFFMAN_PRESCAN_RAM_MODEL_ASSERT_VALID_READ = true;
@@ -948,6 +969,7 @@ const TEST_HUFFMAN_WEIGHTS_RAM_MODEL_DATA_WIDTH:u32 = u32:64;
 const TEST_HUFFMAN_WEIGHTS_RAM_MODEL_SIZE:u32 = u32:16384;
 const TEST_HUFFMAN_WEIGHTS_RAM_MODEL_ADDR_WIDTH:u32 = std::clog2(TEST_HUFFMAN_WEIGHTS_RAM_MODEL_SIZE);
 const TEST_HUFFMAN_WEIGHTS_RAM_MODEL_WORD_PARTITION_SIZE:u32 = u32:8;
+const TEST_HUFFMAN_WEIGHTS_RAM_MODEL_NUM_PARTITIONS:u32 = ram::num_partitions(TEST_HUFFMAN_WEIGHTS_RAM_MODEL_WORD_PARTITION_SIZE, TEST_HUFFMAN_WEIGHTS_RAM_MODEL_DATA_WIDTH);
 const TEST_HUFFMAN_WEIGHTS_RAM_MODEL_SIMULTANEOUS_READ_WRITE_BEHAVIOR = ram::SimultaneousReadWriteBehavior::READ_BEFORE_WRITE;
 const TEST_HUFFMAN_WEIGHTS_RAM_MODEL_INITIALIZED = true;
 const TEST_HUFFMAN_WEIGHTS_RAM_MODEL_ASSERT_VALID_READ = true;
@@ -990,7 +1012,7 @@ proc LiteralsDecoder_test {
 
     type AxiRamData = uN[TEST_AXI_RAM_DATA_W];
     type AxiRamAddr = uN[TEST_AXI_RAM_ADDR_W];
-    type AxiRamMask = uN[TEST_AXI_RAM_NUM_PARTITIONS];
+    type AxiRamMask = uN[TEST_AXI_RAM_MODEL_NUM_PARTITIONS];
 
     terminator: chan<bool> out;
 
@@ -1054,6 +1076,7 @@ proc LiteralsDecoder_test {
         let (huffman_lit_weights_mem_rd_resp_s, huffman_lit_weights_mem_rd_resp_r) = chan<HuffmanWeightsRamRdResp>("huffman_lit_weights_mem_rd_resp");
         let (huffman_lit_weights_mem_wr_req_s, huffman_lit_weights_mem_wr_req_r) = chan<HuffmanWeightsRamWrReq>("huffman_lit_weights_mem_wr_req");
         let (huffman_lit_weights_mem_wr_resp_s, huffman_lit_weights_mem_wr_resp_r) = chan<HuffmanWeightsRamWrResp>("huffman_lit_weights_mem_wr_resp");
+
         let (huffman_lit_prescan_mem_rd_req_s, huffman_lit_prescan_mem_rd_req_r) = chan<HuffmanPrescanRamRdReq>("huffman_lit_prescan_mem_rd_req");
         let (huffman_lit_prescan_mem_rd_resp_s, huffman_lit_prescan_mem_rd_resp_r) = chan<HuffmanPrescanRamRdResp>("huffman_lit_prescan_mem_rd_resp");
         let (huffman_lit_prescan_mem_wr_req_s, huffman_lit_prescan_mem_wr_req_r) = chan<HuffmanPrescanRamWrReq>("huffman_lit_prescan_mem_wr_req");

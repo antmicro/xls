@@ -41,8 +41,6 @@ pub proc HuffmanLiteralsDecoder<
     PRESCAN_RAM_ADDR_WIDTH: u32 = {prescan::RAM_ADDR_WIDTH},
     PRESCAN_RAM_DATA_WIDTH: u32 = {prescan::WeightPreScanMetaDataSize()},
     PRESCAN_RAM_NUM_PARTITIONS: u32 = {u32:1},
-    PRESCAN_RAM_SIZE: u32 = {prescan::RAM_SIZE},
-    PRESCAN_RAM_WORD_PARTITION_SIZE: u32 = {prescan::WeightPreScanMetaDataSize()},
     > {
     type AxiR = axi::AxiR<AXI_DATA_W, AXI_ID_W>;
     type AxiAr = axi::AxiAr<AXI_ADDR_W, AXI_ID_W>;

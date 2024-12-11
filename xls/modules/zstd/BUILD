@@ -979,13 +979,14 @@ xls_dslx_verilog(
         "module_name": "FseProbaFreqDec",
         "generator": "pipeline",
         "delay_model": "asap7",
-        "ram_configurations": "ram:1R1W:{rd_req}:{rd_resp}:{wr_req}:{wr_resp}:{latency}".format(
-            latency = 5,
-            rd_req = "fse_proba_freq_dec__rd_req_s",
-            rd_resp = "fse_proba_freq_dec__rd_resp_r",
-            wr_req = "fse_proba_freq_dec__wr_req_s",
-            wr_resp = "fse_proba_freq_dec__wr_resp_r",
-        ),
+        # FIXME: update ram rewrite
+        #"ram_configurations": "ram:1R1W:{rd_req}:{rd_resp}:{wr_req}:{wr_resp}:{latency}".format(
+        #    latency = 5,
+        #    rd_req = "fse_proba_freq_dec__rd_req_s",
+        #    rd_resp = "fse_proba_freq_dec__rd_resp_r",
+        #    wr_req = "fse_proba_freq_dec__wr_req_s",
+        #    wr_resp = "fse_proba_freq_dec__wr_resp_r",
+        #),
         "pipeline_stages": "6",
         "reset": "rst",
         "use_system_verilog": "false",
@@ -994,7 +995,7 @@ xls_dslx_verilog(
     library = ":fse_proba_freq_dec_dslx",
     opt_ir_args = {
         "inline_procs": "true",
-        "top": "__fse_proba_freq_dec__FseProbaFreqDecoderInst__FseProbaFreqDecoder_0__64_32_8_10_1_256_10_next",
+        "top": "__fse_proba_freq_dec__FseProbaFreqDecoderInst__FseProbaFreqDecoder_0__64_7_8_10_1_next",
     },
     verilog_file = "fse_proba_freq_dec.v",
 )
@@ -1007,13 +1008,14 @@ xls_benchmark_ir(
         "delay_model": "asap7",
         "inline_procs": "true",
         "reset": "rst",
-        "ram_configurations": "ram:1R1W:{rd_req}:{rd_resp}:{wr_req}:{wr_resp}:{latency}".format(
-            latency = 5,
-            rd_req = "fse_proba_freq_dec__rd_req_s",
-            rd_resp = "fse_proba_freq_dec__rd_resp_r",
-            wr_req = "fse_proba_freq_dec__wr_req_s",
-            wr_resp = "fse_proba_freq_dec__wr_resp_r",
-        ),
+        # FIXME: update ram rewrite
+        #"ram_configurations": "ram:1R1W:{rd_req}:{rd_resp}:{wr_req}:{wr_resp}:{latency}".format(
+        #    latency = 5,
+        #    rd_req = "fse_proba_freq_dec__rd_req_s",
+        #    rd_resp = "fse_proba_freq_dec__rd_resp_r",
+        #    wr_req = "fse_proba_freq_dec__wr_req_s",
+        #    wr_resp = "fse_proba_freq_dec__wr_resp_r",
+        #),
     },
 )
 

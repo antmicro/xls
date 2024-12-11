@@ -196,7 +196,6 @@ pub proc FseLookupDecoder<
     }
 }
 
-const TESTCASE: u8[21] = [u8:0x32,u8:0x19,u8:0x08,u8:0x62,u8:0x20,u8:0x86,u8:0x61,u8:0x18,u8:0x84,u8:0x41,u8:0x18,u8:0x06,u8:0xA1,u8:0x28,u8:0x86,u8:0xC1,u8:0x38,u8:0x92,u8:0xC4,u8:0xAC,u8:0x0F,];
 
 const TEST_AXI_DATA_WIDTH = u32:64;
 const TEST_AXI_ADDR_WIDTH = u32:32;
@@ -232,6 +231,51 @@ const TEST_TMP_RAM_WORD_PARTITION_SIZE = TEST_TMP_RAM_DATA_WIDTH;
 const TEST_TMP_RAM_NUM_PARTITIONS = ram::num_partitions(
     TEST_TMP_RAM_WORD_PARTITION_SIZE, TEST_TMP_RAM_DATA_WIDTH);
 
+const TEST_RAM_SIMULTANEOUS_READ_WRITE_BEHAVIOR = ram::SimultaneousReadWriteBehavior::READ_BEFORE_WRITE;
+const TEST_RAM_INITIALIZED = true;
+
+type FseTableRecord = fse_table_creator::FseTableRecord;
+
+const FSE_LOOKUP_DECODER_TESTCASES: (u64[64], FseTableRecord[TEST_FSE_RAM_SIZE])[1] = [
+    (
+        u64[64]:[u64:0x72AAAAABBB1D25C0, u64:0, ...],
+        FseTableRecord[TEST_FSE_RAM_SIZE]:[
+            FseTableRecord { symbol: u16:0x0, num_of_bits: u16:0x1, base: u16:0x16 },
+            FseTableRecord { symbol: u16:0x0, num_of_bits: u16:0x1, base: u16:0x18 },
+            FseTableRecord { symbol: u16:0x0, num_of_bits: u16:0x1, base: u16:0x1a },
+            FseTableRecord { symbol: u16:0x0, num_of_bits: u16:0x1, base: u16:0x1c },
+            FseTableRecord { symbol: u16:0x2, num_of_bits: u16:0x5, base: u16:0x0 },
+            FseTableRecord { symbol: u16:0x0, num_of_bits: u16:0x1, base: u16:0x1e },
+            FseTableRecord { symbol: u16:0x0, num_of_bits: u16:0x0, base: u16:0x0 },
+            FseTableRecord { symbol: u16:0x0, num_of_bits: u16:0x0, base: u16:0x1 },
+            FseTableRecord { symbol: u16:0x0, num_of_bits: u16:0x0, base: u16:0x2 },
+            FseTableRecord { symbol: u16:0x5, num_of_bits: u16:0x5, base: u16:0x0 },
+            FseTableRecord { symbol: u16:0x0, num_of_bits: u16:0x0, base: u16:0x3 },
+            FseTableRecord { symbol: u16:0x0, num_of_bits: u16:0x0, base: u16:0x4 },
+            FseTableRecord { symbol: u16:0x0, num_of_bits: u16:0x0, base: u16:0x5 },
+            FseTableRecord { symbol: u16:0x1, num_of_bits: u16:0x5, base: u16:0x0 },
+            FseTableRecord { symbol: u16:0x0, num_of_bits: u16:0x0, base: u16:0x6 },
+            FseTableRecord { symbol: u16:0x0, num_of_bits: u16:0x0, base: u16:0x7 },
+            FseTableRecord { symbol: u16:0x0, num_of_bits: u16:0x0, base: u16:0x8 },
+            FseTableRecord { symbol: u16:0x0, num_of_bits: u16:0x0, base: u16:0x9 },
+            FseTableRecord { symbol: u16:0x4, num_of_bits: u16:0x5, base: u16:0x0 },
+            FseTableRecord { symbol: u16:0x0, num_of_bits: u16:0x0, base: u16:0xa },
+            FseTableRecord { symbol: u16:0x0, num_of_bits: u16:0x0, base: u16:0xb },
+            FseTableRecord { symbol: u16:0x0, num_of_bits: u16:0x0, base: u16:0xc },
+            FseTableRecord { symbol: u16:0x0, num_of_bits: u16:0x0, base: u16:0xd },
+            FseTableRecord { symbol: u16:0x0, num_of_bits: u16:0x0, base: u16:0xe },
+            FseTableRecord { symbol: u16:0x0, num_of_bits: u16:0x0, base: u16:0xf },
+            FseTableRecord { symbol: u16:0x0, num_of_bits: u16:0x0, base: u16:0x10 },
+            FseTableRecord { symbol: u16:0x0, num_of_bits: u16:0x0, base: u16:0x11 },
+            FseTableRecord { symbol: u16:0x3, num_of_bits: u16:0x5, base: u16:0x0 },
+            FseTableRecord { symbol: u16:0x0, num_of_bits: u16:0x0, base: u16:0x12 },
+            FseTableRecord { symbol: u16:0x0, num_of_bits: u16:0x0, base: u16:0x13 },
+            FseTableRecord { symbol: u16:0x0, num_of_bits: u16:0x0, base: u16:0x14 },
+            FseTableRecord { symbol: u16:0x0, num_of_bits: u16:0x0, base: u16:0x15 },
+            zero!<FseTableRecord>(), ...
+        ]
+    ),
+];
 
 #[test_proc]
 proc FseLookupDecoderTest {
@@ -268,6 +312,10 @@ proc FseLookupDecoderTest {
     terminator: chan<bool> out;
     req_s: chan<Req> out;
     resp_r: chan<Resp> in;
+    fse_rd_req_s: chan<FseRamRdReq> out;
+    fse_rd_resp_r: chan<FseRamRdResp> in;
+    testcase_wr_req_s: chan<TestcaseRamWrReq> out;
+    testcase_wr_resp_r: chan<TestcaseRamWrResp> in;
 
     config(terminator: chan<bool> out) {
         let (req_s, req_r) = chan<Req>("req");
@@ -292,8 +340,8 @@ proc FseLookupDecoderTest {
 
         let (testcase_rd_req_s, testcase_rd_req_r) = chan<TestcaseRamRdReq>("testcase_rd_req");
         let (testcase_rd_resp_s, testcase_rd_resp_r) = chan<TestcaseRamRdResp>("testcase_rd_resp");
-        let (_, testcase_wr_req_r) = chan<TestcaseRamWrReq>("testcase_wr_req");
-        let (testcase_wr_resp_s, _) = chan<TestcaseRamWrResp>("testcase_wr_resp");
+        let (testcase_wr_req_s, testcase_wr_req_r) = chan<TestcaseRamWrReq>("testcase_wr_req");
+        let (testcase_wr_resp_s, testcase_wr_resp_r) = chan<TestcaseRamWrResp>("testcase_wr_resp");
 
         spawn FseLookupDecoder<
             TEST_AXI_DATA_WIDTH, TEST_AXI_ADDR_WIDTH,
@@ -321,18 +369,22 @@ proc FseLookupDecoderTest {
 
         spawn ram::RamModel<
             TEST_DPD_RAM_DATA_WIDTH, TEST_DPD_RAM_SIZE, TEST_DPD_RAM_WORD_PARTITION_SIZE,
+            TEST_RAM_SIMULTANEOUS_READ_WRITE_BEHAVIOR, TEST_RAM_INITIALIZED,
         >(dpd_rd_req_r, dpd_rd_resp_s, dpd_wr_req_r, dpd_wr_resp_s);
 
         spawn ram::RamModel<
             TEST_FSE_RAM_DATA_WIDTH, TEST_FSE_RAM_SIZE, TEST_FSE_RAM_WORD_PARTITION_SIZE,
+            TEST_RAM_SIMULTANEOUS_READ_WRITE_BEHAVIOR, TEST_RAM_INITIALIZED,
         >(fse_rd_req_r, fse_rd_resp_s, fse_wr_req_r, fse_wr_resp_s);
 
         spawn ram::RamModel<
             TEST_TMP_RAM_DATA_WIDTH, TEST_TMP_RAM_SIZE, TEST_TMP_RAM_WORD_PARTITION_SIZE,
+            TEST_RAM_SIMULTANEOUS_READ_WRITE_BEHAVIOR, TEST_RAM_INITIALIZED,
         >(tmp_rd_req_r, tmp_rd_resp_s, tmp_wr_req_r, tmp_wr_resp_s);
 
         spawn ram::RamModel<
             TEST_CASE_RAM_DATA_WIDTH, TEST_CASE_RAM_SIZE, TEST_CASE_RAM_WORD_PARTITION_SIZE,
+            TEST_RAM_SIMULTANEOUS_READ_WRITE_BEHAVIOR, TEST_RAM_INITIALIZED,
         >(testcase_rd_req_r, testcase_rd_resp_s, testcase_wr_req_r, testcase_wr_resp_s);
 
         let (testcase_axi_r_s, testcase_axi_r_r) = chan<AxiR>("testcase_axi_r");
@@ -348,13 +400,47 @@ proc FseLookupDecoderTest {
             TEST_AXI_DATA_WIDTH, TEST_AXI_ADDR_WIDTH, TEST_AXI_DEST_WIDTH, TEST_AXI_ID_WIDTH
         >(mem_rd_req_r, mem_rd_resp_s, testcase_axi_ar_s, testcase_axi_r_r);
         
-        (terminator, req_s, resp_r)
+        (terminator, req_s, resp_r, fse_rd_req_s, fse_rd_resp_r, testcase_wr_req_s, testcase_wr_resp_r)
     }
 
     init {}
 
     next(_: ()) {
         let tok = join();
+        let tok = unroll_for!(test_i, tok): (u32, token) in range(u32:0, array_size(FSE_LOOKUP_DECODER_TESTCASES)) {
+            let input = FSE_LOOKUP_DECODER_TESTCASES[test_i].0;
+            let output = FSE_LOOKUP_DECODER_TESTCASES[test_i].1;
+
+            trace_fmt!("Loading testcase {:x}", test_i);
+            let tok = for ((i, input_data), tok): ((u32, u64), token) in enumerate(input) {
+                let req = TestcaseRamWrReq {
+                    addr: i as uN[TEST_CASE_RAM_ADDR_WIDTH],
+                    data: input_data as uN[TEST_CASE_RAM_DATA_WIDTH],
+                    mask: uN[TEST_CASE_RAM_NUM_PARTITIONS]:0x1
+                };
+                let tok = send(tok, testcase_wr_req_s, req);
+                let (tok, _) = recv(tok, testcase_wr_resp_r);
+                tok
+            }(tok);
+
+            trace_fmt!("Running FSE lookup decoder on testcase {:x}", test_i);
+            let tok = send(tok, req_s, Req { addr: uN[TEST_AXI_ADDR_WIDTH]:0x0 });
+            let (tok, resp) = recv(tok, resp_r);
+            assert_eq(resp, Resp { status: Status::OK });
+
+            let tok = for ((i, output_data), tok): ((u32, FseTableRecord), token) in enumerate(output) {
+                let req = FseRamRdReq {
+                    addr: i as uN[TEST_FSE_RAM_ADDR_WIDTH],
+                    mask: uN[TEST_FSE_RAM_NUM_PARTITIONS]:0x7,
+                };
+                let tok = send(tok, fse_rd_req_s, req);
+                let (tok, resp) = recv(tok, fse_rd_resp_r);
+                assert_eq(fse_table_creator::bits_to_fse_record(resp.data), output);
+                tok
+            }(tok);
+            tok
+        }(tok);
+
         send(tok, terminator, true);
     }
 }

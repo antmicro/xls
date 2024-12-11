@@ -33,19 +33,29 @@ pub type HuffmanLiteralsDecoderReq = ctrl::HuffmanControlAndSequenceCtrl;
 pub type HuffmanLiteralsDecoderResp = ctrl::HuffmanControlAndSequenceResp;
 pub type HuffmanLiteralsDecoderStatus = ctrl::HuffmanControlAndSequenceStatus;
 
-pub proc HuffmanLiteralsDecoder<AXI_DATA_W: u32, AXI_ADDR_W: u32, AXI_ID_W: u32, RAM_ADDR_WIDTH: u32, RAM_ACCESS_WIDTH: u32> {
+pub proc HuffmanLiteralsDecoder<
+    AXI_DATA_W: u32, AXI_ADDR_W: u32, AXI_ID_W: u32,
+    WEIGHTS_RAM_ADDR_WIDTH: u32 = {prescan::RAM_ADDR_WIDTH},
+    WEIGHTS_RAM_DATA_WIDTH: u32 = {prescan::RAM_ACCESS_WIDTH},
+    WEIGHTS_RAM_NUM_PARTITIONS: u32 = {u32:1},
+    PRESCAN_RAM_ADDR_WIDTH: u32 = {prescan::RAM_ADDR_WIDTH},
+    PRESCAN_RAM_DATA_WIDTH: u32 = {prescan::WeightPreScanMetaDataSize()},
+    PRESCAN_RAM_NUM_PARTITIONS: u32 = {u32:1},
+    PRESCAN_RAM_SIZE: u32 = {prescan::RAM_SIZE},
+    PRESCAN_RAM_WORD_PARTITION_SIZE: u32 = {prescan::WeightPreScanMetaDataSize()},
+    > {
     type AxiR = axi::AxiR<AXI_DATA_W, AXI_ID_W>;
     type AxiAr = axi::AxiAr<AXI_ADDR_W, AXI_ID_W>;
 
-    type ReadReq  = ram::ReadReq<RAM_ADDR_WIDTH, u32:1>;
-    type ReadResp = ram::ReadResp<RAM_ACCESS_WIDTH>;
+    type WeightsRamRdReq  = ram::ReadReq<WEIGHTS_RAM_ADDR_WIDTH, WEIGHTS_RAM_NUM_PARTITIONS>;
+    type WeightsRamRdResp = ram::ReadResp<WEIGHTS_RAM_DATA_WIDTH>;
+    type PrescanRamRdReq = ram::ReadReq<PRESCAN_RAM_ADDR_WIDTH, PRESCAN_RAM_NUM_PARTITIONS>;
+    type PrescanRamRdResp = ram::ReadResp<PRESCAN_RAM_DATA_WIDTH>;
+    type PrescanRamWrReq = ram::WriteReq<PRESCAN_RAM_ADDR_WIDTH, PRESCAN_RAM_DATA_WIDTH, PRESCAN_RAM_NUM_PARTITIONS>;
+    type PrescanRamWrResp = ram::WriteResp;
 
     type HuffmanAxiReaderCtrl = axi_reader::HuffmanAxiReaderCtrl<AXI_ADDR_W>;
 
-    type PrescanInternalReadReq    = ram::ReadReq<RAM_ADDR_WIDTH, u32:1>;
-    type PrescanInternalReadResp   = ram::ReadResp<{prescan::WeightPreScanMetaDataSize()}>;
-    type PrescanInternalWriteReq   = ram::WriteReq<RAM_ADDR_WIDTH, {prescan::WeightPreScanMetaDataSize()}, u32:1>;
-    type PrescanInternalWriteResp  = ram::WriteResp;
     type Ctrl = HuffmanLiteralsDecoderReq<AXI_ADDR_W>;
     type Resp = HuffmanLiteralsDecoderResp;
 
@@ -59,13 +69,13 @@ pub proc HuffmanLiteralsDecoder<AXI_DATA_W: u32, AXI_ADDR_W: u32, AXI_ID_W: u32,
         axi_ar_s: chan<AxiAr> out,
         axi_r_r: chan<AxiR> in,
         // weight memory
-        ram_read_req_s: chan<ReadReq> out,
-        ram_read_resp_r: chan<ReadResp> in,
+        weights_ram_rd_req_s: chan<WeightsRamRdReq> out,
+        weights_ram_rd_resp_r: chan<WeightsRamRdResp> in,
         // prescan memory
-        prescan_internal_ram_read_req_s: chan<PrescanInternalReadReq> out,
-        prescan_internal_ram_read_resp_r: chan<PrescanInternalReadResp> in,
-        prescan_internal_ram_write_req_s: chan<PrescanInternalWriteReq> out,
-        prescan_internal_ram_write_resp_r: chan<PrescanInternalWriteResp> in,
+        prescan_ram_rd_req_s: chan<PrescanRamRdReq> out,
+        prescan_ram_rd_resp_r: chan<PrescanRamRdResp> in,
+        prescan_ram_wr_req_s: chan<PrescanRamWrReq> out,
+        prescan_ram_wr_resp_r: chan<PrescanRamWrResp> in,
     ) {
         let (prescan_start_s, prescan_start_r) = chan<bool, u32:1>("prescan_start");
         let (code_builder_start_s, code_builder_start_r) = chan<bool, u32:1>("code_buider");
@@ -93,13 +103,13 @@ pub proc HuffmanLiteralsDecoder<AXI_DATA_W: u32, AXI_ADDR_W: u32, AXI_ID_W: u32,
 
         spawn prescan::WeightPreScan(
             prescan_start_r,
-            ram_read_req_s,
-            ram_read_resp_r,
+            weights_ram_rd_req_s,
+            weights_ram_rd_resp_r,
             prescan_response_s,
-            prescan_internal_ram_read_req_s,
-            prescan_internal_ram_read_resp_r,
-            prescan_internal_ram_write_req_s,
-            prescan_internal_ram_write_resp_r,
+            prescan_ram_rd_req_s,
+            prescan_ram_rd_resp_r,
+            prescan_ram_wr_req_s,
+            prescan_ram_wr_resp_r,
         );
 
         spawn code_builder::WeightCodeBuilder(
@@ -145,8 +155,12 @@ const INST_AXI_DATA_W = u32:64;
 const INST_AXI_ADDR_W = u32:16;
 const INST_AXI_ID_W = u32:4;
 
-pub const INST_RAM_ADDR_WIDTH = prescan::RAM_ADDR_WIDTH;
-pub const INST_RAM_ACCESS_WIDTH = prescan::RAM_ACCESS_WIDTH;
+pub const INST_WEIGHTS_RAM_ADDR_WIDTH = prescan::RAM_ADDR_WIDTH;
+pub const INST_WEIGHTS_RAM_DATA_WIDTH = prescan::RAM_ACCESS_WIDTH;
+pub const INST_WEIGHTS_RAM_NUM_PARTITIONS = u32:1;
+pub const INST_PRESCAN_RAM_ADDR_WIDTH = prescan::RAM_ADDR_WIDTH;
+pub const INST_PRESCAN_RAM_DATA_WIDTH = prescan::WeightPreScanMetaDataSize();
+pub const INST_PRESCAN_RAM_NUM_PARTITIONS = u32:1;
 
 proc HuffmanLiteralsDecoderInst {
     type Ctrl = HuffmanLiteralsDecoderReq<INST_AXI_ADDR_W>;
@@ -154,13 +168,12 @@ proc HuffmanLiteralsDecoderInst {
     type AxiR = axi::AxiR<INST_AXI_DATA_W, INST_AXI_ID_W>;
     type AxiAr = axi::AxiAr<INST_AXI_ADDR_W, INST_AXI_ID_W>;
 
-    type ReadReq  = ram::ReadReq<INST_RAM_ADDR_WIDTH, u32:1>;
-    type ReadResp = ram::ReadResp<INST_RAM_ACCESS_WIDTH>;
-
-    type PrescanInternalReadReq    = ram::ReadReq<INST_RAM_ADDR_WIDTH, u32:1>;
-    type PrescanInternalReadResp   = ram::ReadResp<{prescan::WeightPreScanMetaDataSize()}>;
-    type PrescanInternalWriteReq   = ram::WriteReq<INST_RAM_ADDR_WIDTH, {prescan::WeightPreScanMetaDataSize()}, u32:1>;
-    type PrescanInternalWriteResp  = ram::WriteResp;
+    type WeightsRamRdReq  = ram::ReadReq<INST_WEIGHTS_RAM_ADDR_WIDTH, INST_WEIGHTS_RAM_NUM_PARTITIONS>;
+    type WeightsRamRdResp = ram::ReadResp<INST_WEIGHTS_RAM_DATA_WIDTH>;
+    type PrescanRamRdReq = ram::ReadReq<INST_PRESCAN_RAM_ADDR_WIDTH, INST_PRESCAN_RAM_NUM_PARTITIONS>;
+    type PrescanRamRdResp = ram::ReadResp<INST_PRESCAN_RAM_DATA_WIDTH>;
+    type PrescanRamWrReq = ram::WriteReq<INST_PRESCAN_RAM_ADDR_WIDTH, INST_PRESCAN_RAM_DATA_WIDTH, INST_PRESCAN_RAM_NUM_PARTITIONS>;
+    type PrescanRamWrResp = ram::WriteResp;
 
     config (
         ctrl_r: chan<Ctrl> in,
@@ -168,22 +181,26 @@ proc HuffmanLiteralsDecoderInst {
         decoded_literals_s: chan<common::LiteralsDataWithSync> out,
         axi_ar_s: chan<AxiAr> out,
         axi_r_r: chan<AxiR> in,
-        ram_read_req_s: chan<ReadReq> out,
-        ram_read_resp_r: chan<ReadResp> in,
-        prescan_internal_ram_read_req_s: chan<PrescanInternalReadReq> out,
-        prescan_internal_ram_read_resp_r: chan<PrescanInternalReadResp> in,
-        prescan_internal_ram_write_req_s: chan<PrescanInternalWriteReq> out,
-        prescan_internal_ram_write_resp_r: chan<PrescanInternalWriteResp> in,
+        weights_ram_rd_req_s: chan<WeightsRamRdReq> out,
+        weights_ram_rd_resp_r: chan<WeightsRamRdResp> in,
+        prescan_ram_rd_req_s: chan<PrescanRamRdReq> out,
+        prescan_ram_rd_resp_r: chan<PrescanRamRdResp> in,
+        prescan_ram_wr_req_s: chan<PrescanRamWrReq> out,
+        prescan_ram_wr_resp_r: chan<PrescanRamWrResp> in,
     ) {
-        spawn HuffmanLiteralsDecoder<INST_AXI_DATA_W, INST_AXI_ADDR_W, INST_AXI_ID_W, INST_RAM_ADDR_WIDTH, INST_RAM_ACCESS_WIDTH>(
+        spawn HuffmanLiteralsDecoder<
+            INST_AXI_DATA_W, INST_AXI_ADDR_W, INST_AXI_ID_W,
+            INST_WEIGHTS_RAM_ADDR_WIDTH, INST_WEIGHTS_RAM_DATA_WIDTH, INST_WEIGHTS_RAM_NUM_PARTITIONS,
+            INST_PRESCAN_RAM_ADDR_WIDTH, INST_PRESCAN_RAM_DATA_WIDTH, INST_PRESCAN_RAM_NUM_PARTITIONS
+            >(
             ctrl_r, resp_s,
             decoded_literals_s,
             axi_ar_s,
             axi_r_r,
-            ram_read_req_s,
-            ram_read_resp_r,
-            prescan_internal_ram_read_req_s, prescan_internal_ram_read_resp_r,
-            prescan_internal_ram_write_req_s, prescan_internal_ram_write_resp_r,
+            weights_ram_rd_req_s,
+            weights_ram_rd_resp_r,
+            prescan_ram_rd_req_s, prescan_ram_rd_resp_r,
+            prescan_ram_wr_req_s, prescan_ram_wr_resp_r,
         );
     }
 
@@ -196,18 +213,28 @@ const TEST_AXI_DATA_W = u32:32;
 const TEST_AXI_ADDR_W = u32:32;
 const TEST_AXI_ID_W = u32:32;
 
-pub const TEST_RAM_ADDR_WIDTH = prescan::RAM_ADDR_WIDTH;
-pub const TEST_RAM_ACCESS_WIDTH = prescan::RAM_ACCESS_WIDTH;
+pub const TEST_WEIGHTS_RAM_ADDR_WIDTH = prescan::RAM_ADDR_WIDTH;
+pub const TEST_WEIGHTS_RAM_DATA_WIDTH = prescan::RAM_ACCESS_WIDTH;
+pub const TEST_WEIGHTS_RAM_NUM_PARTITIONS = u32:1;
+pub const TEST_PRESCAN_RAM_ADDR_WIDTH = prescan::RAM_ADDR_WIDTH;
+pub const TEST_PRESCAN_RAM_DATA_WIDTH = prescan::WeightPreScanMetaDataSize();
+pub const TEST_PRESCAN_RAM_NUM_PARTITIONS = u32:1;
+pub const TEST_PRESCAN_RAM_SIZE = prescan::RAM_SIZE;
+pub const TEST_PRESCAN_WORD_PARTITION_SIZE = prescan::WeightPreScanMetaDataSize();
 
 type TestCtrl = HuffmanLiteralsDecoderReq<TEST_AXI_ADDR_W>;
 type TestResp = HuffmanLiteralsDecoderResp;
 type TestAxiR = axi::AxiR<TEST_AXI_DATA_W, TEST_AXI_ID_W>;
 type TestAxiAr = axi::AxiAr<TEST_AXI_ADDR_W, TEST_AXI_ID_W>;
 
-type TestReadReq  = ram::ReadReq<TEST_RAM_ADDR_WIDTH, u32:1>;
-type TestReadResp = ram::ReadResp<TEST_RAM_ACCESS_WIDTH>;
+type TestWeightsRamRdReq  = ram::ReadReq<TEST_WEIGHTS_RAM_ADDR_WIDTH, TEST_WEIGHTS_RAM_NUM_PARTITIONS>;
+type TestWeightsRamRdResp = ram::ReadResp<TEST_WEIGHTS_RAM_DATA_WIDTH>;
+type TestPrescanRamRdReq = ram::ReadReq<TEST_PRESCAN_RAM_ADDR_WIDTH, TEST_PRESCAN_RAM_NUM_PARTITIONS>;
+type TestPrescanRamRdResp = ram::ReadResp<TEST_PRESCAN_RAM_DATA_WIDTH>;
+type TestPrescanRamWrReq = ram::WriteReq<TEST_PRESCAN_RAM_ADDR_WIDTH, TEST_PRESCAN_RAM_DATA_WIDTH, TEST_PRESCAN_RAM_NUM_PARTITIONS>;
+type TestPrescanRamWrResp = ram::WriteResp;
 
-type TestRamEntry = uN[TEST_RAM_ACCESS_WIDTH];
+type TestRamEntry = uN[TEST_WEIGHTS_RAM_DATA_WIDTH];
 
 // data for test case #0
 const TEST_CTRL_0 = TestCtrl {
@@ -387,10 +414,6 @@ const TEST_DECODED_LITERALS_2 = common::LiteralsDataWithSync[1]:[
 #[test_proc]
 proc HuffmanLiteralsDecoder_test {
     type Status = HuffmanLiteralsDecoderStatus;
-    type PrescanInternalReadReq    = ram::ReadReq<TEST_RAM_ADDR_WIDTH, u32:1>;
-    type PrescanInternalReadResp   = ram::ReadResp<{prescan::WeightPreScanMetaDataSize()}>;
-    type PrescanInternalWriteReq   = ram::WriteReq<TEST_RAM_ADDR_WIDTH, {prescan::WeightPreScanMetaDataSize()}, u32:1>;
-    type PrescanInternalWriteResp  = ram::WriteResp;
 
     terminator: chan<bool> out;
 
@@ -399,8 +422,8 @@ proc HuffmanLiteralsDecoder_test {
     decoded_literals_r: chan<common::LiteralsDataWithSync> in;
     axi_ar_r: chan<TestAxiAr> in;
     axi_r_s: chan<TestAxiR> out;
-    ram_read_req_r: chan<TestReadReq> in;
-    ram_read_resp_s: chan<TestReadResp> out;
+    weights_ram_rd_req_r: chan<TestWeightsRamRdReq> in;
+    weights_ram_rd_resp_s: chan<TestWeightsRamRdResp> out;
 
     config (terminator: chan<bool> out) {
         let (ctrl_s, ctrl_r) = chan<TestCtrl>("ctrl");
@@ -408,33 +431,39 @@ proc HuffmanLiteralsDecoder_test {
         let (decoded_literals_s, decoded_literals_r) = chan<common::LiteralsDataWithSync>("decoded_literals");
         let (axi_ar_s, axi_ar_r) = chan<TestAxiAr>("axi_ar");
         let (axi_r_s, axi_r_r) = chan<TestAxiR>("axi_r");
-        let (ram_read_req_s, ram_read_req_r) = chan<TestReadReq>("ram_read_req");
-        let (ram_read_resp_s, ram_read_resp_r) = chan<TestReadResp>("ram_read_resp");
+        let (weights_ram_rd_req_s, weights_ram_rd_req_r) = chan<TestWeightsRamRdReq>("weights_ram_rd_req");
+        let (weights_ram_rd_resp_s, weights_ram_rd_resp_r) = chan<TestWeightsRamRdResp>("weights_ram_rd_resp");
 
         // prescan internal memory
-        let (prescan_internal_ram_write_req_s, prescan_internal_ram_write_req_r) = chan<PrescanInternalWriteReq, u32:1>("prescan_internal_ram_write_req");
-        let (prescan_internal_ram_write_resp_s, prescan_internal_ram_write_resp_r) = chan<PrescanInternalWriteResp, u32:1>("prescan_internal_ram_write_resp");
-        let (prescan_internal_ram_read_req_s, prescan_internal_ram_read_req_r) = chan<PrescanInternalReadReq, u32:1>("prescan_internal_ram_read_req");
-        let (prescan_internal_ram_read_resp_s, prescan_internal_ram_read_resp_r) = chan<PrescanInternalReadResp, u32:1>("prescan_internal_ram_read_resp");
+        let (prescan_ram_wr_req_s, prescan_ram_wr_req_r) = chan<TestPrescanRamWrReq, u32:1>("prescan_ram_wr_req");
+        let (prescan_ram_wr_resp_s, prescan_ram_wr_resp_r) = chan<TestPrescanRamWrResp, u32:1>("prescan_ram_wr_resp");
+        let (prescan_ram_rd_req_s, prescan_ram_rd_req_r) = chan<TestPrescanRamRdReq, u32:1>("prescan_ram_rd_req");
+        let (prescan_ram_rd_resp_s, prescan_ram_rd_resp_r) = chan<TestPrescanRamRdResp, u32:1>("prescan_ram_rd_resp");
 
-        spawn HuffmanLiteralsDecoder<TEST_AXI_DATA_W, TEST_AXI_ADDR_W, TEST_AXI_ID_W, TEST_RAM_ADDR_WIDTH, TEST_RAM_ACCESS_WIDTH>(
+        spawn HuffmanLiteralsDecoder<
+            TEST_AXI_DATA_W, TEST_AXI_ADDR_W, TEST_AXI_ID_W,
+            TEST_WEIGHTS_RAM_ADDR_WIDTH, TEST_WEIGHTS_RAM_DATA_WIDTH, TEST_WEIGHTS_RAM_NUM_PARTITIONS,
+            TEST_PRESCAN_RAM_ADDR_WIDTH, TEST_PRESCAN_RAM_DATA_WIDTH, TEST_PRESCAN_RAM_NUM_PARTITIONS
+            >(
             ctrl_r, resp_s, decoded_literals_s,
             axi_ar_s, axi_r_r,
-            ram_read_req_s, ram_read_resp_r,
-            prescan_internal_ram_read_req_s, prescan_internal_ram_read_resp_r,
-            prescan_internal_ram_write_req_s, prescan_internal_ram_write_resp_r,
+            weights_ram_rd_req_s, weights_ram_rd_resp_r,
+            prescan_ram_rd_req_s, prescan_ram_rd_resp_r,
+            prescan_ram_wr_req_s, prescan_ram_wr_resp_r,
         );
 
-        spawn ram::RamModel<{prescan::WeightPreScanMetaDataSize()}, prescan::RAM_SIZE, {prescan::WeightPreScanMetaDataSize()}>(
-            prescan_internal_ram_read_req_r, prescan_internal_ram_read_resp_s,
-            prescan_internal_ram_write_req_r, prescan_internal_ram_write_resp_s,
+        spawn ram::RamModel<
+            TEST_PRESCAN_RAM_DATA_WIDTH, TEST_PRESCAN_RAM_SIZE, TEST_PRESCAN_WORD_PARTITION_SIZE
+            >(
+            prescan_ram_rd_req_r, prescan_ram_rd_resp_s,
+            prescan_ram_wr_req_r, prescan_ram_wr_resp_s,
         );
 
         (
             terminator,
             ctrl_s, resp_r, decoded_literals_r,
             axi_ar_r, axi_r_s,
-            ram_read_req_r, ram_read_resp_s,
+            weights_ram_rd_req_r, weights_ram_rd_resp_s,
         )
     }
 
@@ -452,14 +481,14 @@ proc HuffmanLiteralsDecoder_test {
         trace_fmt!("Sending weight memory content");
         let tok = for (_, tok): (u32, token) in range(u32:0, u32:2) {
             for (i, tok):(u32, token) in range(u32:0, array_size(TEST_WEIGHT_MEMORY_0)) {
-                let (tok, ram_read_req) = recv(tok, ram_read_req_r);
-                trace_fmt!("Received #{} ReadReq {:#x}", i + u32:1, ram_read_req);
+                let (tok, weights_ram_rd_req) = recv(tok, weights_ram_rd_req_r);
+                trace_fmt!("Received #{} ReadReq {:#x}", i + u32:1, weights_ram_rd_req);
 
-                let read_resp = TestReadResp {
-                    data: TEST_WEIGHT_MEMORY_0[ram_read_req.addr] as u32,
+                let read_resp = TestWeightsRamRdResp {
+                    data: TEST_WEIGHT_MEMORY_0[weights_ram_rd_req.addr] as u32,
                 };
 
-                let tok = send(tok, ram_read_resp_s, read_resp);
+                let tok = send(tok, weights_ram_rd_resp_s, read_resp);
                 trace_fmt!("Sent #{} ReadResp {:#x}", i + u32:1, read_resp);
 
                 tok
@@ -552,14 +581,14 @@ proc HuffmanLiteralsDecoder_test {
         trace_fmt!("Sending weight memory content");
         let tok = for (_, tok): (u32, token) in range(u32:0, u32:2) {
             for (i, tok):(u32, token) in range(u32:0, array_size(TEST_WEIGHT_MEMORY_2)) {
-                let (tok, ram_read_req) = recv(tok, ram_read_req_r);
-                trace_fmt!("Received #{} ReadReq {:#x}", i + u32:1, ram_read_req);
+                let (tok, weights_ram_rd_req) = recv(tok, weights_ram_rd_req_r);
+                trace_fmt!("Received #{} ReadReq {:#x}", i + u32:1, weights_ram_rd_req);
 
-                let read_resp = TestReadResp {
-                    data: TEST_WEIGHT_MEMORY_2[ram_read_req.addr] as u32,
+                let read_resp = TestWeightsRamRdResp {
+                    data: TEST_WEIGHT_MEMORY_2[weights_ram_rd_req.addr] as u32,
                 };
 
-                let tok = send(tok, ram_read_resp_s, read_resp);
+                let tok = send(tok, weights_ram_rd_resp_s, read_resp);
                 trace_fmt!("Sent #{} ReadResp {:#x}", i + u32:1, read_resp);
 
                 tok

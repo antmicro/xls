@@ -56,7 +56,7 @@ struct FseTableCreatorState {
     pos: u16,
 }
 
-struct FseTableRecord {
+pub struct FseTableRecord {
     symbol: u16,
     num_of_bits: u16,
     base: u16
@@ -76,7 +76,7 @@ fn test_fse_record_to_bits() {
     assert_eq(bit, u48:0x0020_0005_0017);
 }
 
-fn bits_to_fse_record(bit: u48) -> FseTableRecord {
+pub fn bits_to_fse_record(bit: u48) -> FseTableRecord {
     FseTableRecord {
         symbol: bit[0:16],
         num_of_bits: bit[16:32],
@@ -316,8 +316,6 @@ pub proc FseTableCreator<
         let send_finish = state.status == Status::SEND_FINISH;
         let tok11 = send_if(tok0, fse_table_finish_s, send_finish, ());
 
-        let tok0 = join(
-            tok1, tok_dpd_req, tok_dpd_resp, tok3, tok5, tok6, tok7, tok4, tok8, tok9, tok10, tok11);
         if state.req && (
                state.status == Status::TEST_NEGATIVE_PROB ||
                state.status == Status::TEST_POSITIVE_PROB ||
@@ -343,7 +341,7 @@ pub proc FseTableCreator<
                         if next_idx < state.num_symbs {
                             State { status: Status::TEST_NEGATIVE_PROB, req: true, idx: next_idx, ..state }
                         } else {
-                            State { status: Status::TEST_POSITIVE_PROB, idx: u16:0, ..state }
+                            State { status: Status::TEST_POSITIVE_PROB, req: true, idx: u16:0, ..state }
                         }
                     }
                 },

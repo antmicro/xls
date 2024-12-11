@@ -602,16 +602,18 @@ proc LiteralsDecoder<
     HISTORY_BUFFER_SIZE_KB: u32,
     // AXI parameters
     AXI_DATA_W: u32, AXI_ADDR_W: u32, AXI_ID_W: u32, AXI_DEST_W: u32,
-    HUFFMAN_WEIGHTS_RAM_ADDR_WIDTH: u32 = {prescan::RAM_ADDR_WIDTH},
-    HUFFMAN_WEIGHTS_RAM_DATA_WIDTH: u32 = {prescan::RAM_ACCESS_WIDTH},
-    HUFFMAN_WEIGHTS_RAM_NUM_PARTITIONS: u32 = {u32:1},
-    HUFFMAN_PRESCAN_RAM_ADDR_WIDTH: u32 = {prescan::RAM_ADDR_WIDTH},
-    HUFFMAN_PRESCAN_RAM_DATA_WIDTH: u32 = {prescan::WeightPreScanMetaDataSize()},
-    HUFFMAN_PRESCAN_RAM_NUM_PARTITIONS: u32 = {u32:1},
-    LITERALS_BUFFER_RAM_ADDR_WIDTH: u32 = {prescan::RAM_ADDR_WIDTH},
-    LITERALS_BUFFER_RAM_DATA_WIDTH: u32 = {prescan::WeightPreScanMetaDataSize()},
-    LITERALS_BUFFER_RAM_NUM_PARTITIONS: u32 = {u32:1},
-    RAM_ADDR_WIDTH: u32 = {parallel_rams::ram_addr_width(HISTORY_BUFFER_SIZE_KB)},
+    // Huffman weights memory parameters
+    HUFFMAN_WEIGHTS_RAM_ADDR_WIDTH: u32 = {huffman_literals_dec::WEIGHTS_ADDR_WIDTH},
+    HUFFMAN_WEIGHTS_RAM_DATA_WIDTH: u32 = {huffman_literals_dec::WEIGHTS_DATA_WIDTH},
+    HUFFMAN_WEIGHTS_RAM_NUM_PARTITIONS: u32 = {huffman_literals_dec::WEIGHTS_NUM_PARTITIONS},
+    // Huffman prescan memory parameters
+    HUFFMAN_PRESCAN_RAM_ADDR_WIDTH: u32 = {huffman_literals_dec::PRESCAN_ADDR_WIDTH},
+    HUFFMAN_PRESCAN_RAM_DATA_WIDTH: u32 = {huffman_literals_dec::PRESCAN_DATA_WIDTH},
+    HUFFMAN_PRESCAN_RAM_NUM_PARTITIONS: u32 = {huffman_literals_dec::PRESCAN_NUM_PARTITIONS},
+    // Literals buffer memory parameters
+    LITERALS_BUFFER_RAM_ADDR_WIDTH: u32 = {parallel_rams::ram_addr_width(HISTORY_BUFFER_SIZE_KB)},
+    LITERALS_BUFFER_RAM_DATA_WIDTH: u32 = {literals_buffer::RAM_DATA_WIDTH},
+    LITERALS_BUFFER_RAM_NUM_PARTITIONS: u32 = {literals_buffer::RAM_NUM_PARTITIONS},
 > {
     type ReadReq = ram::ReadReq<LITERALS_BUFFER_RAM_ADDR_WIDTH, LITERALS_BUFFER_RAM_NUM_PARTITIONS>;
     type ReadResp = ram::ReadResp<LITERALS_BUFFER_RAM_DATA_WIDTH>;
@@ -626,11 +628,11 @@ proc LiteralsDecoder<
     type BufferOut = common::SequenceExecutorPacket<common::SYMBOL_WIDTH>;
 
     // TODO: make sure those can use the same parameters
-    type HuffmanWeightsReadReq    = ram::ReadReq<HUFFMAN_RAM_ADDR_WIDTH, u32:1>;
-    type HuffmanWeightsReadResp   = ram::ReadResp<HUFFMAN_RAM_ACCESS_WIDTH>;
-    type HuffmanPrescanReadReq    = ram::ReadReq<HUFFMAN_RAM_ADDR_WIDTH, u32:1>;
-    type HuffmanPrescanReadResp   = ram::ReadResp<{huffman_literals_dec::WeightPreScanMetaDataSize()}>;
-    type HuffmanPrescanWriteReq   = ram::WriteReq<HUFFMAN_RAM_ADDR_WIDTH, {huffman_literals_dec::WeightPreScanMetaDataSize()}, u32:1>;
+    type HuffmanWeightsReadReq    = ram::ReadReq<HUFFMAN_WEIGHTS_RAM_ADDR_WIDTH, HUFFMAN_WEIGHTS_RAM_NUM_PARTITIONS>;
+    type HuffmanWeightsReadResp   = ram::ReadResp<HUFFMAN_WEIGHTS_RAM_DATA_WIDTH>;
+    type HuffmanPrescanReadReq    = ram::ReadReq<HUFFMAN_PRESCAN_RAM_ADDR_WIDTH, HUFFMAN_PRESCAN_RAM_NUM_PARTITIONS>;
+    type HuffmanPrescanReadResp   = ram::ReadResp<HUFFMAN_PRESCAN_RAM_DATA_WIDTH>;
+    type HuffmanPrescanWriteReq   = ram::WriteReq<HUFFMAN_PRESCAN_RAM_ADDR_WIDTH, HUFFMAN_PRESCAN_RAM_DATA_WIDTH, HUFFMAN_PRESCAN_RAM_NUM_PARTITIONS>;
     type HuffmanPrescanWriteResp  = ram::WriteResp;
 
     config (
@@ -825,11 +827,11 @@ proc LiteralsDecoderInst {
     type BufferCtrl = common::LiteralsBufferCtrl;
     type BufferOut = common::SequenceExecutorPacket<common::SYMBOL_WIDTH>;
 
-    type HuffmanWeightsReadReq    = ram::ReadReq<INST_HUFFMAN_WEIGHTS_RAM_ADDR_WIDTH, INST_HUFFMAN_WEIGHTS_NUM_PARTITIONS>;
+    type HuffmanWeightsReadReq    = ram::ReadReq<INST_HUFFMAN_WEIGHTS_RAM_ADDR_WIDTH, INST_HUFFMAN_WEIGHTS_RAM_NUM_PARTITIONS>;
     type HuffmanWeightsReadResp   = ram::ReadResp<INST_HUFFMAN_WEIGHTS_RAM_DATA_WIDTH>;
-    type HuffmanPrescanReadReq    = ram::ReadReq<INST_HUFFMAN_PRESCAN_RAM_ADDR_WIDTH, INST_HUFFMAN_WEIGHTS_NUM_PARTITIONS>;
+    type HuffmanPrescanReadReq    = ram::ReadReq<INST_HUFFMAN_PRESCAN_RAM_ADDR_WIDTH, INST_HUFFMAN_WEIGHTS_RAM_NUM_PARTITIONS>;
     type HuffmanPrescanReadResp   = ram::ReadResp<INST_HUFFMAN_PRESCAN_RAM_DATA_WIDTH>;
-    type HuffmanPrescanWriteReq   = ram::WriteReq<INST_HUFFMAN_RAM_ADDR_WIDTH, INST_HUFFMAN_PRESCAN_RAM_DATA_WIDTH, INST_HUFFMAN_PRESCAN_RAM_NUM_PARTITIONS>;
+    type HuffmanPrescanWriteReq   = ram::WriteReq<INST_HUFFMAN_PRESCAN_RAM_ADDR_WIDTH, INST_HUFFMAN_PRESCAN_RAM_DATA_WIDTH, INST_HUFFMAN_PRESCAN_RAM_NUM_PARTITIONS>;
     type HuffmanPrescanWriteResp  = ram::WriteResp;
 
     config (
@@ -953,6 +955,7 @@ const TEST_LITERALS_BUFFER_RAM_MODEL_NUM_PARTITIONS:u32 = ram::num_partitions(TE
 const TEST_LITERALS_BUFFER_RAM_MODEL_SIMULTANEOUS_READ_WRITE_BEHAVIOR = ram::SimultaneousReadWriteBehavior::READ_BEFORE_WRITE;
 const TEST_LITERALS_BUFFER_RAM_MODEL_INITIALIZED = true;
 const TEST_LITERALS_BUFFER_RAM_MODEL_ASSERT_VALID_READ = true;
+const TEST_LITERALS_BUFFER_RAM_MODEL_NUM = u32:8;
 
 // Parameters for RamModels used for mocking the HuffmanLiteralsDecoder prescan weights memory
 const TEST_HUFFMAN_PRESCAN_RAM_MODEL_DATA_WIDTH:u32 = u32:64;
@@ -1085,8 +1088,10 @@ proc LiteralsDecoder_test {
         spawn LiteralsDecoder<
             TEST_HISTORY_BUFFER_SIZE_KB,
             TEST_AXI_RAM_DATA_W, TEST_AXI_RAM_ADDR_W, TEST_AXI_RAM_ID_W, TEST_AXI_RAM_DEST_W,
-            TEST_HUFFMAN_RAM_ADDR_WIDTH, TEST_HUFFMAN_RAM_ACCESS_WIDTH
-            > (
+            TEST_HUFFMAN_WEIGHTS_RAM_MODEL_ADDR_WIDTH, TEST_HUFFMAN_WEIGHTS_RAM_MODEL_DATA_WIDTH, TEST_HUFFMAN_WEIGHTS_RAM_MODEL_NUM_PARTITIONS,
+            TEST_HUFFMAN_PRESCAN_RAM_MODEL_ADDR_WIDTH, TEST_HUFFMAN_PRESCAN_RAM_MODEL_DATA_WIDTH, TEST_HUFFMAN_PRESCAN_RAM_MODEL_NUM_PARTITIONS,
+            TEST_LITERALS_BUFFER_RAM_MODEL_ADDR_WIDTH, TEST_LITERALS_BUFFER_RAM_MODEL_DATA_WIDTH, TEST_LITERALS_BUFFER_RAM_MODEL_NUM_PARTITIONS
+        > (
             lit_header_axi_ar_s, lit_header_axi_r_r,
             raw_lit_axi_ar_s, raw_lit_axi_r_r,
             huffman_lit_axi_ar_s, huffman_lit_axi_r_r,
@@ -1106,42 +1111,87 @@ proc LiteralsDecoder_test {
         );
 
         spawn ram_printer::RamPrinter<
-            literals_buffer::RAM_DATA_WIDTH, TEST_RAM_SIZE, literals_buffer::RAM_NUM_PARTITIONS,
-            TEST_RAM_ADDR_WIDTH, literals_buffer::RAM_NUM>
-            (print_start_r, print_finish_s, ram_rd_req_s, ram_rd_resp_r);
+            TEST_LITERALS_BUFFER_RAM_MODEL_DATA_WIDTH,
+            TEST_LITERALS_BUFFER_RAM_MODEL_SIZE,
+            TEST_LITERALS_BUFFER_RAM_MODEL_NUM_PARTITIONS,
+            TEST_LITERALS_BUFFER_RAM_MODEL_ADDR_WIDTH,
+            TEST_LITERALS_BUFFER_RAM_MODEL_NUM
+        > (
+            print_start_r, print_finish_s, ram_rd_req_s, ram_rd_resp_r
+        );
 
         spawn ram::RamModel<
-            literals_buffer::RAM_DATA_WIDTH, TEST_RAM_SIZE, literals_buffer::RAM_WORD_PARTITION_SIZE,
-            TEST_RAM_SIMULTANEOUS_READ_WRITE_BEHAVIOR, TEST_RAM_INITIALIZED>
-            (ram_rd_req_r[0], ram_rd_resp_s[0], ram_wr_req_r[0], ram_wr_resp_s[0]);
+            TEST_LITERALS_BUFFER_RAM_MODEL_DATA_WIDTH,
+            TEST_LITERALS_BUFFER_RAM_MODEL_SIZE,
+            TEST_LITERALS_BUFFER_RAM_MODEL_WORD_PARTITION_SIZE,
+            TEST_LITERALS_BUFFER_RAM_MODEL_SIMULTANEOUS_READ_WRITE_BEHAVIOR,
+            TEST_LITERALS_BUFFER_RAM_MODEL_INITIALIZED
+        > (
+            ram_rd_req_r[0], ram_rd_resp_s[0], ram_wr_req_r[0], ram_wr_resp_s[0]
+        );
         spawn ram::RamModel<
-            literals_buffer::RAM_DATA_WIDTH, TEST_RAM_SIZE, literals_buffer::RAM_WORD_PARTITION_SIZE,
-            TEST_RAM_SIMULTANEOUS_READ_WRITE_BEHAVIOR, TEST_RAM_INITIALIZED>
-            (ram_rd_req_r[1], ram_rd_resp_s[1], ram_wr_req_r[1], ram_wr_resp_s[1]);
+            TEST_LITERALS_BUFFER_RAM_MODEL_DATA_WIDTH,
+            TEST_LITERALS_BUFFER_RAM_MODEL_SIZE,
+            TEST_LITERALS_BUFFER_RAM_MODEL_WORD_PARTITION_SIZE,
+            TEST_LITERALS_BUFFER_RAM_MODEL_SIMULTANEOUS_READ_WRITE_BEHAVIOR,
+            TEST_LITERALS_BUFFER_RAM_MODEL_INITIALIZED
+        > (
+            ram_rd_req_r[1], ram_rd_resp_s[1], ram_wr_req_r[1], ram_wr_resp_s[1]
+        );
         spawn ram::RamModel<
-            literals_buffer::RAM_DATA_WIDTH, TEST_RAM_SIZE, literals_buffer::RAM_WORD_PARTITION_SIZE,
-            TEST_RAM_SIMULTANEOUS_READ_WRITE_BEHAVIOR, TEST_RAM_INITIALIZED>
-            (ram_rd_req_r[2], ram_rd_resp_s[2], ram_wr_req_r[2], ram_wr_resp_s[2]);
+            TEST_LITERALS_BUFFER_RAM_MODEL_DATA_WIDTH,
+            TEST_LITERALS_BUFFER_RAM_MODEL_SIZE,
+            TEST_LITERALS_BUFFER_RAM_MODEL_WORD_PARTITION_SIZE,
+            TEST_LITERALS_BUFFER_RAM_MODEL_SIMULTANEOUS_READ_WRITE_BEHAVIOR,
+            TEST_LITERALS_BUFFER_RAM_MODEL_INITIALIZED
+        > (
+            ram_rd_req_r[2], ram_rd_resp_s[2], ram_wr_req_r[2], ram_wr_resp_s[2]
+        );
         spawn ram::RamModel<
-            literals_buffer::RAM_DATA_WIDTH, TEST_RAM_SIZE, literals_buffer::RAM_WORD_PARTITION_SIZE,
-            TEST_RAM_SIMULTANEOUS_READ_WRITE_BEHAVIOR, TEST_RAM_INITIALIZED>
-            (ram_rd_req_r[3], ram_rd_resp_s[3], ram_wr_req_r[3], ram_wr_resp_s[3]);
+            TEST_LITERALS_BUFFER_RAM_MODEL_DATA_WIDTH,
+            TEST_LITERALS_BUFFER_RAM_MODEL_SIZE,
+            TEST_LITERALS_BUFFER_RAM_MODEL_WORD_PARTITION_SIZE,
+            TEST_LITERALS_BUFFER_RAM_MODEL_SIMULTANEOUS_READ_WRITE_BEHAVIOR,
+            TEST_LITERALS_BUFFER_RAM_MODEL_INITIALIZED
+        > (
+            ram_rd_req_r[3], ram_rd_resp_s[3], ram_wr_req_r[3], ram_wr_resp_s[3]
+        );
         spawn ram::RamModel<
-            literals_buffer::RAM_DATA_WIDTH, TEST_RAM_SIZE, literals_buffer::RAM_WORD_PARTITION_SIZE,
-            TEST_RAM_SIMULTANEOUS_READ_WRITE_BEHAVIOR, TEST_RAM_INITIALIZED>
-            (ram_rd_req_r[4], ram_rd_resp_s[4], ram_wr_req_r[4], ram_wr_resp_s[4]);
+            TEST_LITERALS_BUFFER_RAM_MODEL_DATA_WIDTH,
+            TEST_LITERALS_BUFFER_RAM_MODEL_SIZE,
+            TEST_LITERALS_BUFFER_RAM_MODEL_WORD_PARTITION_SIZE,
+            TEST_LITERALS_BUFFER_RAM_MODEL_SIMULTANEOUS_READ_WRITE_BEHAVIOR,
+            TEST_LITERALS_BUFFER_RAM_MODEL_INITIALIZED
+        > (
+            ram_rd_req_r[4], ram_rd_resp_s[4], ram_wr_req_r[4], ram_wr_resp_s[4]
+        );
         spawn ram::RamModel<
-            literals_buffer::RAM_DATA_WIDTH, TEST_RAM_SIZE, literals_buffer::RAM_WORD_PARTITION_SIZE,
-            TEST_RAM_SIMULTANEOUS_READ_WRITE_BEHAVIOR, TEST_RAM_INITIALIZED>
-            (ram_rd_req_r[5], ram_rd_resp_s[5], ram_wr_req_r[5], ram_wr_resp_s[5]);
+            TEST_LITERALS_BUFFER_RAM_MODEL_DATA_WIDTH,
+            TEST_LITERALS_BUFFER_RAM_MODEL_SIZE,
+            TEST_LITERALS_BUFFER_RAM_MODEL_WORD_PARTITION_SIZE,
+            TEST_LITERALS_BUFFER_RAM_MODEL_SIMULTANEOUS_READ_WRITE_BEHAVIOR,
+            TEST_LITERALS_BUFFER_RAM_MODEL_INITIALIZED
+        > (
+            ram_rd_req_r[5], ram_rd_resp_s[5], ram_wr_req_r[5], ram_wr_resp_s[5]
+        );
         spawn ram::RamModel<
-            literals_buffer::RAM_DATA_WIDTH, TEST_RAM_SIZE, literals_buffer::RAM_WORD_PARTITION_SIZE,
-            TEST_RAM_SIMULTANEOUS_READ_WRITE_BEHAVIOR, TEST_RAM_INITIALIZED>
-            (ram_rd_req_r[6], ram_rd_resp_s[6], ram_wr_req_r[6], ram_wr_resp_s[6]);
+            TEST_LITERALS_BUFFER_RAM_MODEL_DATA_WIDTH,
+            TEST_LITERALS_BUFFER_RAM_MODEL_SIZE,
+            TEST_LITERALS_BUFFER_RAM_MODEL_WORD_PARTITION_SIZE,
+            TEST_LITERALS_BUFFER_RAM_MODEL_SIMULTANEOUS_READ_WRITE_BEHAVIOR,
+            TEST_LITERALS_BUFFER_RAM_MODEL_INITIALIZED
+        > (
+            ram_rd_req_r[6], ram_rd_resp_s[6], ram_wr_req_r[6], ram_wr_resp_s[6]
+        );
         spawn ram::RamModel<
-            literals_buffer::RAM_DATA_WIDTH, TEST_RAM_SIZE, literals_buffer::RAM_WORD_PARTITION_SIZE,
-            TEST_RAM_SIMULTANEOUS_READ_WRITE_BEHAVIOR, TEST_RAM_INITIALIZED>
-            (ram_rd_req_r[7], ram_rd_resp_s[7], ram_wr_req_r[7], ram_wr_resp_s[7]);
+            TEST_LITERALS_BUFFER_RAM_MODEL_DATA_WIDTH,
+            TEST_LITERALS_BUFFER_RAM_MODEL_SIZE,
+            TEST_LITERALS_BUFFER_RAM_MODEL_WORD_PARTITION_SIZE,
+            TEST_LITERALS_BUFFER_RAM_MODEL_SIMULTANEOUS_READ_WRITE_BEHAVIOR,
+            TEST_LITERALS_BUFFER_RAM_MODEL_INITIALIZED
+        > (
+            ram_rd_req_r[7], ram_rd_resp_s[7], ram_wr_req_r[7], ram_wr_resp_s[7]
+        );
 
         // Mock RAM for Literals Header MemReader
         let (ram_rd_req_header_s, ram_rd_req_header_r) = chan<AxiRamRdReq>("ram_rd_req_header");
@@ -1150,17 +1200,24 @@ proc LiteralsDecoder_test {
         let (ram_wr_resp_header_s, ram_wr_resp_header_r) = chan<AxiRamWrResp>("ram_wr_resp_header");
 
         spawn ram::RamModel<
-            TEST_AXI_RAM_DATA_W, TEST_AXI_RAM_SIZE, TEST_AXI_RAM_WORD_PARTITION_SIZE,
-            TEST_AXI_RAM_SIMULTANEOUS_READ_WRITE_BEHAVIOR, TEST_AXI_RAM_INITIALIZED, TEST_AXI_RAM_ASSERT_VALID_READ, TEST_AXI_RAM_ADDR_W
-        > (ram_rd_req_header_r, ram_rd_resp_header_s, ram_wr_req_header_r, ram_wr_resp_header_s);
+            TEST_AXI_RAM_MODEL_DATA_WIDTH,
+            TEST_AXI_RAM_MODEL_SIZE,
+            TEST_AXI_RAM_MODEL_WORD_PARTITION_SIZE,
+            TEST_AXI_RAM_MODEL_SIMULTANEOUS_READ_WRITE_BEHAVIOR,
+            TEST_AXI_RAM_MODEL_INITIALIZED,
+            TEST_AXI_RAM_MODEL_ASSERT_VALID_READ,
+            TEST_AXI_RAM_MODEL_ADDR_WIDTH
+        > (
+            ram_rd_req_header_r, ram_rd_resp_header_s, ram_wr_req_header_r, ram_wr_resp_header_s
+        );
 
         spawn axi_ram::AxiRamReader<
-            TEST_AXI_RAM_ADDR_W, TEST_AXI_RAM_DATA_W,
-            TEST_AXI_RAM_DEST_W, TEST_AXI_RAM_ID_W, TEST_RAM_SIZE
-            >(
-                lit_header_axi_ar_r, lit_header_axi_r_s,
-                ram_rd_req_header_s, ram_rd_resp_header_r
-            );
+            TEST_AXI_RAM_ADDR_W, TEST_AXI_RAM_DATA_W, TEST_AXI_RAM_DEST_W, TEST_AXI_RAM_ID_W,
+            TEST_AXI_RAM_MODEL_SIZE
+        > (
+            lit_header_axi_ar_r, lit_header_axi_r_s,
+            ram_rd_req_header_s, ram_rd_resp_header_r
+        );
 
         // Mock RAM for RawLiterals MemReader
         let (ram_rd_req_raw_s, ram_rd_req_raw_r) = chan<AxiRamRdReq>("ram_rd_req_raw");
@@ -1169,17 +1226,24 @@ proc LiteralsDecoder_test {
         let (ram_wr_resp_raw_s, ram_wr_resp_raw_r) = chan<AxiRamWrResp>("ram_wr_resp_raw");
 
         spawn ram::RamModel<
-            TEST_AXI_RAM_DATA_W, TEST_AXI_RAM_SIZE, TEST_AXI_RAM_WORD_PARTITION_SIZE,
-            TEST_AXI_RAM_SIMULTANEOUS_READ_WRITE_BEHAVIOR, TEST_AXI_RAM_INITIALIZED, TEST_AXI_RAM_ASSERT_VALID_READ, TEST_AXI_RAM_ADDR_W,
-        > (ram_rd_req_raw_r, ram_rd_resp_raw_s, ram_wr_req_raw_r, ram_wr_resp_raw_s);
+            TEST_AXI_RAM_MODEL_DATA_WIDTH,
+            TEST_AXI_RAM_MODEL_SIZE,
+            TEST_AXI_RAM_MODEL_WORD_PARTITION_SIZE,
+            TEST_AXI_RAM_MODEL_SIMULTANEOUS_READ_WRITE_BEHAVIOR,
+            TEST_AXI_RAM_MODEL_INITIALIZED,
+            TEST_AXI_RAM_MODEL_ASSERT_VALID_READ,
+            TEST_AXI_RAM_MODEL_ADDR_WIDTH
+        > (
+            ram_rd_req_raw_r, ram_rd_resp_raw_s, ram_wr_req_raw_r, ram_wr_resp_raw_s
+        );
 
         spawn axi_ram::AxiRamReader<
-            TEST_AXI_RAM_ADDR_W, TEST_AXI_RAM_DATA_W,
-            TEST_AXI_RAM_DEST_W, TEST_AXI_RAM_ID_W, TEST_RAM_SIZE
-            >(
-                raw_lit_axi_ar_r, raw_lit_axi_r_s,
-                ram_rd_req_raw_s, ram_rd_resp_raw_r
-            );
+            TEST_AXI_RAM_ADDR_W, TEST_AXI_RAM_DATA_W, TEST_AXI_RAM_DEST_W, TEST_AXI_RAM_ID_W,
+            TEST_AXI_RAM_MODEL_SIZE
+        > (
+            raw_lit_axi_ar_r, raw_lit_axi_r_s,
+            ram_rd_req_raw_s, ram_rd_resp_raw_r
+        );
 
         // Mock RAM for HuffmanLiteralsDecoder MemReader
         let (ram_rd_req_huffman_s, ram_rd_req_huffman_r) = chan<AxiRamRdReq>("ram_rd_req_huffman");
@@ -1188,22 +1252,34 @@ proc LiteralsDecoder_test {
         let (ram_wr_resp_huffman_s, ram_wr_resp_huffman_r) = chan<AxiRamWrResp>("ram_wr_resp_huffman");
 
         spawn ram::RamModel<
-            TEST_AXI_RAM_DATA_W, TEST_AXI_RAM_SIZE, TEST_AXI_RAM_WORD_PARTITION_SIZE,
-            TEST_AXI_RAM_SIMULTANEOUS_READ_WRITE_BEHAVIOR, TEST_AXI_RAM_INITIALIZED, TEST_AXI_RAM_ASSERT_VALID_READ, TEST_AXI_RAM_ADDR_W,
-        > (ram_rd_req_huffman_r, ram_rd_resp_huffman_s, ram_wr_req_huffman_r, ram_wr_resp_huffman_s);
+            TEST_AXI_RAM_MODEL_DATA_WIDTH,
+            TEST_AXI_RAM_MODEL_SIZE,
+            TEST_AXI_RAM_MODEL_WORD_PARTITION_SIZE,
+            TEST_AXI_RAM_MODEL_SIMULTANEOUS_READ_WRITE_BEHAVIOR,
+            TEST_AXI_RAM_MODEL_INITIALIZED,
+            TEST_AXI_RAM_MODEL_ASSERT_VALID_READ,
+            TEST_AXI_RAM_MODEL_ADDR_WIDTH
+        > (
+            ram_rd_req_huffman_r, ram_rd_resp_huffman_s, ram_wr_req_huffman_r, ram_wr_resp_huffman_s
+        );
 
         spawn axi_ram::AxiRamReader<
-            TEST_AXI_RAM_ADDR_W, TEST_AXI_RAM_DATA_W,
-            TEST_AXI_RAM_DEST_W, TEST_AXI_RAM_ID_W, TEST_RAM_SIZE
-            >(
-                huffman_lit_axi_ar_r, huffman_lit_axi_r_s,
-                ram_rd_req_huffman_s, ram_rd_resp_huffman_r
-            );
+            TEST_AXI_RAM_ADDR_W, TEST_AXI_RAM_DATA_W, TEST_AXI_RAM_DEST_W, TEST_AXI_RAM_ID_W,
+            TEST_AXI_RAM_MODEL_SIZE
+        > (
+            huffman_lit_axi_ar_r, huffman_lit_axi_r_s,
+            ram_rd_req_huffman_s, ram_rd_resp_huffman_r
+        );
 
         // Huffman weigths memory
         spawn ram::RamModel<
-            TEST_AXI_RAM_DATA_W, TEST_AXI_RAM_SIZE, TEST_AXI_RAM_WORD_PARTITION_SIZE,
-            TEST_AXI_RAM_SIMULTANEOUS_READ_WRITE_BEHAVIOR, TEST_AXI_RAM_INITIALIZED, TEST_AXI_RAM_ASSERT_VALID_READ, TEST_AXI_RAM_ADDR_W,
+            TEST_HUFFMAN_WEIGHTS_RAM_MODEL_DATA_WIDTH,
+            TEST_HUFFMAN_WEIGHTS_RAM_MODEL_SIZE,
+            TEST_HUFFMAN_WEIGHTS_RAM_MODEL_WORD_PARTITION_SIZE,
+            TEST_HUFFMAN_WEIGHTS_RAM_MODEL_SIMULTANEOUS_READ_WRITE_BEHAVIOR,
+            TEST_HUFFMAN_WEIGHTS_RAM_MODEL_INITIALIZED,
+            TEST_HUFFMAN_WEIGHTS_RAM_MODEL_ASSERT_VALID_READ,
+            TEST_HUFFMAN_WEIGHTS_RAM_MODEL_ADDR_WIDTH
         > (
             huffman_lit_weights_mem_rd_req_r, huffman_lit_weights_mem_rd_resp_s,
             huffman_lit_weights_mem_wr_req_r, huffman_lit_weights_mem_wr_resp_s
@@ -1211,8 +1287,13 @@ proc LiteralsDecoder_test {
 
         // Huffman prescan memory
         spawn ram::RamModel<
-            TEST_AXI_RAM_DATA_W, TEST_AXI_RAM_SIZE, TEST_AXI_RAM_WORD_PARTITION_SIZE,
-            TEST_AXI_RAM_SIMULTANEOUS_READ_WRITE_BEHAVIOR, TEST_AXI_RAM_INITIALIZED, TEST_AXI_RAM_ASSERT_VALID_READ, TEST_AXI_RAM_ADDR_W,
+            TEST_HUFFMAN_PRESCAN_RAM_MODEL_DATA_WIDTH,
+            TEST_HUFFMAN_PRESCAN_RAM_MODEL_SIZE,
+            TEST_HUFFMAN_PRESCAN_RAM_MODEL_WORD_PARTITION_SIZE,
+            TEST_HUFFMAN_PRESCAN_RAM_MODEL_SIMULTANEOUS_READ_WRITE_BEHAVIOR,
+            TEST_HUFFMAN_PRESCAN_RAM_MODEL_INITIALIZED,
+            TEST_HUFFMAN_PRESCAN_RAM_MODEL_ASSERT_VALID_READ,
+            TEST_HUFFMAN_PRESCAN_RAM_MODEL_ADDR_WIDTH
         > (
             huffman_lit_prescan_mem_rd_req_r, huffman_lit_prescan_mem_rd_resp_s,
             huffman_lit_prescan_mem_wr_req_r, huffman_lit_prescan_mem_wr_resp_s

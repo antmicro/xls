@@ -2007,6 +2007,30 @@ place_and_route(
     tags = ["manual"],
     target_die_utilization_percentage = "10",
 )
+
+xls_dslx_library(
+    name = "sequence_dec_dslx",
+    srcs = [
+        "sequence_dec.x"
+    ],
+    deps = [
+        ":sequence_conf_dec_dslx",
+        ":fse_lookup_dec_dslx",
+        ":ram_demux3_dslx",
+        ":common_dslx",
+        ":fse_dec_dslx",
+        "//xls/modules/zstd/memory:mem_reader_dslx",
+        "//xls/modules/zstd/memory:axi_ram_dslx",
+        "//xls/modules/zstd:refilling_shift_buffer_dslx",
+        "//xls/modules/shift_buffer:shift_buffer_dslx",
+    ],
+)
+
+xls_dslx_test(
+    name = "sequence_dec_dslx_test",
+    library = ":sequence_dec_dslx",
+)
+
 xls_dslx_library(
     name = "literals_dispatcher_dslx",
     srcs = [

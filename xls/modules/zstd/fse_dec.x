@@ -30,6 +30,11 @@ type CopyOrMatchContent = common::CopyOrMatchContent;
 type RefillingSBCtrl = refilling_shift_buffer::RefillingShiftBufferCtrl;
 type RefillingSBOutput = refilling_shift_buffer::RefillingShiftBufferOutput;
 
+pub enum FseDecoderStatus: u1 {
+    OK = 0,
+    ERROR = 1,
+}
+
 pub struct FseDecoderCtrl {
     sync: BlockSyncData,
     sequences_count: u24,
@@ -37,7 +42,10 @@ pub struct FseDecoderCtrl {
     ll_acc_log: u7,
     ml_acc_log: u7,
 }
-pub struct FseDecoderFinish { }
+
+pub struct FseDecoderFinish {
+    status: FseDecoderStatus
+}
 
 // 3.1.1.3.2.1.1. Sequence Codes for Lengths and Offsets
 const SEQ_MAX_CODES_LL = u8:35;
@@ -109,6 +117,7 @@ struct FseDecoderState {
     read_bits_length: u7,
     read_bits_needed: u7,
     sent_buf_ctrl: bool,
+    shift_buffer_error: bool,
 }
 
 pub proc FseDecoder<
@@ -253,6 +262,7 @@ pub proc FseDecoder<
                 sent_buf_ctrl: false,
                 read_bits: math::logshiftl(buf_data.data as u16, state.read_bits_length) | state.read_bits,
                 read_bits_length: state.read_bits_length + buf_data.length,
+                shift_buffer_error: state.shift_buffer_error | buf_data.error,
                 ..state
             }
         } else { state };
@@ -280,7 +290,9 @@ pub proc FseDecoder<
         });
 
         // send finish
-        send_if(tok0, finish_s, state.fsm == FseDecoderFSM::SEND_FINISH, FseDecoderFinish{});
+        send_if(tok0, finish_s, state.fsm == FseDecoderFSM::SEND_FINISH, FseDecoderFinish {
+            status: if state.shift_buffer_error { FseDecoderStatus::ERROR } else { FseDecoderStatus::OK }
+        });
 
         // update state
         match (state.fsm) {
@@ -858,6 +870,8 @@ const TEST_DATA_1 = TestRefillingSBOutput[42]:[
     TestRefillingSBOutput { error: false, data: u64:0b0, length: u7:0},
     // no state update for last sequence
 ];
+// FIXME: test error propagation with TestRefillingSBOutput { error: true, ...}
+
 
 fn test_command(block_idx: u32, msg_type: SequenceExecutorMessageType, length: CopyOrMatchLength, content: CopyOrMatchContent, last: bool) -> CommandConstructorData {
     CommandConstructorData {

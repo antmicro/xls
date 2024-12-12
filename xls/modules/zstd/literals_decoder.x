@@ -139,7 +139,6 @@ proc LiteralsDecoderCtrl<AXI_ADDR_W: u32> {
     }
 
     next (state: State) {
-        trace_fmt!("state: {:#x}", state);
         let tok = join();
         // Try receiving response from Raw-, Rle- and HuffmanLiteralsDecoder procs to free
         // resources at the very begining of next() evaluation
@@ -305,8 +304,6 @@ proc LiteralsDecoderCtrl<AXI_ADDR_W: u32> {
             decoding_rle_literals: decoding_rle_literals,
             decoding_huffman_literals: decoding_huffman_literals,
         };
-
-        trace_fmt!("next_state: {:#x}", next_state);
 
         next_state
     }
@@ -930,18 +927,19 @@ const TEST_HISTORY_BUFFER_SIZE_KB:u32 = u32:1;
 
 // Parameters for the AXI bus connecting LiteralsBlockHeaderDecoder,
 // RawLiteralsDecoder and HuffmanLiteralsDecoder to the system memory
-const TEST_AXI_RAM_ADDR_W:u32 = u32:16;
+const TEST_AXI_RAM_ADDR_W:u32 = u32:32;
 const TEST_AXI_RAM_DATA_W:u32 = u32:64;
-const TEST_AXI_RAM_ID_W:u32 = u32:4;
-const TEST_AXI_RAM_DEST_W:u32 = u32:4;
+const TEST_AXI_RAM_ID_W:u32 = u32:8;
+const TEST_AXI_RAM_DEST_W:u32 = u32:8;
 
 // Parameters for RamModels used for mocking the system memory for
 // the LiteralsBlockHeaderDecoder, RawLiteralsDecoder and HuffmanLiteralsDecoder
-const TEST_AXI_RAM_MODEL_DATA_WIDTH:u32 = u32:64;
+const TEST_AXI_RAM_MODEL_DATA_WIDTH:u32 = TEST_AXI_RAM_DATA_W;
 const TEST_AXI_RAM_MODEL_SIZE:u32 = u32:16384;
-const TEST_AXI_RAM_MODEL_ADDR_WIDTH:u32 = u32:16;
+const TEST_AXI_RAM_MODEL_ADDR_WIDTH:u32 = std::clog2(TEST_AXI_RAM_MODEL_SIZE);
 const TEST_AXI_RAM_MODEL_WORD_PARTITION_SIZE:u32 = u32:8;
 const TEST_AXI_RAM_MODEL_NUM_PARTITIONS:u32 = ram::num_partitions(TEST_AXI_RAM_MODEL_WORD_PARTITION_SIZE, TEST_AXI_RAM_MODEL_DATA_WIDTH);
+const TEST_AXI_RAM_MODEL_BASE_ADDR:u32 = u32:0;
 const TEST_AXI_RAM_MODEL_SIMULTANEOUS_READ_WRITE_BEHAVIOR = ram::SimultaneousReadWriteBehavior::READ_BEFORE_WRITE;
 const TEST_AXI_RAM_MODEL_INITIALIZED = true;
 const TEST_AXI_RAM_MODEL_ASSERT_VALID_READ = true;
@@ -1010,26 +1008,17 @@ proc LiteralsDecoder_test {
     // Control and output
     type CtrlReq = LiteralsDecoderCtrlReq<TEST_AXI_RAM_ADDR_W>;
     type CtrlResp = LiteralsDecoderCtrlResp;
+    type CtrlStatus = LiteralsDecoderCtrlStatus;
     type BufferCtrl = common::LiteralsBufferCtrl;
     type BufferOut = common::SequenceExecutorPacket<common::SYMBOL_WIDTH>;
 
-    type AxiRamData = uN[TEST_AXI_RAM_DATA_W];
-    type AxiRamAddr = uN[TEST_AXI_RAM_ADDR_W];
+    type AxiRamData = uN[TEST_AXI_RAM_MODEL_DATA_WIDTH];
+    type AxiRamAddr = uN[TEST_AXI_RAM_MODEL_ADDR_WIDTH];
     type AxiRamMask = uN[TEST_AXI_RAM_MODEL_NUM_PARTITIONS];
 
+    type AxiAddr = uN[TEST_AXI_RAM_ADDR_W];
+
     terminator: chan<bool> out;
-
-    // AXI Literals Header Decoder (manager)
-    lit_header_axi_ar_r: chan<MemAxiAr> in;
-    lit_header_axi_r_s: chan<MemAxiR> out;
-
-    // AXI Raw Literals Decoder (manager)
-    raw_lit_axi_ar_r: chan<MemAxiAr> in;
-    raw_lit_axi_r_s: chan<MemAxiR> out;
-
-    // AXI Huffman Literals Decoder (manager)
-    huffman_lit_axi_ar_r: chan<MemAxiAr> in;
-    huffman_lit_axi_r_s: chan<MemAxiR> out;
 
     // Literals Decoder control
     ctrl_req_s: chan<CtrlReq> out;
@@ -1213,7 +1202,7 @@ proc LiteralsDecoder_test {
 
         spawn axi_ram::AxiRamReader<
             TEST_AXI_RAM_ADDR_W, TEST_AXI_RAM_DATA_W, TEST_AXI_RAM_DEST_W, TEST_AXI_RAM_ID_W,
-            TEST_AXI_RAM_MODEL_SIZE
+            TEST_AXI_RAM_MODEL_SIZE, TEST_AXI_RAM_MODEL_BASE_ADDR, TEST_AXI_RAM_MODEL_DATA_WIDTH, TEST_AXI_RAM_MODEL_ADDR_WIDTH
         > (
             lit_header_axi_ar_r, lit_header_axi_r_s,
             ram_rd_req_header_s, ram_rd_resp_header_r
@@ -1239,7 +1228,7 @@ proc LiteralsDecoder_test {
 
         spawn axi_ram::AxiRamReader<
             TEST_AXI_RAM_ADDR_W, TEST_AXI_RAM_DATA_W, TEST_AXI_RAM_DEST_W, TEST_AXI_RAM_ID_W,
-            TEST_AXI_RAM_MODEL_SIZE
+            TEST_AXI_RAM_MODEL_SIZE, TEST_AXI_RAM_MODEL_BASE_ADDR, TEST_AXI_RAM_MODEL_DATA_WIDTH, TEST_AXI_RAM_MODEL_ADDR_WIDTH
         > (
             raw_lit_axi_ar_r, raw_lit_axi_r_s,
             ram_rd_req_raw_s, ram_rd_resp_raw_r
@@ -1265,7 +1254,7 @@ proc LiteralsDecoder_test {
 
         spawn axi_ram::AxiRamReader<
             TEST_AXI_RAM_ADDR_W, TEST_AXI_RAM_DATA_W, TEST_AXI_RAM_DEST_W, TEST_AXI_RAM_ID_W,
-            TEST_AXI_RAM_MODEL_SIZE
+            TEST_AXI_RAM_MODEL_SIZE, TEST_AXI_RAM_MODEL_BASE_ADDR, TEST_AXI_RAM_MODEL_DATA_WIDTH, TEST_AXI_RAM_MODEL_ADDR_WIDTH
         > (
             huffman_lit_axi_ar_r, huffman_lit_axi_r_s,
             ram_rd_req_huffman_s, ram_rd_resp_huffman_r
@@ -1301,9 +1290,6 @@ proc LiteralsDecoder_test {
 
         (
             terminator,
-            lit_header_axi_ar_r, lit_header_axi_r_s,
-            raw_lit_axi_ar_r, raw_lit_axi_r_s,
-            huffman_lit_axi_ar_r, huffman_lit_axi_r_s,
             ctrl_req_s, ctrl_resp_r,
             buf_ctrl_s, buf_out_r,
             print_start_s, print_finish_r,
@@ -1317,49 +1303,59 @@ proc LiteralsDecoder_test {
     init { }
 
     next (state: ()) {
-const TEST_CTRL: CtrlReq[7] = [
-    CtrlReq {addr: AxiRamAddr:0x0, literals_last: false},
-    CtrlReq {addr: AxiRamAddr:0x10, literals_last: false},
-    CtrlReq {addr: AxiRamAddr:0x20, literals_last: false},
-    CtrlReq {addr: AxiRamAddr:0x30, literals_last: true},
-    CtrlReq {addr: AxiRamAddr:0x100, literals_last: false},
-    CtrlReq {addr: AxiRamAddr:0x200, literals_last: false},
-    CtrlReq {addr: AxiRamAddr:0x300, literals_last: true},
-];
-
 const TEST_MEMORY: AxiRamWrReq[12] = [
     // Literals #0 (RAW; 8 bytes)
-    // Header: 0x08
-    AxiRamWrReq { addr: AxiRamAddr:0x0, data: AxiRamData:0x5734_65A6_DB5D_B008, mask: AxiRamMask:0xFF },
+    // Header: 0x40
+    AxiRamWrReq { addr: AxiRamAddr:0x0, data: AxiRamData:0x5734_65A6_DB5D_B040, mask: AxiRamMask:0xFF },
     AxiRamWrReq { addr: AxiRamAddr:0x8, data: AxiRamData:0x16, mask: AxiRamMask:0xFF },
 
     // Literals #1 (RLE; 4 bytes)
-    // Header: 0x84
-    AxiRamWrReq { addr: AxiRamAddr:0x10, data: AxiRamData:0x2384, mask: AxiRamMask:0xFF },
+    // Header: 0x21
+    AxiRamWrReq { addr: AxiRamAddr:0x10, data: AxiRamData:0x2321, mask: AxiRamMask:0xFF },
 
     // Literals #2 (RLE; 2 bytes)
-    // Header: 0x82
-    AxiRamWrReq { addr: AxiRamAddr:0x20, data: AxiRamData:0x3582, mask: AxiRamMask:0xFF },
+    // Header: 0x11
+    AxiRamWrReq { addr: AxiRamAddr:0x20, data: AxiRamData:0x3511, mask: AxiRamMask:0xFF },
 
     // Literals #3 (RAW; 15 bytes)
-    // Header: 0x0F
-    AxiRamWrReq { addr: AxiRamAddr:0x30, data: AxiRamData:0xFB41_C67B_6053_700F, mask: AxiRamMask:0xFF },
+    // Header: 0x78
+    AxiRamWrReq { addr: AxiRamAddr:0x30, data: AxiRamData:0xFB41_C67B_6053_7078, mask: AxiRamMask:0xFF },
     AxiRamWrReq { addr: AxiRamAddr:0x38, data: AxiRamData:0x9B0F_9CE1_BAA9_6D4C, mask: AxiRamMask:0xFF },
 
     // Literals #4 (RLE; 12 bytes)
-    // Header: 0x8C
-    AxiRamWrReq { addr: AxiRamAddr:0x100, data: AxiRamData:0x5A8C, mask: AxiRamMask:0xFF },
+    // Header: 0x61
+    AxiRamWrReq { addr: AxiRamAddr:0x100, data: AxiRamData:0x5A61, mask: AxiRamMask:0xFF },
 
     // Literals #5 (RLE; 0 bytes)
-    // Header: 0x80
-    AxiRamWrReq { addr: AxiRamAddr:0x200, data: AxiRamData:0xFF80, mask: AxiRamMask:0xFF },
+    // Header: 0x01
+    AxiRamWrReq { addr: AxiRamAddr:0x200, data: AxiRamData:0xFF01, mask: AxiRamMask:0xFF },
 
     // Literals #6 (RAW; 31 bytes)
-    // Header: 0x1F
-    AxiRamWrReq { addr: AxiRamAddr:0x300, data: AxiRamData:0x943E_9618_34C2_471F, mask: AxiRamMask:0xFF },
+    // Header: 0xF8
+    AxiRamWrReq { addr: AxiRamAddr:0x300, data: AxiRamData:0x943E_9618_34C2_47F8, mask: AxiRamMask:0xFF },
     AxiRamWrReq { addr: AxiRamAddr:0x308, data: AxiRamData:0x02D0_E8D7_289A_BE60, mask: AxiRamMask:0xFF },
     AxiRamWrReq { addr: AxiRamAddr:0x310, data: AxiRamData:0x64C3_8BE1_FA8D_12BC, mask: AxiRamMask:0xFF },
     AxiRamWrReq { addr: AxiRamAddr:0x318, data: AxiRamData:0x1963_F1CE_21C2_94F8, mask: AxiRamMask:0xFF },
+];
+
+const TEST_CTRL: CtrlReq[7] = [
+    CtrlReq {addr: AxiAddr:0x0, literals_last: false},
+    CtrlReq {addr: AxiAddr:0x10, literals_last: false},
+    CtrlReq {addr: AxiAddr:0x20, literals_last: false},
+    CtrlReq {addr: AxiAddr:0x30, literals_last: true},
+    CtrlReq {addr: AxiAddr:0x100, literals_last: false},
+    CtrlReq {addr: AxiAddr:0x200, literals_last: false},
+    CtrlReq {addr: AxiAddr:0x300, literals_last: true},
+];
+
+const TEST_EXPECTED_RESP: CtrlResp[7] = [
+    CtrlResp {status: CtrlStatus::OKAY},
+    CtrlResp {status: CtrlStatus::OKAY},
+    CtrlResp {status: CtrlStatus::OKAY},
+    CtrlResp {status: CtrlStatus::OKAY},
+    CtrlResp {status: CtrlStatus::OKAY},
+    CtrlResp {status: CtrlStatus::OKAY},
+    CtrlResp {status: CtrlStatus::OKAY},
 ];
 
 const TEST_BUF_CTRL: LiteralsBufferCtrl[5] = [
@@ -1449,39 +1445,57 @@ const TEST_EXPECTED_LITERALS: SequenceExecutorPacket[11] = [
 
         let tok = join();
 
-
+        trace_fmt!("Filling system memory mock");
         let tok = for ((i, mem_req), tok):((u32, AxiRamWrReq), token) in enumerate(TEST_MEMORY) {
+            trace_fmt!("Sent memory write request #{}: {:#x}", i + u32:1, mem_req);
             let tok = send(tok, ram_wr_req_header_s, mem_req);
             let tok = send(tok, ram_wr_req_raw_s, mem_req);
             let tok = send(tok, ram_wr_req_huffman_s, mem_req);
             tok
         }(tok);
 
+        let tok = send(tok, ctrl_req_s, TEST_CTRL[0]);
+        trace_fmt!("Sent #{} literals decoding request: {:#x}", u32:1, TEST_CTRL[0]);
 
-        //// send literals
-        //let tok = for ((i, test_data), tok): ((u32, LiteralsData), token) in enumerate(TEST_DATA) {
-        //    let tok = send(tok, literals_data_s, test_data);
-        //    trace_fmt!("Sent #{} literals data, {:#x}", i + u32:1, test_data);
+        let (tok, resp) = recv(tok, ctrl_resp_r);
+        trace_fmt!("Received #{} literals decoding response {:#x}", u32:1, resp);
+        assert_eq(TEST_EXPECTED_RESP[0], resp);
+
+        let tok = send(tok, buf_ctrl_s, TEST_BUF_CTRL[0]);
+        trace_fmt!("Sent #{} literals buffer request {:#x}", u32:1, TEST_BUF_CTRL[0]);
+
+        let (tok, literals) = recv(tok, buf_out_r);
+        trace_fmt!("Received #{} literals packet {:#x}", u32:1, literals);
+        assert_eq(TEST_EXPECTED_LITERALS[0], literals);
+        let (tok, literals) = recv(tok, buf_out_r);
+        trace_fmt!("Received #{} literals packet {:#x}", u32:2, literals);
+        assert_eq(TEST_EXPECTED_LITERALS[1], literals);
+
+        //trace_fmt!("Sending literals decoding requests");
+        //let tok = for ((i, test_ctrl), tok): ((u32, CtrlReq), token) in enumerate(TEST_CTRL) {
+        //    let tok = send(tok, ctrl_req_s, test_ctrl);
+        //    trace_fmt!("Sent #{} literals decoding request: {:#x}", i + u32:1, test_ctrl);
         //    tok
         //}(tok);
 
-        //// send ctrl
-        //let tok = for ((i, test_ctrl), tok): ((u32, LiteralsPathCtrl), token) in enumerate(TEST_CTRL) {
-        //    let tok = send(tok, literals_ctrl_s, test_ctrl);
-        //    trace_fmt!("Sent #{} literals ctrl, {:#x}", i + u32:1, test_ctrl);
+        //trace_fmt!("Receiving literals decoding responses");
+        //let tok = for ((i, test_exp_resp), tok): ((u32, CtrlResp), token) in enumerate(TEST_EXPECTED_RESP) {
+        //    let (tok, resp) = recv(tok, ctrl_resp_r);
+        //    trace_fmt!("Received #{} literals decoding response {:#x}", i + u32:1, resp);
+        //    assert_eq(test_exp_resp, resp);
         //    tok
         //}(tok);
 
-        //// send buffer ctrl
+        //trace_fmt!("Sending literals buffer requests");
         //let tok = for ((i, test_buf_ctrl), tok): ((u32, LiteralsBufferCtrl), token) in enumerate(TEST_BUF_CTRL) {
-        //    let tok = send(tok, literals_buf_ctrl_s, test_buf_ctrl);
-        //    trace_fmt!("Sent #{} ctrl {:#x}", i + u32:1, test_buf_ctrl);
+        //    let tok = send(tok, buf_ctrl_s, test_buf_ctrl);
+        //    trace_fmt!("Sent #{} literals buffer request {:#x}", i + u32:1, test_buf_ctrl);
         //    tok
         //}(tok);
 
         //// receive and check packets
         //let tok = for ((i, test_exp_literals), tok): ((u32, SequenceExecutorPacket), token) in enumerate(TEST_EXPECTED_LITERALS) {
-        //    let (tok, literals) = recv(tok, literals_r);
+        //    let (tok, literals) = recv(tok, buf_out_r);
         //    trace_fmt!("Received #{} literals packet {:#x}", i + u32:1, literals);
         //    assert_eq(test_exp_literals, literals);
         //    tok

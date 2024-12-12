@@ -16,20 +16,9 @@ import std;
 import xls.examples.ram;
 import xls.modules.zstd.common;
 import xls.modules.zstd.math;
-import xls.modules.shift_buffer.shift_buffer;
+import xls.modules.zstd.refilling_shift_buffer;
 
-type FseRamReadReq = common::SeqDecFseRamReadReq;
-type FseRamReadResp = common::SeqDecFseRamReadResp;
-type FseRamWriteReq = common::SeqDecFseRamWriteReq;
-type FseRamWriteResp = common::SeqDecFseRamWriteResp;
 type FseTableRecord = common::FseTableRecord;
-
-type ShiftBufferCtrl = common::SeqDecShiftBufferCtrl;
-type ShiftBufferInput = common::SeqDecShiftBufferInput;
-type ShiftBufferOutput = common::SeqDecShiftBufferOutput;
-type ShiftBufferPacket = common::SeqDecShiftBufferPacket;
-type ShiftBufferStatus = common::SeqDecShiftBufferStatus;
-
 type BlockSyncData = common::BlockSyncData;
 type SequenceExecutorMessageType = common::SequenceExecutorMessageType;
 type SequenceExecutorPacket = common::SequenceExecutorPacket<common::SYMBOLS_IN_PACKET>;
@@ -37,6 +26,9 @@ type CommandConstructorData = common::CommandConstructorData;
 
 type CopyOrMatchLength = common::CopyOrMatchLength;
 type CopyOrMatchContent = common::CopyOrMatchContent;
+
+type RefillingSBCtrl = refilling_shift_buffer::RefillingShiftBufferCtrl;
+type RefillingSBOutput = refilling_shift_buffer::RefillingShiftBufferOutput;
 
 pub struct FseDecoderCtrl {
     sync: BlockSyncData,
@@ -119,46 +111,55 @@ struct FseDecoderState {
     sent_buf_ctrl: bool,
 }
 
-proc FseDecoder {
+pub proc FseDecoder<
+    RAM_DATA_W: u32, RAM_ADDR_W: u32, RAM_NUM_PARTITIONS:u32,
+    AXI_DATA_W: u32,
+    REFILLING_SB_DATA_W: u32 = {AXI_DATA_W},
+    REFILLING_SB_LENGTH_W: u32 = {refilling_shift_buffer::length_width(REFILLING_SB_DATA_W)},
+> {
+    type FseRamRdReq = ram::ReadReq<RAM_ADDR_W, RAM_NUM_PARTITIONS>;
+    type FseRamRdResp = ram::ReadResp<RAM_DATA_W>;
+
+    type RefillingSBCtrl = refilling_shift_buffer::RefillingShiftBufferCtrl<REFILLING_SB_LENGTH_W>;
+    type RefillingSBOutput = refilling_shift_buffer::RefillingShiftBufferOutput<REFILLING_SB_DATA_W, REFILLING_SB_LENGTH_W>;
+
     // control
     ctrl_r: chan<FseDecoderCtrl> in;
     finish_s: chan<FseDecoderFinish> out;
 
     // shift buffer
-    shift_buffer_ctrl_s: chan<ShiftBufferCtrl> out;
-    shift_buffer_out_data_r: chan<ShiftBufferOutput> in;
-    shift_buffer_out_ctrl_r: chan<ShiftBufferOutput> in;
+    rsb_ctrl_s: chan<RefillingSBCtrl> out;
+    rsb_data_r: chan<RefillingSBOutput> in;
 
     // output command
     command_s: chan<CommandConstructorData> out;
 
     // RAMs
-    ll_fse_rd_req_s: chan<FseRamReadReq> out;
-    ll_fse_rd_resp_r: chan<FseRamReadResp> in;
+    ll_fse_rd_req_s: chan<FseRamRdReq> out;
+    ll_fse_rd_resp_r: chan<FseRamRdResp> in;
 
-    ml_fse_rd_req_s: chan<FseRamReadReq> out;
-    ml_fse_rd_resp_r: chan<FseRamReadResp> in;
+    ml_fse_rd_req_s: chan<FseRamRdReq> out;
+    ml_fse_rd_resp_r: chan<FseRamRdResp> in;
 
-    of_fse_rd_req_s: chan<FseRamReadReq> out;
-    of_fse_rd_resp_r: chan<FseRamReadResp> in;
+    of_fse_rd_req_s: chan<FseRamRdReq> out;
+    of_fse_rd_resp_r: chan<FseRamRdResp> in;
 
     config (
         ctrl_r: chan<FseDecoderCtrl> in,
         finish_s: chan<FseDecoderFinish> out,
-        shift_buffer_ctrl_s: chan<ShiftBufferCtrl> out,
-        shift_buffer_out_data_r: chan<ShiftBufferOutput> in,
-        shift_buffer_out_ctrl_r: chan<ShiftBufferOutput> in,
+        rsb_ctrl_s: chan<RefillingSBCtrl> out,
+        rsb_data_r: chan<RefillingSBOutput> in,
         command_s: chan<CommandConstructorData> out,
-        ll_fse_rd_req_s: chan<FseRamReadReq> out,
-        ll_fse_rd_resp_r: chan<FseRamReadResp> in,
-        ml_fse_rd_req_s: chan<FseRamReadReq> out,
-        ml_fse_rd_resp_r: chan<FseRamReadResp> in,
-        of_fse_rd_req_s: chan<FseRamReadReq> out,
-        of_fse_rd_resp_r: chan<FseRamReadResp> in,
+        ll_fse_rd_req_s: chan<FseRamRdReq> out,
+        ll_fse_rd_resp_r: chan<FseRamRdResp> in,
+        ml_fse_rd_req_s: chan<FseRamRdReq> out,
+        ml_fse_rd_resp_r: chan<FseRamRdResp> in,
+        of_fse_rd_req_s: chan<FseRamRdReq> out,
+        of_fse_rd_resp_r: chan<FseRamRdResp> in,
     ) {
         (
             ctrl_r, finish_s,
-            shift_buffer_ctrl_s, shift_buffer_out_data_r, shift_buffer_out_ctrl_r,
+            rsb_ctrl_s, rsb_data_r,
             command_s,
             ll_fse_rd_req_s, ll_fse_rd_resp_r,
             ml_fse_rd_req_s, ml_fse_rd_resp_r,
@@ -169,8 +170,8 @@ proc FseDecoder {
     init { zero!<FseDecoderState>() }
 
     next (state: FseDecoderState) {
-        type RamAddr = uN[common::SEQDEC_FSE_RAM_ADDR_WIDTH];
-        const RAM_MASK_ALL = std::unsigned_max_value<common::SEQDEC_FSE_RAM_NUM_PARTITIONS>();
+        type RamAddr = uN[RAM_ADDR_W];
+        const RAM_MASK_ALL = std::unsigned_max_value<RAM_NUM_PARTITIONS>();
 
         let tok0 = join();
 
@@ -186,9 +187,9 @@ proc FseDecoder {
         } else { state };
 
         // receive ram read response
-        let (_, ll_rd_resp, ll_rd_resp_valid) = recv_if_non_blocking(tok0, ll_fse_rd_resp_r, state.fsm == FseDecoderFSM::RECV_RAM_RD_RESP, zero!<FseRamReadResp>());
-        let (_, ml_rd_resp, ml_rd_resp_valid) = recv_if_non_blocking(tok0, ml_fse_rd_resp_r, state.fsm == FseDecoderFSM::RECV_RAM_RD_RESP, zero!<FseRamReadResp>());
-        let (_, of_rd_resp, of_rd_resp_valid) = recv_if_non_blocking(tok0, of_fse_rd_resp_r, state.fsm == FseDecoderFSM::RECV_RAM_RD_RESP, zero!<FseRamReadResp>());
+        let (_, ll_rd_resp, ll_rd_resp_valid) = recv_if_non_blocking(tok0, ll_fse_rd_resp_r, state.fsm == FseDecoderFSM::RECV_RAM_RD_RESP, zero!<FseRamRdResp>());
+        let (_, ml_rd_resp, ml_rd_resp_valid) = recv_if_non_blocking(tok0, ml_fse_rd_resp_r, state.fsm == FseDecoderFSM::RECV_RAM_RD_RESP, zero!<FseRamRdResp>());
+        let (_, of_rd_resp, of_rd_resp_valid) = recv_if_non_blocking(tok0, of_fse_rd_resp_r, state.fsm == FseDecoderFSM::RECV_RAM_RD_RESP, zero!<FseRamRdResp>());
 
         let ll_fse_table_record = FseTableRecord {
             symbol: ll_rd_resp.data[24:32],
@@ -213,9 +214,9 @@ proc FseDecoder {
         // request records
         let do_send_ram_rd_req = state.fsm == FseDecoderFSM::SEND_RAM_RD_REQ;
 
-        send_if(tok0, ll_fse_rd_req_s, do_send_ram_rd_req, FseRamReadReq { addr: state.ll_state as RamAddr, mask: RAM_MASK_ALL});
-        send_if(tok0, ml_fse_rd_req_s, do_send_ram_rd_req, FseRamReadReq { addr: state.ml_state as RamAddr, mask: RAM_MASK_ALL});
-        send_if(tok0, of_fse_rd_req_s, do_send_ram_rd_req, FseRamReadReq { addr: state.of_state as RamAddr, mask: RAM_MASK_ALL});
+        send_if(tok0, ll_fse_rd_req_s, do_send_ram_rd_req, FseRamRdReq { addr: state.ll_state as RamAddr, mask: RAM_MASK_ALL});
+        send_if(tok0, ml_fse_rd_req_s, do_send_ram_rd_req, FseRamRdReq { addr: state.ml_state as RamAddr, mask: RAM_MASK_ALL});
+        send_if(tok0, of_fse_rd_req_s, do_send_ram_rd_req, FseRamRdReq { addr: state.of_state as RamAddr, mask: RAM_MASK_ALL});
 
         // read bits
         let do_read_bits = (
@@ -231,13 +232,13 @@ proc FseDecoder {
         );
         let do_send_buf_ctrl = do_read_bits && !state.sent_buf_ctrl;
 
-        let buf_ctrl_length = if ((state.read_bits_needed - state.read_bits_length) > common::SEQDEC_SHIFT_BUFFER_DATA_WIDTH as u7) {
-            common::SEQDEC_SHIFT_BUFFER_DATA_WIDTH as u7
+        let buf_ctrl_length = if ((state.read_bits_needed - state.read_bits_length) > REFILLING_SB_DATA_W as u7) {
+            REFILLING_SB_DATA_W as u7
         } else {
             state.read_bits_needed - state.read_bits_length
         };
 
-        send_if(tok0, shift_buffer_ctrl_s, do_send_buf_ctrl, ShiftBufferCtrl {
+        send_if(tok0, rsb_ctrl_s, do_send_buf_ctrl, RefillingSBCtrl {
             length: buf_ctrl_length,
         });
 
@@ -245,8 +246,7 @@ proc FseDecoder {
             FseDecoderState { sent_buf_ctrl: do_send_buf_ctrl, ..state }
         } else { state };
 
-        let (_, buf_data, buf_data_valid) = recv_if_non_blocking(tok0, shift_buffer_out_data_r, do_read_bits && state.sent_buf_ctrl, zero!<ShiftBufferOutput>());
-        let (_, _) = recv_if(tok0, shift_buffer_out_ctrl_r, false, zero!<ShiftBufferOutput>());
+        let (_, buf_data, buf_data_valid) = recv_if_non_blocking(tok0, rsb_data_r, do_read_bits && state.sent_buf_ctrl, zero!<RefillingSBOutput>());
 
         let state = if do_read_bits & buf_data_valid {
             FseDecoderState {
@@ -718,131 +718,144 @@ const TEST_CTRL = FseDecoderCtrl[2]:[
     },
 ];
 
-const TEST_DATA_0 = ShiftBufferOutput[48]:[
+
+const TEST_AXI_DATA_W = u32:64;
+const TEST_REFILLING_SB_DATA_W = TEST_AXI_DATA_W;
+const TEST_REFILLING_SB_LENGTH_W = refilling_shift_buffer::length_width(TEST_REFILLING_SB_DATA_W);
+const TEST_RAM_DATA_W = u32:32;
+const TEST_RAM_SIZE = common::FSE_MAX_SYMBOLS;
+const TEST_RAM_ADDR_W = std::clog2(TEST_RAM_SIZE);
+const TEST_RAM_WORD_PARTITION_SIZE = TEST_RAM_DATA_W / u32:3;
+const TEST_RAM_NUM_PARTITIONS = ram::num_partitions(
+    TEST_RAM_WORD_PARTITION_SIZE, TEST_RAM_DATA_W);
+
+type TestRefillingSBOutput = refilling_shift_buffer::RefillingShiftBufferOutput<TEST_REFILLING_SB_DATA_W, TEST_REFILLING_SB_LENGTH_W>;
+
+const TEST_DATA_0 = TestRefillingSBOutput[48]:[
     // init states
-    ShiftBufferOutput {data: u64:0b11111, length: u7:5},
-    ShiftBufferOutput {data: u64:0b101, length: u7:5},
-    ShiftBufferOutput {data: u64:0b10, length: u7:5},
+    TestRefillingSBOutput { error: false, data: u64:0b11111, length: u7:5},
+    TestRefillingSBOutput { error: false, data: u64:0b101, length: u7:5},
+    TestRefillingSBOutput { error: false, data: u64:0b10, length: u7:5},
     // symbols (seq #0)
-    ShiftBufferOutput {data: u64:0b0, length: u7:0},
-    ShiftBufferOutput {data: u64:0b0, length: u7:0},
-    ShiftBufferOutput {data: u64:0b0, length: u7:0},
+    TestRefillingSBOutput { error: false, data: u64:0b0, length: u7:0},
+    TestRefillingSBOutput { error: false, data: u64:0b0, length: u7:0},
+    TestRefillingSBOutput { error: false, data: u64:0b0, length: u7:0},
     // state update
-    ShiftBufferOutput {data: u64:0b0, length: u7:1},
-    ShiftBufferOutput {data: u64:0b0, length: u7:1},
-    ShiftBufferOutput {data: u64:0b100, length: u7:3},
+    TestRefillingSBOutput { error: false, data: u64:0b0, length: u7:1},
+    TestRefillingSBOutput { error: false, data: u64:0b0, length: u7:1},
+    TestRefillingSBOutput { error: false, data: u64:0b100, length: u7:3},
     // symbols (seq #1)
-    ShiftBufferOutput {data: u64:0b10, length: u7:2},
-    ShiftBufferOutput {data: u64:0b0, length: u7:0},
-    ShiftBufferOutput {data: u64:0b0, length: u7:0},
+    TestRefillingSBOutput { error: false, data: u64:0b10, length: u7:2},
+    TestRefillingSBOutput { error: false, data: u64:0b0, length: u7:0},
+    TestRefillingSBOutput { error: false, data: u64:0b0, length: u7:0},
     // state update
-    ShiftBufferOutput {data: u64:0b0, length: u7:1},
-    ShiftBufferOutput {data: u64:0b110, length: u7:3},
-    ShiftBufferOutput {data: u64:0b10, length: u7:2},
+    TestRefillingSBOutput { error: false, data: u64:0b0, length: u7:1},
+    TestRefillingSBOutput { error: false, data: u64:0b110, length: u7:3},
+    TestRefillingSBOutput { error: false, data: u64:0b10, length: u7:2},
     // symbols (seq #2)
-    ShiftBufferOutput {data: u64:0b0, length: u7:3},
-    ShiftBufferOutput {data: u64:0b0, length: u7:0},
-    ShiftBufferOutput {data: u64:0b0, length: u7:0},
+    TestRefillingSBOutput { error: false, data: u64:0b0, length: u7:3},
+    TestRefillingSBOutput { error: false, data: u64:0b0, length: u7:0},
+    TestRefillingSBOutput { error: false, data: u64:0b0, length: u7:0},
     // state update
-    ShiftBufferOutput {data: u64:0b10, length: u7:2},
-    ShiftBufferOutput {data: u64:0b0, length: u7:0},
-    ShiftBufferOutput {data: u64:0b0, length: u7:1},
+    TestRefillingSBOutput { error: false, data: u64:0b10, length: u7:2},
+    TestRefillingSBOutput { error: false, data: u64:0b0, length: u7:0},
+    TestRefillingSBOutput { error: false, data: u64:0b0, length: u7:1},
     // symbols (seq #3)
-    ShiftBufferOutput {data: u64:0b11, length: u7:3},
-    ShiftBufferOutput {data: u64:0b0, length: u7:0},
-    ShiftBufferOutput {data: u64:0b0, length: u7:0},
+    TestRefillingSBOutput { error: false, data: u64:0b11, length: u7:3},
+    TestRefillingSBOutput { error: false, data: u64:0b0, length: u7:0},
+    TestRefillingSBOutput { error: false, data: u64:0b0, length: u7:0},
     // state update
-    ShiftBufferOutput {data: u64:0b0, length: u7:0},
-    ShiftBufferOutput {data: u64:0b0, length: u7:1},
-    ShiftBufferOutput {data: u64:0b0, length: u7:1},
+    TestRefillingSBOutput { error: false, data: u64:0b0, length: u7:0},
+    TestRefillingSBOutput { error: false, data: u64:0b0, length: u7:1},
+    TestRefillingSBOutput { error: false, data: u64:0b0, length: u7:1},
     // symbols (seq #4)
-    ShiftBufferOutput {data: u64:0b0, length: u7:4},
-    ShiftBufferOutput {data: u64:0b0, length: u7:0},
-    ShiftBufferOutput {data: u64:0b0, length: u7:0},
+    TestRefillingSBOutput { error: false, data: u64:0b0, length: u7:4},
+    TestRefillingSBOutput { error: false, data: u64:0b0, length: u7:0},
+    TestRefillingSBOutput { error: false, data: u64:0b0, length: u7:0},
     // state update
-    ShiftBufferOutput {data: u64:0b1, length: u7:1},
-    ShiftBufferOutput {data: u64:0b0, length: u7:0},
-    ShiftBufferOutput {data: u64:0b0, length: u7:3},
+    TestRefillingSBOutput { error: false, data: u64:0b1, length: u7:1},
+    TestRefillingSBOutput { error: false, data: u64:0b0, length: u7:0},
+    TestRefillingSBOutput { error: false, data: u64:0b0, length: u7:3},
     // symbols (seq #5)
-    ShiftBufferOutput {data: u64:0b101, length: u7:3},
-    ShiftBufferOutput {data: u64:0b0, length: u7:0},
-    ShiftBufferOutput {data: u64:0b0, length: u7:0},
+    TestRefillingSBOutput { error: false, data: u64:0b101, length: u7:3},
+    TestRefillingSBOutput { error: false, data: u64:0b0, length: u7:0},
+    TestRefillingSBOutput { error: false, data: u64:0b0, length: u7:0},
     // state update
-    ShiftBufferOutput {data: u64:0b0, length: u7:0},
-    ShiftBufferOutput {data: u64:0b0, length: u7:1},
-    ShiftBufferOutput {data: u64:0b1, length: u7:1},
+    TestRefillingSBOutput { error: false, data: u64:0b0, length: u7:0},
+    TestRefillingSBOutput { error: false, data: u64:0b0, length: u7:1},
+    TestRefillingSBOutput { error: false, data: u64:0b1, length: u7:1},
     // symbols (seq #6)
-    ShiftBufferOutput {data: u64:0b11, length: u7:2},
-    ShiftBufferOutput {data: u64:0b0, length: u7:0},
-    ShiftBufferOutput {data: u64:0b0, length: u7:0},
+    TestRefillingSBOutput { error: false, data: u64:0b11, length: u7:2},
+    TestRefillingSBOutput { error: false, data: u64:0b0, length: u7:0},
+    TestRefillingSBOutput { error: false, data: u64:0b0, length: u7:0},
     // state update
-    ShiftBufferOutput {data: u64:0b0, length: u7:0},
-    ShiftBufferOutput {data: u64:0b0, length: u7:2},
-    ShiftBufferOutput {data: u64:0b0, length: u7:2},
+    TestRefillingSBOutput { error: false, data: u64:0b0, length: u7:0},
+    TestRefillingSBOutput { error: false, data: u64:0b0, length: u7:2},
+    TestRefillingSBOutput { error: false, data: u64:0b0, length: u7:2},
     // symbols (seq #7)
-    ShiftBufferOutput {data: u64:0b1000, length: u7:4},
-    ShiftBufferOutput {data: u64:0b0, length: u7:0},
-    ShiftBufferOutput {data: u64:0b0, length: u7:0},
+    TestRefillingSBOutput { error: false, data: u64:0b1000, length: u7:4},
+    TestRefillingSBOutput { error: false, data: u64:0b0, length: u7:0},
+    TestRefillingSBOutput { error: false, data: u64:0b0, length: u7:0},
     // no state update for last sequence
 ];
 
-const TEST_DATA_1 = ShiftBufferOutput[42]:[
+const TEST_DATA_1 = TestRefillingSBOutput[42]:[
     // init states
-    ShiftBufferOutput {data: u64:0b10000, length: u7:5},
-    ShiftBufferOutput {data: u64:0b1110, length: u7:5},
-    ShiftBufferOutput {data: u64:0b11001, length: u7:6},
+    TestRefillingSBOutput { error: false, data: u64:0b10000, length: u7:5},
+    TestRefillingSBOutput { error: false, data: u64:0b1110, length: u7:5},
+    TestRefillingSBOutput { error: false, data: u64:0b11001, length: u7:6},
     // symbols (seq #0)
-    ShiftBufferOutput {data: u64:0b0, length: u7:2},
-    ShiftBufferOutput {data: u64:0b0, length: u7:0},
-    ShiftBufferOutput {data: u64:0b0, length: u7:0},
+    TestRefillingSBOutput { error: false, data: u64:0b0, length: u7:2},
+    TestRefillingSBOutput { error: false, data: u64:0b0, length: u7:0},
+    TestRefillingSBOutput { error: false, data: u64:0b0, length: u7:0},
     // state update
-    ShiftBufferOutput {data: u64:0b110, length: u7:3},
-    ShiftBufferOutput {data: u64:0b0, length: u7:5},
-    ShiftBufferOutput {data: u64:0b1110, length: u7:5},
+    TestRefillingSBOutput { error: false, data: u64:0b110, length: u7:3},
+    TestRefillingSBOutput { error: false, data: u64:0b0, length: u7:5},
+    TestRefillingSBOutput { error: false, data: u64:0b1110, length: u7:5},
     // symbols (seq #1)
-    ShiftBufferOutput {data: u64:0b10, length: u7:2},
-    ShiftBufferOutput {data: u64:0b0, length: u7:0},
-    ShiftBufferOutput {data: u64:0b0, length: u7:0},
+    TestRefillingSBOutput { error: false, data: u64:0b10, length: u7:2},
+    TestRefillingSBOutput { error: false, data: u64:0b0, length: u7:0},
+    TestRefillingSBOutput { error: false, data: u64:0b0, length: u7:0},
     // state update
-    ShiftBufferOutput {data: u64:0b10, length: u7:2},
-    ShiftBufferOutput {data: u64:0b1, length: u7:6},
-    ShiftBufferOutput {data: u64:0b101, length: u7:5},
+    TestRefillingSBOutput { error: false, data: u64:0b10, length: u7:2},
+    TestRefillingSBOutput { error: false, data: u64:0b1, length: u7:6},
+    TestRefillingSBOutput { error: false, data: u64:0b101, length: u7:5},
     // symbols (seq #2)
-    ShiftBufferOutput {data: u64:0b110, length: u7:3},
-    ShiftBufferOutput {data: u64:0b0, length: u7:0},
-    ShiftBufferOutput {data: u64:0b0, length: u7:0},
+    TestRefillingSBOutput { error: false, data: u64:0b110, length: u7:3},
+    TestRefillingSBOutput { error: false, data: u64:0b0, length: u7:0},
+    TestRefillingSBOutput { error: false, data: u64:0b0, length: u7:0},
     // state update
-    ShiftBufferOutput {data: u64:0b11, length: u7:2},
-    ShiftBufferOutput {data: u64:0b1, length: u7:4},
-    ShiftBufferOutput {data: u64:0b10011, length: u7:5},
+    TestRefillingSBOutput { error: false, data: u64:0b11, length: u7:2},
+    TestRefillingSBOutput { error: false, data: u64:0b1, length: u7:4},
+    TestRefillingSBOutput { error: false, data: u64:0b10011, length: u7:5},
     // symbols (seq #3)
-    ShiftBufferOutput {data: u64:0b11, length: u7:4},
-    ShiftBufferOutput {data: u64:0b0, length: u7:0},
-    ShiftBufferOutput {data: u64:0b0, length: u7:0},
+    TestRefillingSBOutput { error: false, data: u64:0b11, length: u7:4},
+    TestRefillingSBOutput { error: false, data: u64:0b0, length: u7:0},
+    TestRefillingSBOutput { error: false, data: u64:0b0, length: u7:0},
     // state update
-    ShiftBufferOutput {data: u64:0b0, length: u7:2},
-    ShiftBufferOutput {data: u64:0b1, length: u7:4},
-    ShiftBufferOutput {data: u64:0b0, length: u7:5},
+    TestRefillingSBOutput { error: false, data: u64:0b0, length: u7:2},
+    TestRefillingSBOutput { error: false, data: u64:0b1, length: u7:4},
+    TestRefillingSBOutput { error: false, data: u64:0b0, length: u7:5},
     // symbols (seq #4)
-    ShiftBufferOutput {data: u64:0b0, length: u7:0},
-    ShiftBufferOutput {data: u64:0b0, length: u7:0},
-    ShiftBufferOutput {data: u64:0b0, length: u7:0},
+    TestRefillingSBOutput { error: false, data: u64:0b0, length: u7:0},
+    TestRefillingSBOutput { error: false, data: u64:0b0, length: u7:0},
+    TestRefillingSBOutput { error: false, data: u64:0b0, length: u7:0},
     // state update
-    ShiftBufferOutput {data: u64:0b10, length: u7:3},
-    ShiftBufferOutput {data: u64:0b0, length: u7:4},
-    ShiftBufferOutput {data: u64:0b1010, length: u7:5},
+    TestRefillingSBOutput { error: false, data: u64:0b10, length: u7:3},
+    TestRefillingSBOutput { error: false, data: u64:0b0, length: u7:4},
+    TestRefillingSBOutput { error: false, data: u64:0b1010, length: u7:5},
     // symbols (seq #5)
-    ShiftBufferOutput {data: u64:0b1110, length: u7:5},
-    ShiftBufferOutput {data: u64:0b0, length: u7:0},
-    ShiftBufferOutput {data: u64:0b0, length: u7:0},
+    TestRefillingSBOutput { error: false, data: u64:0b1110, length: u7:5},
+    TestRefillingSBOutput { error: false, data: u64:0b0, length: u7:0},
+    TestRefillingSBOutput { error: false, data: u64:0b0, length: u7:0},
     // state update
-    ShiftBufferOutput {data: u64:0b0, length: u7:1},
-    ShiftBufferOutput {data: u64:0b11, length: u7:6},
-    ShiftBufferOutput {data: u64:0b10011, length: u7:5},
+    TestRefillingSBOutput { error: false, data: u64:0b0, length: u7:1},
+    TestRefillingSBOutput { error: false, data: u64:0b11, length: u7:6},
+    TestRefillingSBOutput { error: false, data: u64:0b10011, length: u7:5},
     // symbols (seq #6)
-    ShiftBufferOutput {data: u64:0b10, length: u7:4},
-    ShiftBufferOutput {data: u64:0b0, length: u7:0},
-    ShiftBufferOutput {data: u64:0b0, length: u7:0},
+    TestRefillingSBOutput { error: false, data: u64:0b10, length: u7:4},
+    TestRefillingSBOutput { error: false, data: u64:0b0, length: u7:0},
+    TestRefillingSBOutput { error: false, data: u64:0b0, length: u7:0},
     // no state update for last sequence
 ];
 
@@ -911,77 +924,88 @@ const TEST_EXPECTED_COMMANDS_1 = CommandConstructorData[14]:[
     test_command(u32:1, SequenceExecutorMessageType::SEQUENCE, CopyOrMatchLength:6, CopyOrMatchContent:18, true),
 ];
 
+
 #[test_proc]
 proc FseDecoderTest {
+    type FseRamRdReq = ram::ReadReq<TEST_RAM_ADDR_W, TEST_RAM_NUM_PARTITIONS>;
+    type FseRamRdResp = ram::ReadResp<TEST_RAM_DATA_W>;
+
+    type FseRamWrReq = ram::WriteReq<TEST_RAM_ADDR_W, TEST_RAM_DATA_W, TEST_RAM_NUM_PARTITIONS>;
+    type FseRamWrResp = ram::WriteResp;
+
+    type RefillingSBCtrl = refilling_shift_buffer::RefillingShiftBufferCtrl<TEST_REFILLING_SB_LENGTH_W>;
+    type RefillingSBOutput = refilling_shift_buffer::RefillingShiftBufferOutput<TEST_REFILLING_SB_DATA_W, TEST_REFILLING_SB_LENGTH_W>;
+
     terminator: chan<bool> out;
 
     ctrl_s: chan<FseDecoderCtrl> out;
     finish_r: chan<FseDecoderFinish> in;
 
-    shift_buffer_ctrl_r: chan<ShiftBufferCtrl> in;
-    shift_buffer_out_data_s: chan<ShiftBufferOutput> out;
-    shift_buffer_out_ctrl_s: chan<ShiftBufferOutput> out;
+    rsb_ctrl_r: chan<RefillingSBCtrl> in;
+    rsb_data_s: chan<RefillingSBOutput> out;
 
     command_r: chan<CommandConstructorData> in;
 
-    ll_fse_wr_req_s: chan<FseRamWriteReq> out;
-    ll_fse_wr_resp_r: chan<FseRamWriteResp> in;
+    ll_fse_wr_req_s: chan<FseRamWrReq> out;
+    ll_fse_wr_resp_r: chan<FseRamWrResp> in;
 
-    ml_fse_wr_req_s: chan<FseRamWriteReq> out;
-    ml_fse_wr_resp_r: chan<FseRamWriteResp> in;
+    ml_fse_wr_req_s: chan<FseRamWrReq> out;
+    ml_fse_wr_resp_r: chan<FseRamWrResp> in;
 
-    of_fse_wr_req_s: chan<FseRamWriteReq> out;
-    of_fse_wr_resp_r: chan<FseRamWriteResp> in;
+    of_fse_wr_req_s: chan<FseRamWrReq> out;
+    of_fse_wr_resp_r: chan<FseRamWrResp> in;
 
     config (terminator: chan<bool> out) {
         let (ctrl_s, ctrl_r) = chan<FseDecoderCtrl>("ctrl");
         let (finish_s, finish_r) = chan<FseDecoderFinish>("finish");
 
-        let (shift_buffer_ctrl_s, shift_buffer_ctrl_r) = chan<ShiftBufferCtrl>("shift_buffer_ctrl");
-        let (shift_buffer_out_data_s, shift_buffer_out_data_r) = chan<ShiftBufferOutput>("shift_buffer_out_data");
-        let (shift_buffer_out_ctrl_s, shift_buffer_out_ctrl_r) = chan<ShiftBufferOutput>("shift_buffer_out_ctrl");
+        let (rsb_ctrl_s, rsb_ctrl_r) = chan<RefillingSBCtrl>("rsb_ctrl");
+        let (rsb_data_s, rsb_data_r) = chan<RefillingSBOutput>("rsb_out_data");
 
         let (command_s, command_r) = chan<CommandConstructorData>("command");
 
-        // RAM with default FSE lookup for Literal Lengths
-        let (ll_fse_rd_req_s, ll_fse_rd_req_r) = chan<FseRamReadReq>("ll_fse_rd_req");
-        let (ll_fse_rd_resp_s, ll_fse_rd_resp_r) = chan<FseRamReadResp>("ll_fse_rd_resp");
-        let (ll_fse_wr_req_s, ll_fse_wr_req_r) = chan<FseRamWriteReq>("ll_fse_wr_req");
-        let (ll_fse_wr_resp_s, ll_fse_wr_resp_r) = chan<FseRamWriteResp>("ll_fse_wr_resp");
+        // RAM with FSE lookup for Literal Lengths
+        let (ll_fse_rd_req_s, ll_fse_rd_req_r) = chan<FseRamRdReq>("ll_fse_rd_req");
+        let (ll_fse_rd_resp_s, ll_fse_rd_resp_r) = chan<FseRamRdResp>("ll_fse_rd_resp");
+        let (ll_fse_wr_req_s, ll_fse_wr_req_r) = chan<FseRamWrReq>("ll_fse_wr_req");
+        let (ll_fse_wr_resp_s, ll_fse_wr_resp_r) = chan<FseRamWrResp>("ll_fse_wr_resp");
 
         spawn ram::RamModel<
-            common::SEQDEC_FSE_RAM_DATA_WIDTH,
-            common::SEQDEC_FSE_RAM_SIZE,
-            common::SEQDEC_FSE_RAM_WORD_PARTITION_SIZE
+            TEST_RAM_DATA_W,
+            TEST_RAM_SIZE,
+            TEST_RAM_WORD_PARTITION_SIZE,
         >(ll_fse_rd_req_r, ll_fse_rd_resp_s, ll_fse_wr_req_r, ll_fse_wr_resp_s);
 
-        // RAM with default FSE lookup for Match Lengths
-        let (ml_fse_rd_req_s, ml_fse_rd_req_r) = chan<FseRamReadReq>("ml_fse_rd_req");
-        let (ml_fse_rd_resp_s, ml_fse_rd_resp_r) = chan<FseRamReadResp>("ml_fse_rd_resp");
-        let (ml_fse_wr_req_s, ml_fse_wr_req_r) = chan<FseRamWriteReq>("ml_fse_wr_req");
-        let (ml_fse_wr_resp_s, ml_fse_wr_resp_r) = chan<FseRamWriteResp>("ml_fse_wr_resp");
+        // RAM with FSE lookup for Match Lengths
+        let (ml_fse_rd_req_s, ml_fse_rd_req_r) = chan<FseRamRdReq>("ml_fse_rd_req");
+        let (ml_fse_rd_resp_s, ml_fse_rd_resp_r) = chan<FseRamRdResp>("ml_fse_rd_resp");
+        let (ml_fse_wr_req_s, ml_fse_wr_req_r) = chan<FseRamWrReq>("ml_fse_wr_req");
+        let (ml_fse_wr_resp_s, ml_fse_wr_resp_r) = chan<FseRamWrResp>("ml_fse_wr_resp");
 
         spawn ram::RamModel<
-            common::SEQDEC_FSE_RAM_DATA_WIDTH,
-            common::SEQDEC_FSE_RAM_SIZE,
-            common::SEQDEC_FSE_RAM_WORD_PARTITION_SIZE
+            TEST_RAM_DATA_W,
+            TEST_RAM_SIZE,
+            TEST_RAM_WORD_PARTITION_SIZE,
         >(ml_fse_rd_req_r, ml_fse_rd_resp_s, ml_fse_wr_req_r, ml_fse_wr_resp_s);
 
-        // RAM with default FSE lookup for Offsets
-        let (of_fse_rd_req_s, of_fse_rd_req_r) = chan<FseRamReadReq>("of_fse_rd_req");
-        let (of_fse_rd_resp_s, of_fse_rd_resp_r) = chan<FseRamReadResp>("of_fse_rd_resp");
-        let (of_fse_wr_req_s, of_fse_wr_req_r) = chan<FseRamWriteReq>("of_fse_wr_req");
-        let (of_fse_wr_resp_s, of_fse_wr_resp_r) = chan<FseRamWriteResp>("of_fse_wr_resp");
+        // RAM with FSE lookup for Offsets
+        let (of_fse_rd_req_s, of_fse_rd_req_r) = chan<FseRamRdReq>("of_fse_rd_req");
+        let (of_fse_rd_resp_s, of_fse_rd_resp_r) = chan<FseRamRdResp>("of_fse_rd_resp");
+        let (of_fse_wr_req_s, of_fse_wr_req_r) = chan<FseRamWrReq>("of_fse_wr_req");
+        let (of_fse_wr_resp_s, of_fse_wr_resp_r) = chan<FseRamWrResp>("of_fse_wr_resp");
 
         spawn ram::RamModel<
-            common::SEQDEC_FSE_RAM_DATA_WIDTH,
-            common::SEQDEC_FSE_RAM_SIZE,
-            common::SEQDEC_FSE_RAM_WORD_PARTITION_SIZE
+            TEST_RAM_DATA_W,
+            TEST_RAM_SIZE,
+            TEST_RAM_WORD_PARTITION_SIZE,
         >(of_fse_rd_req_r, of_fse_rd_resp_s, of_fse_wr_req_r, of_fse_wr_resp_s);
 
-        spawn FseDecoder (
+        spawn FseDecoder<
+            TEST_RAM_DATA_W, TEST_RAM_ADDR_W, TEST_RAM_NUM_PARTITIONS,
+            TEST_AXI_DATA_W,
+        >(
             ctrl_r, finish_s,
-            shift_buffer_ctrl_s, shift_buffer_out_data_r, shift_buffer_out_ctrl_r,
+            rsb_ctrl_s, rsb_data_r,
             command_s,
             ll_fse_rd_req_s, ll_fse_rd_resp_r,
             ml_fse_rd_req_s, ml_fse_rd_resp_r,
@@ -991,7 +1015,7 @@ proc FseDecoderTest {
         (
             terminator,
             ctrl_s, finish_r,
-            shift_buffer_ctrl_r, shift_buffer_out_data_s, shift_buffer_out_ctrl_s,
+            rsb_ctrl_r, rsb_data_s,
             command_r,
             ll_fse_wr_req_s, ll_fse_wr_resp_r,
             ml_fse_wr_req_s, ml_fse_wr_resp_r,
@@ -1006,7 +1030,7 @@ proc FseDecoderTest {
 
         // write OF table
         let tok = for ((i, of_record), tok): ((u32, u32), token) in enumerate(TEST_OF_TABLE[state]) {
-            let tok = send(tok, of_fse_wr_req_s, FseRamWriteReq {
+            let tok = send(tok, of_fse_wr_req_s, FseRamWrReq {
                 addr: i as u8,
                 data: of_record,
                 mask: u4:0xf,
@@ -1017,7 +1041,7 @@ proc FseDecoderTest {
 
         // write ML table
         let tok = for ((i, ml_record), tok): ((u32, u32), token) in enumerate(TEST_ML_TABLE[state]) {
-            let tok = send(tok, ml_fse_wr_req_s, FseRamWriteReq {
+            let tok = send(tok, ml_fse_wr_req_s, FseRamWrReq {
                 addr: i as u8,
                 data: ml_record,
                 mask: u4:0xf,
@@ -1028,7 +1052,7 @@ proc FseDecoderTest {
 
         // write LL table
         let tok = for ((i, ll_record), tok): ((u32, u32), token) in enumerate(TEST_LL_TABLE[state]) {
-            let tok = send(tok, ll_fse_wr_req_s, FseRamWriteReq {
+            let tok = send(tok, ll_fse_wr_req_s, FseRamWrReq {
                 addr: i as u8,
                 data: ll_record,
                 mask: u4:0xf,
@@ -1045,11 +1069,11 @@ proc FseDecoderTest {
             u32:0 => {
                 // block #0
                 // send data
-                let tok = for ((i, data), tok): ((u32, ShiftBufferOutput), token) in enumerate(TEST_DATA_0) {
-                    let (tok, buf_ctrl) = recv(tok, shift_buffer_ctrl_r);
+                let tok = for ((i, data), tok): ((u32, RefillingSBOutput), token) in enumerate(TEST_DATA_0) {
+                    let (tok, buf_ctrl) = recv(tok, rsb_ctrl_r);
                     trace_fmt!("Received #{} buf ctrl {:#x}", i + u32:1, buf_ctrl);
-                    assert_eq(ShiftBufferCtrl {length: data.length}, buf_ctrl);
-                    let tok = send(tok, shift_buffer_out_data_s, data);
+                    assert_eq(RefillingSBCtrl {length: data.length}, buf_ctrl);
+                    let tok = send(tok, rsb_data_s, data);
                     trace_fmt!("Sent #{} buf data {:#x}", i + u32:1, data);
                     tok
                 }(tok);
@@ -1068,11 +1092,11 @@ proc FseDecoderTest {
             u32:1 => {
                 // block #1
                 // send data
-                let tok = for ((i, data), tok): ((u32, ShiftBufferOutput), token) in enumerate(TEST_DATA_1) {
-                    let (tok, buf_ctrl) = recv(tok, shift_buffer_ctrl_r);
+                let tok = for ((i, data), tok): ((u32, RefillingSBOutput), token) in enumerate(TEST_DATA_1) {
+                    let (tok, buf_ctrl) = recv(tok, rsb_ctrl_r);
                     trace_fmt!("Received #{} buf ctrl {:#x}", i + u32:1, buf_ctrl);
-                    assert_eq(ShiftBufferCtrl {length: data.length}, buf_ctrl);
-                    let tok = send(tok, shift_buffer_out_data_s, data);
+                    assert_eq(RefillingSBCtrl {length: data.length}, buf_ctrl);
+                    let tok = send(tok, rsb_data_s, data);
                     trace_fmt!("Sent #{} buf data {:#x}", i + u32:1, data);
                     tok
                 }(tok);

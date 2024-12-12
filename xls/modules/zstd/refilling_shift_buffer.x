@@ -55,7 +55,7 @@ struct RefillerState<ADDR_W: u32, LENGTH_W: u32, BUFFER_W_CLOG2: u32> {
 }
 
 pub fn length_width(data_width: u32) -> u32 {
-    shift_buffer::length_width(data_width + u32:1)
+    shift_buffer::length_width(data_width)
 }
 
 proc RefillingShiftBufferInternal<

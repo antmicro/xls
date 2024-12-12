@@ -34,7 +34,7 @@ struct RamDemuxState<QUEUE_LEN: u32 = {u32:5}> {
     sel_q_wr_end: uN[QUEUE_LEN + u32:1],
 }
 
-proc RamDemux<
+pub proc RamDemux<
     ADDR_WIDTH: u32,
     DATA_WIDTH: u32,
     NUM_PARTITIONS: u32,

@@ -133,20 +133,11 @@ proc FseDecoder {
     command_s: chan<CommandConstructorData> out;
 
     // RAMs
-    ll_def_fse_rd_req_s: chan<FseRamReadReq> out;
-    ll_def_fse_rd_resp_r: chan<FseRamReadResp> in;
-
     ll_fse_rd_req_s: chan<FseRamReadReq> out;
     ll_fse_rd_resp_r: chan<FseRamReadResp> in;
 
-    ml_def_fse_rd_req_s: chan<FseRamReadReq> out;
-    ml_def_fse_rd_resp_r: chan<FseRamReadResp> in;
-
     ml_fse_rd_req_s: chan<FseRamReadReq> out;
     ml_fse_rd_resp_r: chan<FseRamReadResp> in;
-
-    of_def_fse_rd_req_s: chan<FseRamReadReq> out;
-    of_def_fse_rd_resp_r: chan<FseRamReadResp> in;
 
     of_fse_rd_req_s: chan<FseRamReadReq> out;
     of_fse_rd_resp_r: chan<FseRamReadResp> in;
@@ -158,16 +149,10 @@ proc FseDecoder {
         shift_buffer_out_data_r: chan<ShiftBufferOutput> in,
         shift_buffer_out_ctrl_r: chan<ShiftBufferOutput> in,
         command_s: chan<CommandConstructorData> out,
-        ll_def_fse_rd_req_s: chan<FseRamReadReq> out,
-        ll_def_fse_rd_resp_r: chan<FseRamReadResp> in,
         ll_fse_rd_req_s: chan<FseRamReadReq> out,
         ll_fse_rd_resp_r: chan<FseRamReadResp> in,
-        ml_def_fse_rd_req_s: chan<FseRamReadReq> out,
-        ml_def_fse_rd_resp_r: chan<FseRamReadResp> in,
         ml_fse_rd_req_s: chan<FseRamReadReq> out,
         ml_fse_rd_resp_r: chan<FseRamReadResp> in,
-        of_def_fse_rd_req_s: chan<FseRamReadReq> out,
-        of_def_fse_rd_resp_r: chan<FseRamReadResp> in,
         of_fse_rd_req_s: chan<FseRamReadReq> out,
         of_fse_rd_resp_r: chan<FseRamReadResp> in,
     ) {
@@ -175,9 +160,9 @@ proc FseDecoder {
             ctrl_r, finish_s,
             shift_buffer_ctrl_s, shift_buffer_out_data_r, shift_buffer_out_ctrl_r,
             command_s,
-            ll_def_fse_rd_req_s, ll_def_fse_rd_resp_r, ll_fse_rd_req_s, ll_fse_rd_resp_r,
-            ml_def_fse_rd_req_s, ml_def_fse_rd_resp_r, ml_fse_rd_req_s, ml_fse_rd_resp_r,
-            of_def_fse_rd_req_s, of_def_fse_rd_resp_r, of_fse_rd_req_s, of_fse_rd_resp_r,
+            ll_fse_rd_req_s, ll_fse_rd_resp_r,
+            ml_fse_rd_req_s, ml_fse_rd_resp_r,
+            of_fse_rd_req_s, of_fse_rd_resp_r,
         )
     }
 
@@ -201,13 +186,9 @@ proc FseDecoder {
         } else { state };
 
         // receive ram read response
-        let (_, ll_rd_resp, ll_rd_resp_valid) = recv_if_non_blocking(tok0, ll_def_fse_rd_resp_r, state.fsm == FseDecoderFSM::RECV_RAM_RD_RESP, zero!<FseRamReadResp>());
-        let (_, ml_rd_resp, ml_rd_resp_valid) = recv_if_non_blocking(tok0, ml_def_fse_rd_resp_r, state.fsm == FseDecoderFSM::RECV_RAM_RD_RESP, zero!<FseRamReadResp>());
-        let (_, of_rd_resp, of_rd_resp_valid) = recv_if_non_blocking(tok0, of_def_fse_rd_resp_r, state.fsm == FseDecoderFSM::RECV_RAM_RD_RESP, zero!<FseRamReadResp>());
-
-        let (_, _) = recv_if(tok0, ll_fse_rd_resp_r, false, zero!<FseRamReadResp>());
-        let (_, _) = recv_if(tok0, ml_fse_rd_resp_r, false, zero!<FseRamReadResp>());
-        let (_, _) = recv_if(tok0, of_fse_rd_resp_r, false, zero!<FseRamReadResp>());
+        let (_, ll_rd_resp, ll_rd_resp_valid) = recv_if_non_blocking(tok0, ll_fse_rd_resp_r, state.fsm == FseDecoderFSM::RECV_RAM_RD_RESP, zero!<FseRamReadResp>());
+        let (_, ml_rd_resp, ml_rd_resp_valid) = recv_if_non_blocking(tok0, ml_fse_rd_resp_r, state.fsm == FseDecoderFSM::RECV_RAM_RD_RESP, zero!<FseRamReadResp>());
+        let (_, of_rd_resp, of_rd_resp_valid) = recv_if_non_blocking(tok0, of_fse_rd_resp_r, state.fsm == FseDecoderFSM::RECV_RAM_RD_RESP, zero!<FseRamReadResp>());
 
         let ll_fse_table_record = FseTableRecord {
             symbol: ll_rd_resp.data[24:32],
@@ -232,13 +213,9 @@ proc FseDecoder {
         // request records
         let do_send_ram_rd_req = state.fsm == FseDecoderFSM::SEND_RAM_RD_REQ;
 
-        send_if(tok0, ll_def_fse_rd_req_s, do_send_ram_rd_req, FseRamReadReq { addr: state.ll_state as RamAddr, mask: RAM_MASK_ALL});
-        send_if(tok0, ml_def_fse_rd_req_s, do_send_ram_rd_req, FseRamReadReq { addr: state.ml_state as RamAddr, mask: RAM_MASK_ALL});
-        send_if(tok0, of_def_fse_rd_req_s, do_send_ram_rd_req, FseRamReadReq { addr: state.of_state as RamAddr, mask: RAM_MASK_ALL});
-
-        send_if(tok0, ll_fse_rd_req_s, false, FseRamReadReq { addr: state.ll_state as RamAddr, mask: RAM_MASK_ALL });
-        send_if(tok0, ml_fse_rd_req_s, false, FseRamReadReq { addr: state.ml_state as RamAddr, mask: RAM_MASK_ALL });
-        send_if(tok0, of_fse_rd_req_s, false, FseRamReadReq { addr: state.of_state as RamAddr, mask: RAM_MASK_ALL });
+        send_if(tok0, ll_fse_rd_req_s, do_send_ram_rd_req, FseRamReadReq { addr: state.ll_state as RamAddr, mask: RAM_MASK_ALL});
+        send_if(tok0, ml_fse_rd_req_s, do_send_ram_rd_req, FseRamReadReq { addr: state.ml_state as RamAddr, mask: RAM_MASK_ALL});
+        send_if(tok0, of_fse_rd_req_s, do_send_ram_rd_req, FseRamReadReq { addr: state.of_state as RamAddr, mask: RAM_MASK_ALL});
 
         // read bits
         let do_read_bits = (
@@ -947,20 +924,11 @@ proc FseDecoderTest {
 
     command_r: chan<CommandConstructorData> in;
 
-    ll_def_fse_wr_req_s: chan<FseRamWriteReq> out;
-    ll_def_fse_wr_resp_r: chan<FseRamWriteResp> in;
-
     ll_fse_wr_req_s: chan<FseRamWriteReq> out;
     ll_fse_wr_resp_r: chan<FseRamWriteResp> in;
 
-    ml_def_fse_wr_req_s: chan<FseRamWriteReq> out;
-    ml_def_fse_wr_resp_r: chan<FseRamWriteResp> in;
-
     ml_fse_wr_req_s: chan<FseRamWriteReq> out;
     ml_fse_wr_resp_r: chan<FseRamWriteResp> in;
-
-    of_def_fse_wr_req_s: chan<FseRamWriteReq> out;
-    of_def_fse_wr_resp_r: chan<FseRamWriteResp> in;
 
     of_fse_wr_req_s: chan<FseRamWriteReq> out;
     of_fse_wr_resp_r: chan<FseRamWriteResp> in;
@@ -976,18 +944,6 @@ proc FseDecoderTest {
         let (command_s, command_r) = chan<CommandConstructorData>("command");
 
         // RAM with default FSE lookup for Literal Lengths
-        let (ll_def_fse_rd_req_s, ll_def_fse_rd_req_r) = chan<FseRamReadReq>("ll_def_fse_rd_req");
-        let (ll_def_fse_rd_resp_s, ll_def_fse_rd_resp_r) = chan<FseRamReadResp>("ll_def_fse_rd_resp");
-        let (ll_def_fse_wr_req_s, ll_def_fse_wr_req_r) = chan<FseRamWriteReq>("ll_def_fse_wr_req");
-        let (ll_def_fse_wr_resp_s, ll_def_fse_wr_resp_r) = chan<FseRamWriteResp>("ll_def_fse_wr_resp");
-
-        spawn ram::RamModel<
-            common::SEQDEC_FSE_RAM_DATA_WIDTH,
-            common::SEQDEC_FSE_RAM_SIZE,
-            common::SEQDEC_FSE_RAM_WORD_PARTITION_SIZE
-        >(ll_def_fse_rd_req_r, ll_def_fse_rd_resp_s, ll_def_fse_wr_req_r, ll_def_fse_wr_resp_s);
-
-        // RAM for FSE lookup for Literal Lengths
         let (ll_fse_rd_req_s, ll_fse_rd_req_r) = chan<FseRamReadReq>("ll_fse_rd_req");
         let (ll_fse_rd_resp_s, ll_fse_rd_resp_r) = chan<FseRamReadResp>("ll_fse_rd_resp");
         let (ll_fse_wr_req_s, ll_fse_wr_req_r) = chan<FseRamWriteReq>("ll_fse_wr_req");
@@ -1000,18 +956,6 @@ proc FseDecoderTest {
         >(ll_fse_rd_req_r, ll_fse_rd_resp_s, ll_fse_wr_req_r, ll_fse_wr_resp_s);
 
         // RAM with default FSE lookup for Match Lengths
-        let (ml_def_fse_rd_req_s, ml_def_fse_rd_req_r) = chan<FseRamReadReq>("ml_def_fse_rd_req");
-        let (ml_def_fse_rd_resp_s, ml_def_fse_rd_resp_r) = chan<FseRamReadResp>("ml_def_fse_rd_resp");
-        let (ml_def_fse_wr_req_s, ml_def_fse_wr_req_r) = chan<FseRamWriteReq>("ml_def_fse_wr_req");
-        let (ml_def_fse_wr_resp_s, ml_def_fse_wr_resp_r) = chan<FseRamWriteResp>("ml_def_fse_wr_resp");
-
-        spawn ram::RamModel<
-            common::SEQDEC_FSE_RAM_DATA_WIDTH,
-            common::SEQDEC_FSE_RAM_SIZE,
-            common::SEQDEC_FSE_RAM_WORD_PARTITION_SIZE
-        >(ml_def_fse_rd_req_r, ml_def_fse_rd_resp_s, ml_def_fse_wr_req_r, ml_def_fse_wr_resp_s);
-
-        // RAM for FSE lookup for Match Lengths
         let (ml_fse_rd_req_s, ml_fse_rd_req_r) = chan<FseRamReadReq>("ml_fse_rd_req");
         let (ml_fse_rd_resp_s, ml_fse_rd_resp_r) = chan<FseRamReadResp>("ml_fse_rd_resp");
         let (ml_fse_wr_req_s, ml_fse_wr_req_r) = chan<FseRamWriteReq>("ml_fse_wr_req");
@@ -1024,18 +968,6 @@ proc FseDecoderTest {
         >(ml_fse_rd_req_r, ml_fse_rd_resp_s, ml_fse_wr_req_r, ml_fse_wr_resp_s);
 
         // RAM with default FSE lookup for Offsets
-        let (of_def_fse_rd_req_s, of_def_fse_rd_req_r) = chan<FseRamReadReq>("of_def_fse_rd_req");
-        let (of_def_fse_rd_resp_s, of_def_fse_rd_resp_r) = chan<FseRamReadResp>("of_def_fse_rd_resp");
-        let (of_def_fse_wr_req_s, of_def_fse_wr_req_r) = chan<FseRamWriteReq>("of_def_fse_wr_req");
-        let (of_def_fse_wr_resp_s, of_def_fse_wr_resp_r) = chan<FseRamWriteResp>("of_def_fse_wr_resp");
-
-        spawn ram::RamModel<
-            common::SEQDEC_FSE_RAM_DATA_WIDTH,
-            common::SEQDEC_FSE_RAM_SIZE,
-            common::SEQDEC_FSE_RAM_WORD_PARTITION_SIZE
-        >(of_def_fse_rd_req_r, of_def_fse_rd_resp_s, of_def_fse_wr_req_r, of_def_fse_wr_resp_s);
-
-        // RAM for FSE lookup for Offsets
         let (of_fse_rd_req_s, of_fse_rd_req_r) = chan<FseRamReadReq>("of_fse_rd_req");
         let (of_fse_rd_resp_s, of_fse_rd_resp_r) = chan<FseRamReadResp>("of_fse_rd_resp");
         let (of_fse_wr_req_s, of_fse_wr_req_r) = chan<FseRamWriteReq>("of_fse_wr_req");
@@ -1051,11 +983,8 @@ proc FseDecoderTest {
             ctrl_r, finish_s,
             shift_buffer_ctrl_s, shift_buffer_out_data_r, shift_buffer_out_ctrl_r,
             command_s,
-            ll_def_fse_rd_req_s, ll_def_fse_rd_resp_r,
             ll_fse_rd_req_s, ll_fse_rd_resp_r,
-            ml_def_fse_rd_req_s, ml_def_fse_rd_resp_r,
             ml_fse_rd_req_s, ml_fse_rd_resp_r,
-            of_def_fse_rd_req_s, of_def_fse_rd_resp_r,
             of_fse_rd_req_s, of_fse_rd_resp_r,
         );
 
@@ -1064,9 +993,9 @@ proc FseDecoderTest {
             ctrl_s, finish_r,
             shift_buffer_ctrl_r, shift_buffer_out_data_s, shift_buffer_out_ctrl_s,
             command_r,
-            ll_def_fse_wr_req_s, ll_def_fse_wr_resp_r, ll_fse_wr_req_s, ll_fse_wr_resp_r,
-            ml_def_fse_wr_req_s, ml_def_fse_wr_resp_r, ml_fse_wr_req_s, ml_fse_wr_resp_r,
-            of_def_fse_wr_req_s, of_def_fse_wr_resp_r, of_fse_wr_req_s, of_fse_wr_resp_r,
+            ll_fse_wr_req_s, ll_fse_wr_resp_r,
+            ml_fse_wr_req_s, ml_fse_wr_resp_r,
+            of_fse_wr_req_s, of_fse_wr_resp_r,
         )
     }
 
@@ -1077,34 +1006,34 @@ proc FseDecoderTest {
 
         // write OF table
         let tok = for ((i, of_record), tok): ((u32, u32), token) in enumerate(TEST_OF_TABLE[state]) {
-            let tok = send(tok, of_def_fse_wr_req_s, FseRamWriteReq {
+            let tok = send(tok, of_fse_wr_req_s, FseRamWriteReq {
                 addr: i as u8,
                 data: of_record,
                 mask: u4:0xf,
             });
-            let (tok, _) = recv(tok, of_def_fse_wr_resp_r);
+            let (tok, _) = recv(tok, of_fse_wr_resp_r);
             tok
         }(tok);
 
         // write ML table
         let tok = for ((i, ml_record), tok): ((u32, u32), token) in enumerate(TEST_ML_TABLE[state]) {
-            let tok = send(tok, ml_def_fse_wr_req_s, FseRamWriteReq {
+            let tok = send(tok, ml_fse_wr_req_s, FseRamWriteReq {
                 addr: i as u8,
                 data: ml_record,
                 mask: u4:0xf,
             });
-            let (tok, _) = recv(tok, ml_def_fse_wr_resp_r);
+            let (tok, _) = recv(tok, ml_fse_wr_resp_r);
             tok
         }(tok);
 
         // write LL table
         let tok = for ((i, ll_record), tok): ((u32, u32), token) in enumerate(TEST_LL_TABLE[state]) {
-            let tok = send(tok, ll_def_fse_wr_req_s, FseRamWriteReq {
+            let tok = send(tok, ll_fse_wr_req_s, FseRamWriteReq {
                 addr: i as u8,
                 data: ll_record,
                 mask: u4:0xf,
             });
-            let (tok, _) = recv(tok, ll_def_fse_wr_resp_r);
+            let (tok, _) = recv(tok, ll_fse_wr_resp_r);
             tok
         }(tok);
 

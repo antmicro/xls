@@ -1155,7 +1155,7 @@ xls_benchmark_ir(
     name = "refilling_shift_buffer_internal_opt_ir_benchmark",
     src = ":refilling_shift_buffer_internal_verilog.opt.ir",
     benchmark_ir_args = {
-        "top": "__refilling_shift_buffer__RefillingShiftBufferInternalInst__RefillingShiftBufferInternal_0__32_128_8_64_8_7_next",
+        "top": "__refilling_shift_buffer__RefillingShiftBufferInternalInst__RefillingShiftBufferInternal_0__32_1_128_8_64_8_7_next",
         "pipeline_stages": "10",
     },
     tags = ["manual"],

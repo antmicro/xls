@@ -2691,6 +2691,7 @@ xls_dslx_library(
     ],
     deps = [
         "//xls/modules/zstd/memory:axi_dslx",
+        "//xls/modules/zstd/memory:mem_reader_dslx",
     ],
 )
 

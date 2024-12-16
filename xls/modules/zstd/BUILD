@@ -2031,6 +2031,37 @@ xls_dslx_test(
     library = ":sequence_dec_dslx",
 )
 
+xls_dslx_verilog(
+    name = "fse_lookup_ctrl_verilog",
+    codegen_args = {
+        "module_name": "FseLookupCtrl",
+        "generator": "pipeline",
+        "delay_model": "asap7",
+        "pipeline_stages": "6",
+        "reset": "rst",
+        "use_system_verilog": "false",
+        "multi_proc": "true",
+    },
+    opt_ir_args = {
+        "top": "__sequence_dec__FseLookupCtrlInst__FseLookupCtrl_0__32_next"
+    },
+    dslx_top = "FseLookupCtrlInst",
+    library = ":sequence_dec_dslx",
+    verilog_file = "fse_lookup_ctrl.v",
+)
+
+xls_benchmark_ir(
+    name = "fse_lookup_ctrl_opt_ir_benchmark",
+    src = ":fse_lookup_ctrl_verilog.opt.ir",
+    benchmark_ir_args = {
+        "delay_model": "asap7",
+        "pipeline_stages": "6",
+        "inline_procs": "false",
+        "multi_proc": "true",
+    },
+    tags = ["manual"],
+)
+
 xls_dslx_library(
     name = "literals_dispatcher_dslx",
     srcs = [

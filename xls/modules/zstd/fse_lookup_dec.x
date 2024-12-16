@@ -967,7 +967,7 @@ proc FseLookupDecoderTest {
         spawn mem_reader::MemReader<
             TEST_AXI_DATA_WIDTH, TEST_AXI_ADDR_WIDTH, TEST_AXI_DEST_WIDTH, TEST_AXI_ID_WIDTH
         >(mem_rd_req_r, mem_rd_resp_s, testcase_axi_ar_s, testcase_axi_r_r);
-        
+
         (
             terminator, req_s, resp_r, fse_rd_req_s, fse_rd_resp_r,
             fse_wr_req_s, fse_wr_resp_r, testcase_wr_req_s, testcase_wr_resp_r,

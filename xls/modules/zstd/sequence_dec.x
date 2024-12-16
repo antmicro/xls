@@ -58,6 +58,276 @@ struct SequenceDecoderState<ADDR_W: u32> {
 
 type CommandConstructorData = common::CommandConstructorData;
 
+struct FseLookupCtrlReq {
+    ll: bool,
+    ml: bool,
+    of: bool,
+}
+
+struct FseLookupCtrlResp {}
+
+struct FseLookupCtrlState {
+    decode: bool[3],
+    decode_valid: bool,
+    cnt: u2,
+}
+
+pub proc FseLookupCtrl<AXI_ADDR_W: u32> {
+    type Req = FseLookupCtrlReq;
+    type Resp = FseLookupCtrlResp;
+    type State = FseLookupCtrlState;
+
+    type FseLookupDecoderReq = fse_lookup_dec::FseLookupDecoderReq<AXI_ADDR_W>;
+    type FseLookupDecoderResp = fse_lookup_dec::FseLookupDecoderResp;
+
+    req_r: chan<Req> in;
+    resp_s: chan<Resp> out;
+
+    fld_req_s: chan<FseLookupDecoderReq> out;
+    fld_resp_r: chan<FseLookupDecoderResp> in;
+
+    fse_demux_req_s: chan<u2> out;
+    fse_demux_resp_r: chan<()> in;
+
+    init { zero!<State>() }
+
+    config(
+        req_r: chan<Req> in,
+        resp_s: chan<Resp> out,
+
+        fld_req_s: chan<FseLookupDecoderReq> out,
+        fld_resp_r: chan<FseLookupDecoderResp> in,
+
+        fse_demux_req_s: chan<u2> out,
+        fse_demux_resp_r: chan<()> in,
+    ) {
+        (
+            req_r, resp_s,
+            fld_req_s, fld_resp_r,
+            fse_demux_req_s, fse_demux_resp_r,
+        )
+    }
+
+    next(state: State) {
+        let tok0 = join();
+
+        if !state.decode_valid {
+            let (tok1_0, req) = recv(tok0, req_r);
+            State {
+                decode: bool[3]:[req.ml, req.of, req.ll],
+                decode_valid: true,
+                cnt: u2:2
+            }
+        } else {
+            let do_set = state.decode[state.cnt];
+            match(state.cnt) {
+                u2:2 => trace_fmt!("Handling LL"),
+                u2:1 => trace_fmt!("Handling OF"),
+                u2:0 => trace_fmt!("Handling ML"),
+            };
+
+            trace_fmt!("Sending request to demux {:#x}", state.cnt);
+            let tok1 = send_if(tok0, fse_demux_req_s, do_set, state.cnt);
+            trace_fmt!("Waiting for response from demux if {:#x}", do_set);
+            let (tok2, demux_resp) = recv_if(tok1, fse_demux_resp_r, do_set, ());
+            trace_fmt!("Received response from demux");
+
+            let fld_req = FseLookupDecoderReq { addr: uN[AXI_ADDR_W]:0 };
+            trace_fmt!("Sending request to FseLookupDecoder {:#x} if {:#x}", demux_resp, do_set);
+            let tok3 = send_if(tok2, fld_req_s, do_set, fld_req);
+
+            trace_fmt!("Waiting for response from FseLookupDecoder");
+            let (tok4, fld_resp) = recv_if(tok3, fld_resp_r, do_set, zero!<FseLookupDecoderResp>());
+            trace_fmt!("Received response from from FseLookupDecoder {:#x}", fld_resp);
+
+            if state.cnt == u2:0 {
+                let tok5 = send(tok4, resp_s, Resp {});
+                zero!<State>()
+            } else {
+                State { cnt: state.cnt - u2:1, ..state}
+            }
+        }
+    }
+}
+
+const INST_AXI_ADDR_W = u32:32;
+
+pub proc FseLookupCtrlInst {
+    type Req = FseLookupCtrlReq;
+    type Resp = FseLookupCtrlResp;
+
+    type FseLookupDecoderReq = fse_lookup_dec::FseLookupDecoderReq<INST_AXI_ADDR_W>;
+    type FseLookupDecoderResp = fse_lookup_dec::FseLookupDecoderResp;
+
+    init { }
+
+    config(
+        req_r: chan<Req> in,
+        resp_s: chan<Resp> out,
+
+        fld_req_s: chan<FseLookupDecoderReq> out,
+        fld_resp_r: chan<FseLookupDecoderResp> in,
+
+        demux_req_s: chan<u2> out,
+        demux_resp_r: chan<()> in,
+    ) {
+         spawn FseLookupCtrl<INST_AXI_ADDR_W>(
+            req_r, resp_s,
+            fld_req_s, fld_resp_r,
+            demux_req_s, demux_resp_r,
+        );
+    }
+
+    next(state: ()) {}
+}
+
+const TEST_FLC_AXI_ADDR_W = u32:32;
+
+#[test_proc]
+proc FseLookupCtrlTest {
+
+    type Req = FseLookupCtrlReq;
+    type Resp = FseLookupCtrlResp;
+
+    type FseLookupDecoderReq = fse_lookup_dec::FseLookupDecoderReq<TEST_FLC_AXI_ADDR_W>;
+    type FseLookupDecoderResp = fse_lookup_dec::FseLookupDecoderResp;
+    type FseLookupDecoderStatus = fse_lookup_dec::FseLookupDecoderStatus;
+
+    terminator: chan<bool> out;
+
+    req_s: chan<Req> out;
+    resp_r: chan<Resp> in;
+    fld_req_r: chan<FseLookupDecoderReq> in;
+    fld_resp_s: chan<FseLookupDecoderResp> out;
+    demux_req_r: chan<u2> in;
+    demux_resp_s: chan<()> out;
+
+    init {}
+
+    config(
+        terminator: chan<bool> out,
+    ) {
+        let (req_s, req_r) = chan<Req>("req");
+        let (resp_s, resp_r) = chan<Resp>("resp");
+        let (fld_req_s, fld_req_r) = chan<FseLookupDecoderReq>("fld_req");
+        let (fld_resp_s, fld_resp_r) = chan<FseLookupDecoderResp>("fld_resp");
+        let (demux_req_s, demux_req_r) = chan<u2>("demux_req");
+        let (demux_resp_s, demux_resp_r) = chan<()>("demux_resp");
+
+        spawn FseLookupCtrl<TEST_FLC_AXI_ADDR_W>(
+            req_r, resp_s,
+            fld_req_s, fld_resp_r,
+            demux_req_s, demux_resp_r,
+        );
+
+        (
+            terminator,
+            req_s, resp_r,
+            fld_req_r, fld_resp_s,
+            demux_req_r, demux_resp_s,
+        )
+    }
+
+    next(state: ()) {
+
+        // Decode all the tables
+        // ---------------------
+
+        // Start
+        let tok = join();
+        let tok = send(tok, req_s, Req { ll: true, of: true, ml: true });
+
+        // Select LL ( u2:2 )
+        let (tok, demux_req) = recv(tok, demux_req_r);
+        assert_eq(demux_req, u2:2);
+
+        let tok = send(tok, demux_resp_s, ());
+        let (tok, fld_req) = recv(tok, fld_req_r);
+
+        assert_eq(fld_req, zero!<FseLookupDecoderReq>());
+        let tok = send(tok, fld_resp_s, FseLookupDecoderResp {status: FseLookupDecoderStatus::OK});
+
+        // Select OF ( u2:1 )
+        let (tok, demux_req) = recv(tok, demux_req_r);
+        assert_eq(demux_req, u2:1);
+
+        let tok = send(tok, demux_resp_s, ());
+        let (tok, fld_req) = recv(tok, fld_req_r);
+
+        assert_eq(fld_req, zero!<FseLookupDecoderReq>());
+        let tok = send(tok, fld_resp_s, FseLookupDecoderResp {status: FseLookupDecoderStatus::OK});
+
+        // Select ML ( u2:0 )
+        let (tok, demux_req) = recv(tok, demux_req_r);
+        assert_eq(demux_req, u2:0);
+
+        let tok = send(tok, demux_resp_s, ());
+        let (tok, _fld_req) = recv(tok, fld_req_r);
+
+        assert_eq(fld_req, zero!<FseLookupDecoderReq>());
+        let tok = send(tok, fld_resp_s, FseLookupDecoderResp {status: FseLookupDecoderStatus::OK});
+
+        // Stop
+        let (tok, resp) = recv(tok, resp_r);
+        assert_eq(resp, FseLookupCtrlResp {});
+
+        // Decode only LL and ML
+        // ---------------------
+
+        // Start
+        let tok = join();
+        let tok = send(tok, req_s, Req { ll: true, of: false, ml: true });
+
+        // Select LL ( u2:2 )
+        let (tok, demux_req) = recv(tok, demux_req_r);
+        assert_eq(demux_req, u2:2);
+
+        let tok = send(tok, demux_resp_s, ());
+        let (tok, fld_req) = recv(tok, fld_req_r);
+
+        assert_eq(fld_req, zero!<FseLookupDecoderReq>());
+        let tok = send(tok, fld_resp_s, FseLookupDecoderResp {status: FseLookupDecoderStatus::OK});
+
+        // Select ML ( u2:0 )
+        let (tok, demux_req) = recv(tok, demux_req_r);
+        assert_eq(demux_req, u2:0);
+
+        let tok = send(tok, demux_resp_s, ());
+        let (tok, _fld_req) = recv(tok, fld_req_r);
+
+        assert_eq(fld_req, zero!<FseLookupDecoderReq>());
+        let tok = send(tok, fld_resp_s, FseLookupDecoderResp {status: FseLookupDecoderStatus::OK});
+
+        // Stop
+        let (tok, resp) = recv(tok, resp_r);
+        assert_eq(resp, FseLookupCtrlResp {});
+
+
+        // Decode only OF
+        // ---------------------
+
+        // Start
+        let tok = join();
+        let tok = send(tok, req_s, Req { ll: false, of: true, ml: false });
+
+        // Select OF ( u2:1 )
+        let (tok, demux_req) = recv(tok, demux_req_r);
+        assert_eq(demux_req, u2:1);
+
+        let tok = send(tok, demux_resp_s, ());
+        let (tok, fld_req) = recv(tok, fld_req_r);
+
+        assert_eq(fld_req, zero!<FseLookupDecoderReq>());
+        let tok = send(tok, fld_resp_s, FseLookupDecoderResp {status: FseLookupDecoderStatus::OK});
+
+        // Stop
+        let (tok, resp) = recv(tok, resp_r);
+        assert_eq(resp, FseLookupCtrlResp {});
+
+        let tok = send(tok, terminator, true);
+    }
+}
+
 pub proc SequenceDecoderCtrl<AXI_ADDR_W: u32> {
     type Req = SequenceDecoderReq<AXI_ADDR_W>;
     type Resp = SequenceDecoderResp;
@@ -70,8 +340,12 @@ pub proc SequenceDecoderCtrl<AXI_ADDR_W: u32> {
 
     type SequenceConfDecoderReq = sequence_conf_dec::SequenceConfDecoderReq<AXI_ADDR_W>;
     type SequenceConfDecoderResp = sequence_conf_dec::SequenceConfDecoderResp;
+
     type FseLookupDecoderReq = fse_lookup_dec::FseLookupDecoderReq<AXI_ADDR_W>;
     type FseLookupDecoderResp = fse_lookup_dec::FseLookupDecoderResp;
+
+    type FseDecoderCtrl = fse_dec::FseDecoderCtrl;
+    type FseDecoderFinish = fse_dec::FseDecoderFinish;
 
     sd_req_r: chan<Req> in;
     sd_resp_s: chan<Resp> out;
@@ -79,11 +353,8 @@ pub proc SequenceDecoderCtrl<AXI_ADDR_W: u32> {
     scd_req_s: chan<SequenceConfDecoderReq> out;
     scd_resp_r: chan<SequenceConfDecoderResp> in;
 
-    fld_req_s: chan<FseLookupDecoderReq> out;
-    fld_resp_r: chan<FseLookupDecoderResp> in;
-
-    fse_demux_req_s: chan<u2> out;
-    fse_demux_resp_r: chan<()> in;
+    flc_req_s: chan<FseLookupCtrlReq> out;
+    flc_resp_r: chan<FseLookupCtrlResp> in;
 
     ll_demux_req_s: chan<u1> out;
     ll_demux_resp_r: chan<()> in;
@@ -94,7 +365,10 @@ pub proc SequenceDecoderCtrl<AXI_ADDR_W: u32> {
     ml_demux_req_s: chan<u1> out;
     ml_demux_resp_r: chan<()> in;
 
-    init { zero!<State>() }
+    fd_ctrl_s: chan<FseDecoderCtrl> out;
+    fd_finish_r: chan<FseDecoderFinish> in;
+
+    init { }
 
     config(
         sd_req_r: chan<Req> in,
@@ -106,8 +380,8 @@ pub proc SequenceDecoderCtrl<AXI_ADDR_W: u32> {
         fld_req_s: chan<FseLookupDecoderReq> out,
         fld_resp_r: chan<FseLookupDecoderResp> in,
 
-        fse_demux_req_s: chan<u2> out,
-        fse_demux_resp_r: chan<()> in,
+        fld_demux_req_s: chan<u2> out,
+        fld_demux_resp_r: chan<()> in,
 
         ll_demux_req_s: chan<u1> out,
         ll_demux_resp_r: chan<()> in,
@@ -117,96 +391,74 @@ pub proc SequenceDecoderCtrl<AXI_ADDR_W: u32> {
 
         ml_demux_req_s: chan<u1> out,
         ml_demux_resp_r: chan<()> in,
+
+        fd_ctrl_s: chan<FseDecoderCtrl> out,
+        fd_finish_r: chan<FseDecoderFinish> in,
     ) {
+
+        let (flc_req_s, flc_req_r) = chan<FseLookupCtrlReq>("flc_req");
+        let (flc_resp_s, flc_resp_r) = chan<FseLookupCtrlResp>("flc_resp");
+
+        spawn FseLookupCtrl<AXI_ADDR_W>(
+            flc_req_r, flc_resp_s,
+            fld_req_s, fld_resp_r,
+            fld_demux_req_s, fld_demux_resp_r,
+        );
+
         (
             sd_req_r, sd_resp_s,
             scd_req_s, scd_resp_r,
-            fld_req_s, fld_resp_r,
-            fse_demux_req_s, fse_demux_resp_r,
+            flc_req_s, flc_resp_r,
             ll_demux_req_s, ll_demux_resp_r,
             of_demux_req_s, of_demux_resp_r,
             ml_demux_req_s, ml_demux_resp_r,
+            fd_ctrl_s, fd_finish_r,
         )
     }
 
-    next(state: State) {
-        // FIXME: proc-scoped type aliases failure
-        type State = SequenceDecoderState<AXI_ADDR_W>;
+    next(state: ()) {
 
-        let tok0 = join();
+        // Receive Sequence Decoder request
+        let (tok_req_sd, req) = recv(join(), sd_req_r);
 
-        let (tok1_0, req) = recv_if(tok0, sd_req_r, state.fsm == FSM::IDLE, zero!<Req>());
-        if state.fsm == FSM::IDLE {
-            trace_fmt!("[IDLE]: Received request {:#x}", req);
-        } else {};
+        // Request decoding Frame Header
+        let tok_send_scd = send(tok_req_sd, scd_req_s, SequenceConfDecoderReq { addr: req.addr });
 
-        let conf_req = SequenceConfDecoderReq { addr: state.req.addr };
-        let tok1_1 = send_if(tok0, scd_req_s, state.fsm == FSM::DECODE_SEQUENCE_HEADER, conf_req);
+        // Receive decoded Frame Header
+        let (tok_recv_scd, conf_resp) = recv(tok_send_scd, scd_resp_r);
 
-        let (tok1_2, conf_resp, conf_resp_valid) = recv_if_non_blocking(tok0, scd_resp_r, state.fsm == FSM::DECODE_SEQUENCE_HEADER, zero!<SequenceConfDecoderResp>());
-        if conf_resp_valid {
-            trace_fmt!("[DECODE_SEQUENCE_HEADER]: {:#x}", conf_resp);
-        } else {};
+        // Request decoding lookups
+        let tok_send_ctrl = send(tok_recv_scd, flc_req_s, FseLookupCtrlReq {
+            ll: (conf_resp.header.literals_mode == CompressionMode::COMPRESSED),
+            ml: (conf_resp.header.match_mode == CompressionMode::COMPRESSED),
+            of: (conf_resp.header.offset_mode == CompressionMode::COMPRESSED),
+        });
 
-        //let tok1_3 = send_if(tok0, fld_req_s, false, zero!<FseLookupDecoderReq>());
-        //let (tok1_4, _) = recv_if(tok0, fld_resp_r, false, zero!<FseLookupDecoderResp>());
+        // Receive response about deoded lookups
+        let (tok_recv_ctrl, _) = recv(tok_send_ctrl, flc_resp_r);
 
-        //let tok1_5 = send_if(tok0, sel_req_s, false, u2:0);
-        //let (tok1_6, _) = recv_if(tok0, sel_resp_r, false, ());
+        // Set proper LL lookup through demux
+        let ll_demux_sel = (conf_resp.header.literals_mode != CompressionMode::PREDEFINED);
+        let tok_ll_demux = send(tok_recv_scd, ll_demux_req_s, ll_demux_sel);
+        // Receive response from LL lookup demux
+        let (tok_ll_demux, _) = recv(tok_ll_demux, ll_demux_resp_r);
 
-        //let fail_resp = Resp { status: Status::ERROR };
-        //let tok1_7 = send_if(tok0, sd_resp_s, state.fsm == FSM::ERROR, fail_resp);
+        // Set proper ML lookup through demux
+        let ml_demux_sel = (conf_resp.header.match_mode != CompressionMode::PREDEFINED);
+        let tok_ml_demux = send(tok_recv_scd, ml_demux_req_s, ml_demux_sel);
+        // Receive response from ML lookup demux
+        let (tok_ml_demux, _) = recv(tok_ml_demux, ml_demux_resp_r);
 
-        match state.fsm {
-            FSM::IDLE => {
-                State { fsm: FSM::DECODE_SEQUENCE_HEADER, req, ..state }
-            },
+        // Set proper OF lookup through demux
+        let of_demux_sel = (conf_resp.header.match_mode != CompressionMode::PREDEFINED);
+        let tok_of_demux = send(tok_recv_scd, of_demux_req_s, of_demux_sel);
+        // Receive response from OF lookup demux
+        let (tok_of_demux, _) = recv(tok_of_demux, of_demux_resp_r);
 
-            FSM::DECODE_SEQUENCE_HEADER => {
-                match (conf_resp_valid, conf_resp.status) {
-                    (true, SequenceConfDecoderStatus::OKAY) => State { fsm: FSM::PREPARE_LL_TABLE, conf_resp, ..state},
-                    (true, _)                               => State { fsm: FSM::ERROR, conf_resp, ..state},
-                    (_, _)                                  => state,
-                }
-            },
+        let tok_demux = join(tok_ll_demux, tok_ml_demux, tok_of_demux);
 
-            FSM::PREPARE_LL_TABLE => {
-                match (state.conf_resp.header.literals_mode) {
-                    CompressionMode::PREDEFINED => {
-                        trace_fmt!("[PREPARE_LL_TABLE] Predefined");
-                        state
-                    },
-                    CompressionMode::RLE => {
-                        trace_fmt!("[PREPARE_LL_TABLE] RLE");
-                        state
-                    },
-                    CompressionMode::COMPRESSED => {
-                        trace_fmt!("[PREPARE_LL_TABLE] COMPRESSED");
-                        state
-                    },
-                    CompressionMode::REPEAT => {
-                        trace_fmt!("[PREPARE_LL_TABLE] REPEAT");
-                        state
-                    },
-                    _ => state,
-                }
-            },
-
-            FSM::PREPARE_OF_TABLE => {
-                trace_fmt!("[PREPARE_OF_TABLE]");
-                state
-            },
-
-            FSM::PREPARE_ML_TABLE => {
-                trace_fmt!("[PREPARE_ML_TABLE]");
-                state
-            },
-
-            FSM::ERROR => {
-                trace_fmt!("[ERROR]: FAIL!");
-                state
-            }
-        }
+        let tok_fse_dec = send(tok_demux, fd_ctrl_s, zero!<FseDecoderCtrl>());
+        let (tok_fse_dec, _) = recv(tok_fse_dec, fd_finish_r);
     }
 }
 
@@ -229,6 +481,10 @@ proc SequenceDecoderCtrlTest {
 
     type FseLookupDecoderReq = fse_lookup_dec::FseLookupDecoderReq<SDC_TEST_AXI_ADDR_W>;
     type FseLookupDecoderResp = fse_lookup_dec::FseLookupDecoderResp;
+    type FseLookupDecoderStatus = fse_lookup_dec::FseLookupDecoderStatus;
+
+    type FseDecoderCtrl = fse_dec::FseDecoderCtrl;
+    type FseDecoderFinish = fse_dec::FseDecoderFinish;
 
     terminator: chan<bool> out;
 
@@ -252,6 +508,9 @@ proc SequenceDecoderCtrlTest {
 
     ml_demux_req_r: chan<u1> in;
     ml_demux_resp_s: chan<()> out;
+
+    fd_ctrl_r: chan<FseDecoderCtrl> in;
+    fd_finish_s: chan<FseDecoderFinish> out;
 
     init { }
 
@@ -277,6 +536,9 @@ proc SequenceDecoderCtrlTest {
         let (ml_demux_req_s, ml_demux_req_r) = chan<u1>("ml_demux_req");
         let (ml_demux_resp_s, ml_demux_resp_r) = chan<()>("ml_demux_resp");
 
+        let (fd_ctrl_s, fd_ctrl_r) = chan<FseDecoderCtrl>("fd_ctrl");
+        let (fd_finish_s, fd_finish_r) = chan<FseDecoderFinish>("fd_finish");
+
         spawn SequenceDecoderCtrl<SDC_TEST_AXI_ADDR_W>(
             sd_req_r, sd_resp_s,
             scd_req_s, scd_resp_r,
@@ -285,6 +547,7 @@ proc SequenceDecoderCtrlTest {
             ll_demux_req_s, ll_demux_resp_r,
             of_demux_req_s, of_demux_resp_r,
             ml_demux_req_s, ml_demux_resp_r,
+            fd_ctrl_s, fd_finish_r,
         );
 
         (
@@ -296,6 +559,7 @@ proc SequenceDecoderCtrlTest {
             ll_demux_req_r, ll_demux_resp_s,
             of_demux_req_r, of_demux_resp_s,
             ml_demux_req_r, ml_demux_resp_s,
+            fd_ctrl_r, fd_finish_s,
         )
     }
 
@@ -303,25 +567,46 @@ proc SequenceDecoderCtrlTest {
         let tok = join();
 
         let tok = send(tok, sd_req_s, Req {addr: Addr:0x1000 });
-        // let (tok, sd_resp) = recv(tok, sd_resp_r);
-        // assert_eq(sd_resp, Resp {status: Status::ERROR});
 
         let (tok, scd_req) = recv(tok, scd_req_r);
         assert_eq(scd_req, SequenceConfDecoderReq { addr: Addr: 0x1000 });
 
-        // let ss_resp = SequenceConfDecoderResp {
-        //     header: SequenceConf {
-        //         sequence_count: u17:1,
-        //         literals_mode: CompressionMode::PREDEFINED,
-        //         offset_mode: CompressionMode::RLE,
-        //         match_mode: CompressionMode::COMPRESSED,
-        //     },
-        //     length: u3:5,
-        //     status: SequenceConfDecoderStatus::OKAY
-        // };
+        let scd_resp = SequenceConfDecoderResp {
+             header: SequenceConf {
+                 sequence_count: u17:1,
+                 literals_mode: CompressionMode::PREDEFINED,
+                 offset_mode: CompressionMode::RLE,
+                 match_mode: CompressionMode::COMPRESSED,
+             },
+             length: u3:5,
+             status: SequenceConfDecoderStatus::OKAY
+        };
+        let tok = send(tok, scd_resp_s, scd_resp);
 
-        // let tok = send(tok, ss_resp_s, ss_resp);
-        // let (tok, _) = recv(tok, sd_resp_r);
+        // Select LL ( u2:1 )
+        let (tok, demux_req) = recv(tok, fse_demux_req_r);
+        assert_eq(demux_req, u2:0);
+        let tok = send(tok, fse_demux_resp_s, ());
+
+        let (tok, fld_req) = recv(tok, fld_req_r);
+        assert_eq(fld_req, zero!<FseLookupDecoderReq>());
+
+        let tok = send(tok, fld_resp_s, FseLookupDecoderResp {status: FseLookupDecoderStatus::OK});
+
+        let (tok, ll_demux) = recv(tok, ll_demux_req_r);
+        assert_eq(ll_demux, u1:0);
+        let tok = send(tok, ll_demux_resp_s, ());
+
+        let (tok, ml_demux) = recv(tok, ml_demux_req_r);
+        assert_eq(ml_demux, u1:1);
+        let tok = send(tok, ml_demux_resp_s, ());
+
+        let (tok, of_demux) = recv(tok, of_demux_req_r);
+        assert_eq(of_demux, u1:1);
+        let tok = send(tok, of_demux_resp_s, ());
+
+        let (tok, fd_ctrl)  = recv(tok, fd_ctrl_r);
+        assert_eq(fd_ctrl, zero!<FseDecoderCtrl>());
 
         send(tok, terminator, true);
     }
@@ -402,6 +687,9 @@ pub proc SequenceDecoder<
 
         req_r: chan<Req> in,
         resp_s: chan<Resp> out,
+
+        // Command constructor
+        fd_command_s: chan<CommandConstructorData> out,
 
         // RAMs
 
@@ -595,7 +883,6 @@ pub proc SequenceDecoder<
 
         let (fd_ctrl_s, fd_ctrl_r) = chan<FseDecoderCtrl>("fd_ctrl");
         let (fd_finish_s, fd_finish_r) = chan<FseDecoderFinish>("fd_finish");
-        let (fd_command_s, fd_command_r) = chan<CommandConstructorData>("fd_command");
 
         spawn fse_dec::FseDecoder<
             FSE_RAM_DATA_W, FSE_RAM_ADDR_W, FSE_RAM_NUM_PARTITIONS, AXI_DATA_W,
@@ -616,6 +903,7 @@ pub proc SequenceDecoder<
             ll_demux_req_s, ll_demux_resp_r,
             of_demux_req_s, of_demux_resp_r,
             ml_demux_req_s, ml_demux_resp_r,
+            fd_ctrl_s, fd_finish_r,
         );
 
         (
@@ -655,192 +943,198 @@ const TEST_TMP_RAM_NUM_PARTITIONS = ram::num_partitions(TEST_TMP_RAM_WORD_PARTIT
 
 #[test_proc]
 proc SequenceDecoderTest {
-    type Req = SequenceDecoderReq<TEST_AXI_ADDR_W>;
-    type Resp = SequenceDecoderResp;
+   type Req = SequenceDecoderReq<TEST_AXI_ADDR_W>;
+   type Resp = SequenceDecoderResp;
 
-    type DpdRamRdReq = ram::ReadReq<TEST_DPD_RAM_ADDR_W, TEST_DPD_RAM_NUM_PARTITIONS>;
-    type DpdRamRdResp = ram::ReadResp<TEST_DPD_RAM_DATA_W>;
-    type DpdRamWrReq = ram::WriteReq<TEST_DPD_RAM_ADDR_W, TEST_DPD_RAM_DATA_W, TEST_DPD_RAM_NUM_PARTITIONS>;
-    type DpdRamWrResp = ram::WriteResp;
+   type DpdRamRdReq = ram::ReadReq<TEST_DPD_RAM_ADDR_W, TEST_DPD_RAM_NUM_PARTITIONS>;
+   type DpdRamRdResp = ram::ReadResp<TEST_DPD_RAM_DATA_W>;
+   type DpdRamWrReq = ram::WriteReq<TEST_DPD_RAM_ADDR_W, TEST_DPD_RAM_DATA_W, TEST_DPD_RAM_NUM_PARTITIONS>;
+   type DpdRamWrResp = ram::WriteResp;
 
-    type TmpRamRdReq = ram::ReadReq<TEST_TMP_RAM_ADDR_W, TEST_TMP_RAM_NUM_PARTITIONS>;
-    type TmpRamRdResp = ram::ReadResp<TEST_TMP_RAM_DATA_W>;
-    type TmpRamWrReq = ram::WriteReq<TEST_TMP_RAM_ADDR_W, TEST_TMP_RAM_DATA_W, TEST_TMP_RAM_NUM_PARTITIONS>;
-    type TmpRamWrResp = ram::WriteResp;
+   type TmpRamRdReq = ram::ReadReq<TEST_TMP_RAM_ADDR_W, TEST_TMP_RAM_NUM_PARTITIONS>;
+   type TmpRamRdResp = ram::ReadResp<TEST_TMP_RAM_DATA_W>;
+   type TmpRamWrReq = ram::WriteReq<TEST_TMP_RAM_ADDR_W, TEST_TMP_RAM_DATA_W, TEST_TMP_RAM_NUM_PARTITIONS>;
+   type TmpRamWrResp = ram::WriteResp;
 
-    type FseRamRdReq = ram::ReadReq<TEST_FSE_RAM_ADDR_W, TEST_FSE_RAM_NUM_PARTITIONS>;
-    type FseRamRdResp = ram::ReadResp<TEST_FSE_RAM_DATA_W>;
-    type FseRamWrReq = ram::WriteReq<TEST_FSE_RAM_ADDR_W, TEST_FSE_RAM_DATA_W, TEST_FSE_RAM_NUM_PARTITIONS>;
-    type FseRamWrResp = ram::WriteResp;
+   type FseRamRdReq = ram::ReadReq<TEST_FSE_RAM_ADDR_W, TEST_FSE_RAM_NUM_PARTITIONS>;
+   type FseRamRdResp = ram::ReadResp<TEST_FSE_RAM_DATA_W>;
+   type FseRamWrReq = ram::WriteReq<TEST_FSE_RAM_ADDR_W, TEST_FSE_RAM_DATA_W, TEST_FSE_RAM_NUM_PARTITIONS>;
+   type FseRamWrResp = ram::WriteResp;
 
-    type MemAxiAr = axi::AxiAr<TEST_AXI_ADDR_W, TEST_AXI_ID_W>;
-    type MemAxiR = axi::AxiR<TEST_AXI_DATA_W, TEST_AXI_ID_W>;
+   type MemAxiAr = axi::AxiAr<TEST_AXI_ADDR_W, TEST_AXI_ID_W>;
+   type MemAxiR = axi::AxiR<TEST_AXI_DATA_W, TEST_AXI_ID_W>;
 
-    terminator: chan<bool> out;
+   terminator: chan<bool> out;
 
-    req_s: chan<Req> out;
-    resp_r: chan<Resp> in;
+   req_s: chan<Req> out;
+   resp_r: chan<Resp> in;
 
-    ss_axi_ar_r: chan<MemAxiAr> in;
-    ss_axi_r_s: chan<MemAxiR> out;
+   fd_command_r: chan<CommandConstructorData> in;
 
-    fl_axi_ar_r: chan<MemAxiAr> in;
-    fl_axi_r_s: chan<MemAxiR> out;
+   ss_axi_ar_r: chan<MemAxiAr> in;
+   ss_axi_r_s: chan<MemAxiR> out;
 
-    fd_axi_ar_r: chan<MemAxiAr> in;
-    fd_axi_r_s: chan<MemAxiR> out;
+   fl_axi_ar_r: chan<MemAxiAr> in;
+   fl_axi_r_s: chan<MemAxiR> out;
 
-    init { }
-
-    config(
-        terminator: chan<bool> out
-    ) {
-        // RAM for probability distribution
-        let (dpd_rd_req_s, dpd_rd_req_r) = chan<DpdRamRdReq>("dpd_rd_req");
-        let (dpd_rd_resp_s, dpd_rd_resp_r) = chan<DpdRamRdResp>("dpd_rd_resp");
-        let (dpd_wr_req_s, dpd_wr_req_r) = chan<DpdRamWrReq>("dpd_wr_req");
-        let (dpd_wr_resp_s, dpd_wr_resp_r) = chan<DpdRamWrResp>("dpd_wr_resp");
-
-        spawn ram::RamModel<
-            TEST_DPD_RAM_DATA_W,
-            TEST_DPD_RAM_SIZE,
-            TEST_DPD_RAM_WORD_PARTITION_SIZE
-        >(dpd_rd_req_r, dpd_rd_resp_s, dpd_wr_req_r, dpd_wr_resp_s);
-
-        // RAMs for temporary values when decoding probability distribution
-        let (tmp_rd_req_s, tmp_rd_req_r) = chan<TmpRamRdReq>("tmp_rd_req");
-        let (tmp_rd_resp_s, tmp_rd_resp_r) = chan<TmpRamRdResp>("tmp_rd_resp");
-        let (tmp_wr_req_s, tmp_wr_req_r) = chan<TmpRamWrReq>("tmp_wr_req");
-        let (tmp_wr_resp_s, tmp_wr_resp_r) = chan<TmpRamWrResp>("tmp_wr_resp");
-
-        spawn ram::RamModel<
-            TEST_TMP_RAM_DATA_W,
-            TEST_TMP_RAM_SIZE,
-            TEST_TMP_RAM_WORD_PARTITION_SIZE
-        >(tmp_rd_req_r, tmp_rd_resp_s, tmp_wr_req_r, tmp_wr_resp_s);
-
-        // RAM with default FSE lookup for Literal Lengths
-        let (ll_def_fse_rd_req_s, ll_def_fse_rd_req_r) = chan<FseRamRdReq>("ll_def_fse_rd_req");
-        let (ll_def_fse_rd_resp_s, ll_def_fse_rd_resp_r) = chan<FseRamRdResp>("ll_def_fse_rd_resp");
-        let (ll_def_fse_wr_req_s, ll_def_fse_wr_req_r) = chan<FseRamWrReq>("ll_def_fse_wr_req");
-        let (ll_def_fse_wr_resp_s, ll_def_fse_wr_resp_r) = chan<FseRamWrResp>("ll_def_fse_wr_resp");
-
-        spawn ram::RamModel<
-            TEST_FSE_RAM_DATA_W,
-            TEST_FSE_RAM_SIZE,
-            TEST_FSE_RAM_WORD_PARTITION_SIZE
-        >(ll_def_fse_rd_req_r, ll_def_fse_rd_resp_s, ll_def_fse_wr_req_r, ll_def_fse_wr_resp_s);
-
-        // RAM for FSE lookup for Literal Lengths
-        let (ll_fse_rd_req_s, ll_fse_rd_req_r) = chan<FseRamRdReq>("ll_fse_rd_req");
-        let (ll_fse_rd_resp_s, ll_fse_rd_resp_r) = chan<FseRamRdResp>("ll_fse_rd_resp");
-        let (ll_fse_wr_req_s, ll_fse_wr_req_r) = chan<FseRamWrReq>("ll_fse_wr_req");
-        let (ll_fse_wr_resp_s, ll_fse_wr_resp_r) = chan<FseRamWrResp>("ll_fse_wr_resp");
-
-        spawn ram::RamModel<
-            TEST_FSE_RAM_DATA_W,
-            TEST_FSE_RAM_SIZE,
-            TEST_FSE_RAM_WORD_PARTITION_SIZE
-        >(ll_fse_rd_req_r, ll_fse_rd_resp_s, ll_fse_wr_req_r, ll_fse_wr_resp_s);
-
-        // RAM with default FSE lookup for Match Lengths
-        let (ml_def_fse_rd_req_s, ml_def_fse_rd_req_r) = chan<FseRamRdReq>("ml_def_fse_rd_req");
-        let (ml_def_fse_rd_resp_s, ml_def_fse_rd_resp_r) = chan<FseRamRdResp>("ml_def_fse_rd_resp");
-        let (ml_def_fse_wr_req_s, ml_def_fse_wr_req_r) = chan<FseRamWrReq>("ml_def_fse_wr_req");
-        let (ml_def_fse_wr_resp_s, ml_def_fse_wr_resp_r) = chan<FseRamWrResp>("ml_def_fse_wr_resp");
-
-        spawn ram::RamModel<
-            TEST_FSE_RAM_DATA_W,
-            TEST_FSE_RAM_SIZE,
-            TEST_FSE_RAM_WORD_PARTITION_SIZE
-        >(ml_def_fse_rd_req_r, ml_def_fse_rd_resp_s, ml_def_fse_wr_req_r, ml_def_fse_wr_resp_s);
-
-        // RAM for FSE lookup for Match Lengths
-        let (ml_fse_rd_req_s, ml_fse_rd_req_r) = chan<FseRamRdReq>("ml_fse_rd_req");
-        let (ml_fse_rd_resp_s, ml_fse_rd_resp_r) = chan<FseRamRdResp>("ml_fse_rd_resp");
-        let (ml_fse_wr_req_s, ml_fse_wr_req_r) = chan<FseRamWrReq>("ml_fse_wr_req");
-        let (ml_fse_wr_resp_s, ml_fse_wr_resp_r) = chan<FseRamWrResp>("ml_fse_wr_resp");
-
-        spawn ram::RamModel<
-            TEST_FSE_RAM_DATA_W,
-            TEST_FSE_RAM_SIZE,
-            TEST_FSE_RAM_WORD_PARTITION_SIZE
-        >(ml_fse_rd_req_r, ml_fse_rd_resp_s, ml_fse_wr_req_r, ml_fse_wr_resp_s);
-
-        // RAM with default FSE lookup for Offsets
-        let (of_def_fse_rd_req_s, of_def_fse_rd_req_r) = chan<FseRamRdReq>("of_def_fse_rd_req");
-        let (of_def_fse_rd_resp_s, of_def_fse_rd_resp_r) = chan<FseRamRdResp>("of_def_fse_rd_resp");
-        let (of_def_fse_wr_req_s, of_def_fse_wr_req_r) = chan<FseRamWrReq>("of_def_fse_wr_req");
-        let (of_def_fse_wr_resp_s, of_def_fse_wr_resp_r) = chan<FseRamWrResp>("of_def_fse_wr_resp");
-
-        spawn ram::RamModel<
-            TEST_FSE_RAM_DATA_W,
-            TEST_FSE_RAM_SIZE,
-            TEST_FSE_RAM_WORD_PARTITION_SIZE
-        >(of_def_fse_rd_req_r, of_def_fse_rd_resp_s, of_def_fse_wr_req_r, of_def_fse_wr_resp_s);
-
-        // RAM for FSE lookup for Offsets
-        let (of_fse_rd_req_s, of_fse_rd_req_r) = chan<FseRamRdReq>("of_fse_rd_req");
-        let (of_fse_rd_resp_s, of_fse_rd_resp_r) = chan<FseRamRdResp>("of_fse_rd_resp");
-        let (of_fse_wr_req_s, of_fse_wr_req_r) = chan<FseRamWrReq>("of_fse_wr_req");
-        let (of_fse_wr_resp_s, of_fse_wr_resp_r) = chan<FseRamWrResp>("of_fse_wr_resp");
-
-        spawn ram::RamModel<
-            TEST_FSE_RAM_DATA_W,
-            TEST_FSE_RAM_SIZE,
-            TEST_FSE_RAM_WORD_PARTITION_SIZE
-        >(of_fse_rd_req_r, of_fse_rd_resp_s, of_fse_wr_req_r, of_fse_wr_resp_s);
-
-        // Sequence Decoder
-
-        let (req_s, req_r) = chan<Req>("req");
-        let (resp_s, resp_r) = chan<Resp>("resp");
-
-        let (ss_axi_ar_s, ss_axi_ar_r) = chan<MemAxiAr>("ss_axi_ar");
-        let (ss_axi_r_s, ss_axi_r_r) = chan<MemAxiR>("ss_axi_r");
-
-        let (fl_axi_ar_s, fl_axi_ar_r) = chan<MemAxiAr>("fl_axi_ar");
-        let (fl_axi_r_s, fl_axi_r_r) = chan<MemAxiR>("fl_axi_r");
-
-        let (fd_axi_ar_s, fd_axi_ar_r) = chan<MemAxiAr>("fd_axi_ar");
-        let (fd_axi_r_s, fd_axi_r_r) = chan<MemAxiR>("fd_axi_r");
+   fd_axi_ar_r: chan<MemAxiAr> in;
+   fd_axi_r_s: chan<MemAxiR> out;
 
 
-        spawn SequenceDecoder<
-            TEST_AXI_ADDR_W, TEST_AXI_DATA_W, TEST_AXI_DEST_W, TEST_AXI_ID_W,
-            TEST_DPD_RAM_ADDR_W, TEST_DPD_RAM_DATA_W, TEST_DPD_RAM_NUM_PARTITIONS,
-            TEST_TMP_RAM_ADDR_W, TEST_TMP_RAM_DATA_W, TEST_TMP_RAM_NUM_PARTITIONS,
-            TEST_FSE_RAM_ADDR_W, TEST_FSE_RAM_DATA_W, TEST_FSE_RAM_NUM_PARTITIONS,
-        > (
-            ss_axi_ar_s, ss_axi_r_r,
-            fl_axi_ar_s, fl_axi_r_r,
-            fd_axi_ar_s, fd_axi_r_r,
+   init { }
 
-            req_r, resp_s,
+   config(
+       terminator: chan<bool> out
+   ) {
+       // RAM for probability distribution
+       let (dpd_rd_req_s, dpd_rd_req_r) = chan<DpdRamRdReq>("dpd_rd_req");
+       let (dpd_rd_resp_s, dpd_rd_resp_r) = chan<DpdRamRdResp>("dpd_rd_resp");
+       let (dpd_wr_req_s, dpd_wr_req_r) = chan<DpdRamWrReq>("dpd_wr_req");
+       let (dpd_wr_resp_s, dpd_wr_resp_r) = chan<DpdRamWrResp>("dpd_wr_resp");
 
-            dpd_rd_req_s, dpd_rd_resp_r, dpd_wr_req_s, dpd_wr_resp_r,
-            tmp_rd_req_s, tmp_rd_resp_r, tmp_wr_req_s, tmp_wr_resp_r,
+       spawn ram::RamModel<
+           TEST_DPD_RAM_DATA_W,
+           TEST_DPD_RAM_SIZE,
+           TEST_DPD_RAM_WORD_PARTITION_SIZE
+       >(dpd_rd_req_r, dpd_rd_resp_s, dpd_wr_req_r, dpd_wr_resp_s);
 
-            ll_def_fse_rd_req_s, ll_def_fse_rd_resp_r, ll_def_fse_wr_req_s, ll_def_fse_wr_resp_r,
-            ll_fse_rd_req_s, ll_fse_rd_resp_r, ll_fse_wr_req_s, ll_fse_wr_resp_r,
-            ml_def_fse_rd_req_s, ml_def_fse_rd_resp_r, ml_def_fse_wr_req_s, ml_def_fse_wr_resp_r,
-            ml_fse_rd_req_s, ml_fse_rd_resp_r, ml_fse_wr_req_s, ml_fse_wr_resp_r,
-            of_def_fse_rd_req_s, of_def_fse_rd_resp_r, of_def_fse_wr_req_s, of_def_fse_wr_resp_r,
-            of_fse_rd_req_s, of_fse_rd_resp_r, of_fse_wr_req_s, of_fse_wr_resp_r,
-        );
+       // RAMs for temporary values when decoding probability distribution
+       let (tmp_rd_req_s, tmp_rd_req_r) = chan<TmpRamRdReq>("tmp_rd_req");
+       let (tmp_rd_resp_s, tmp_rd_resp_r) = chan<TmpRamRdResp>("tmp_rd_resp");
+       let (tmp_wr_req_s, tmp_wr_req_r) = chan<TmpRamWrReq>("tmp_wr_req");
+       let (tmp_wr_resp_s, tmp_wr_resp_r) = chan<TmpRamWrResp>("tmp_wr_resp");
 
-        (
-            terminator,
-            req_s, resp_r,
-            ss_axi_ar_r, ss_axi_r_s,
-            fl_axi_ar_r, fl_axi_r_s,
-            fd_axi_ar_r, fd_axi_r_s,
-        )
-    }
+       spawn ram::RamModel<
+           TEST_TMP_RAM_DATA_W,
+           TEST_TMP_RAM_SIZE,
+           TEST_TMP_RAM_WORD_PARTITION_SIZE
+       >(tmp_rd_req_r, tmp_rd_resp_s, tmp_wr_req_r, tmp_wr_resp_s);
 
-    next(state: ()) {
-        let tok = join();
-        trace_fmt!("SequenceDecoderTest");
-        send(tok, terminator, true);
-    }
+       // RAM with default FSE lookup for Literal Lengths
+       let (ll_def_fse_rd_req_s, ll_def_fse_rd_req_r) = chan<FseRamRdReq>("ll_def_fse_rd_req");
+       let (ll_def_fse_rd_resp_s, ll_def_fse_rd_resp_r) = chan<FseRamRdResp>("ll_def_fse_rd_resp");
+       let (ll_def_fse_wr_req_s, ll_def_fse_wr_req_r) = chan<FseRamWrReq>("ll_def_fse_wr_req");
+       let (ll_def_fse_wr_resp_s, ll_def_fse_wr_resp_r) = chan<FseRamWrResp>("ll_def_fse_wr_resp");
+
+       spawn ram::RamModel<
+           TEST_FSE_RAM_DATA_W,
+           TEST_FSE_RAM_SIZE,
+           TEST_FSE_RAM_WORD_PARTITION_SIZE
+       >(ll_def_fse_rd_req_r, ll_def_fse_rd_resp_s, ll_def_fse_wr_req_r, ll_def_fse_wr_resp_s);
+
+       // RAM for FSE lookup for Literal Lengths
+       let (ll_fse_rd_req_s, ll_fse_rd_req_r) = chan<FseRamRdReq>("ll_fse_rd_req");
+       let (ll_fse_rd_resp_s, ll_fse_rd_resp_r) = chan<FseRamRdResp>("ll_fse_rd_resp");
+       let (ll_fse_wr_req_s, ll_fse_wr_req_r) = chan<FseRamWrReq>("ll_fse_wr_req");
+       let (ll_fse_wr_resp_s, ll_fse_wr_resp_r) = chan<FseRamWrResp>("ll_fse_wr_resp");
+
+       spawn ram::RamModel<
+           TEST_FSE_RAM_DATA_W,
+           TEST_FSE_RAM_SIZE,
+           TEST_FSE_RAM_WORD_PARTITION_SIZE
+       >(ll_fse_rd_req_r, ll_fse_rd_resp_s, ll_fse_wr_req_r, ll_fse_wr_resp_s);
+
+       // RAM with default FSE lookup for Match Lengths
+       let (ml_def_fse_rd_req_s, ml_def_fse_rd_req_r) = chan<FseRamRdReq>("ml_def_fse_rd_req");
+       let (ml_def_fse_rd_resp_s, ml_def_fse_rd_resp_r) = chan<FseRamRdResp>("ml_def_fse_rd_resp");
+       let (ml_def_fse_wr_req_s, ml_def_fse_wr_req_r) = chan<FseRamWrReq>("ml_def_fse_wr_req");
+       let (ml_def_fse_wr_resp_s, ml_def_fse_wr_resp_r) = chan<FseRamWrResp>("ml_def_fse_wr_resp");
+
+       spawn ram::RamModel<
+           TEST_FSE_RAM_DATA_W,
+           TEST_FSE_RAM_SIZE,
+           TEST_FSE_RAM_WORD_PARTITION_SIZE
+       >(ml_def_fse_rd_req_r, ml_def_fse_rd_resp_s, ml_def_fse_wr_req_r, ml_def_fse_wr_resp_s);
+
+       // RAM for FSE lookup for Match Lengths
+       let (ml_fse_rd_req_s, ml_fse_rd_req_r) = chan<FseRamRdReq>("ml_fse_rd_req");
+       let (ml_fse_rd_resp_s, ml_fse_rd_resp_r) = chan<FseRamRdResp>("ml_fse_rd_resp");
+       let (ml_fse_wr_req_s, ml_fse_wr_req_r) = chan<FseRamWrReq>("ml_fse_wr_req");
+       let (ml_fse_wr_resp_s, ml_fse_wr_resp_r) = chan<FseRamWrResp>("ml_fse_wr_resp");
+
+       spawn ram::RamModel<
+           TEST_FSE_RAM_DATA_W,
+           TEST_FSE_RAM_SIZE,
+           TEST_FSE_RAM_WORD_PARTITION_SIZE
+       >(ml_fse_rd_req_r, ml_fse_rd_resp_s, ml_fse_wr_req_r, ml_fse_wr_resp_s);
+
+       // RAM with default FSE lookup for Offsets
+       let (of_def_fse_rd_req_s, of_def_fse_rd_req_r) = chan<FseRamRdReq>("of_def_fse_rd_req");
+       let (of_def_fse_rd_resp_s, of_def_fse_rd_resp_r) = chan<FseRamRdResp>("of_def_fse_rd_resp");
+       let (of_def_fse_wr_req_s, of_def_fse_wr_req_r) = chan<FseRamWrReq>("of_def_fse_wr_req");
+       let (of_def_fse_wr_resp_s, of_def_fse_wr_resp_r) = chan<FseRamWrResp>("of_def_fse_wr_resp");
+
+       spawn ram::RamModel<
+           TEST_FSE_RAM_DATA_W,
+           TEST_FSE_RAM_SIZE,
+           TEST_FSE_RAM_WORD_PARTITION_SIZE
+       >(of_def_fse_rd_req_r, of_def_fse_rd_resp_s, of_def_fse_wr_req_r, of_def_fse_wr_resp_s);
+
+       // RAM for FSE lookup for Offsets
+       let (of_fse_rd_req_s, of_fse_rd_req_r) = chan<FseRamRdReq>("of_fse_rd_req");
+       let (of_fse_rd_resp_s, of_fse_rd_resp_r) = chan<FseRamRdResp>("of_fse_rd_resp");
+       let (of_fse_wr_req_s, of_fse_wr_req_r) = chan<FseRamWrReq>("of_fse_wr_req");
+       let (of_fse_wr_resp_s, of_fse_wr_resp_r) = chan<FseRamWrResp>("of_fse_wr_resp");
+
+       spawn ram::RamModel<
+           TEST_FSE_RAM_DATA_W,
+           TEST_FSE_RAM_SIZE,
+           TEST_FSE_RAM_WORD_PARTITION_SIZE
+       >(of_fse_rd_req_r, of_fse_rd_resp_s, of_fse_wr_req_r, of_fse_wr_resp_s);
+
+       // Sequence Decoder
+
+       let (req_s, req_r) = chan<Req>("req");
+       let (resp_s, resp_r) = chan<Resp>("resp");
+
+       let (ss_axi_ar_s, ss_axi_ar_r) = chan<MemAxiAr>("ss_axi_ar");
+       let (ss_axi_r_s, ss_axi_r_r) = chan<MemAxiR>("ss_axi_r");
+
+       let (fl_axi_ar_s, fl_axi_ar_r) = chan<MemAxiAr>("fl_axi_ar");
+       let (fl_axi_r_s, fl_axi_r_r) = chan<MemAxiR>("fl_axi_r");
+
+       let (fd_axi_ar_s, fd_axi_ar_r) = chan<MemAxiAr>("fd_axi_ar");
+       let (fd_axi_r_s, fd_axi_r_r) = chan<MemAxiR>("fd_axi_r");
+
+       let (fd_command_s, fd_command_r) = chan<CommandConstructorData>("fd_command");
+
+       spawn SequenceDecoder<
+           TEST_AXI_ADDR_W, TEST_AXI_DATA_W, TEST_AXI_DEST_W, TEST_AXI_ID_W,
+           TEST_DPD_RAM_ADDR_W, TEST_DPD_RAM_DATA_W, TEST_DPD_RAM_NUM_PARTITIONS,
+           TEST_TMP_RAM_ADDR_W, TEST_TMP_RAM_DATA_W, TEST_TMP_RAM_NUM_PARTITIONS,
+           TEST_FSE_RAM_ADDR_W, TEST_FSE_RAM_DATA_W, TEST_FSE_RAM_NUM_PARTITIONS,
+       > (
+           ss_axi_ar_s, ss_axi_r_r,
+           fl_axi_ar_s, fl_axi_r_r,
+           fd_axi_ar_s, fd_axi_r_r,
+
+           req_r, resp_s,
+           fd_command_s,
+
+           dpd_rd_req_s, dpd_rd_resp_r, dpd_wr_req_s, dpd_wr_resp_r,
+           tmp_rd_req_s, tmp_rd_resp_r, tmp_wr_req_s, tmp_wr_resp_r,
+
+           ll_def_fse_rd_req_s, ll_def_fse_rd_resp_r, ll_def_fse_wr_req_s, ll_def_fse_wr_resp_r,
+           ll_fse_rd_req_s, ll_fse_rd_resp_r, ll_fse_wr_req_s, ll_fse_wr_resp_r,
+           ml_def_fse_rd_req_s, ml_def_fse_rd_resp_r, ml_def_fse_wr_req_s, ml_def_fse_wr_resp_r,
+           ml_fse_rd_req_s, ml_fse_rd_resp_r, ml_fse_wr_req_s, ml_fse_wr_resp_r,
+           of_def_fse_rd_req_s, of_def_fse_rd_resp_r, of_def_fse_wr_req_s, of_def_fse_wr_resp_r,
+           of_fse_rd_req_s, of_fse_rd_resp_r, of_fse_wr_req_s, of_fse_wr_resp_r,
+       );
+
+       (
+           terminator,
+           req_s, resp_r,
+           fd_command_r,
+           ss_axi_ar_r, ss_axi_r_s,
+           fl_axi_ar_r, fl_axi_r_s,
+           fd_axi_ar_r, fd_axi_r_s,
+       )
+   }
+
+   next(state: ()) {
+       let tok = join();
+
+       send(tok, terminator, true);
+   }
 }

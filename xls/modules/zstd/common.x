@@ -286,9 +286,9 @@ pub struct LiteralsData {
 pub struct LiteralsDataWithSync {
     data: LitData,
     length: LitLength,
-    last: bool,
+    last: bool,          // last packet in single literals section decoding
     id: LitID,
-    literals_last: bool,
+    literals_last: bool, // last literals section in ZSTD frame
 }
 
 pub struct LiteralsBufferCtrl {

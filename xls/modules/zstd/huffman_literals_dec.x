@@ -524,7 +524,7 @@ proc HuffmanLiteralsDecoder_test {
 
             let axi_r = TestAxiR {
                 id: axi_ar.id,
-                data: (TEST_DATA_0 >> (TEST_AXI_DATA_W * ( i / TEST_AXI_DATA_DIV8))) as uN[TEST_AXI_DATA_W],
+                data: (TEST_DATA_0 >> (TEST_AXI_DATA_W * (((AXI_READS_NUM - u32:1) - i) / TEST_AXI_DATA_DIV8))) as uN[TEST_AXI_DATA_W],
                 resp: axi::AxiReadResp::OKAY,
                 last: i == (AXI_READS_NUM - u32:1),
             };

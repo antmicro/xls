@@ -757,7 +757,7 @@ proc LiteralsDecoder<
         let (huffman_lit_output_s, huffman_lit_output_r) = chan<LiteralsDataWithSync, CHANNEL_DEPTH>("huffman_lit_output");
 
         spawn huffman_literals_dec::HuffmanLiteralsDecoder<
-            AXI_DATA_W, AXI_ADDR_W, AXI_ID_W,
+            AXI_DATA_W, AXI_ADDR_W, AXI_ID_W, AXI_DEST_W,
             HUFFMAN_WEIGHTS_RAM_ADDR_WIDTH, HUFFMAN_WEIGHTS_RAM_DATA_WIDTH, HUFFMAN_WEIGHTS_RAM_NUM_PARTITIONS,
             HUFFMAN_PRESCAN_RAM_ADDR_WIDTH, HUFFMAN_PRESCAN_RAM_DATA_WIDTH, HUFFMAN_PRESCAN_RAM_NUM_PARTITIONS
         >(

@@ -258,14 +258,14 @@ const TEST_CTRL_0 = TestCtrl {
 
 const TEST_DATA_LEN_0 = u32:64;
 const TEST_DATA_0 = (
-    u8:0b1_001_010_1 ++
-    u8:0b01_010_1_01 ++
-    u8:0b0100_001_0 ++
-    u8:0b11_010_1_00 ++
-    u8:0b001_010_1_0 ++
-    u8:0b01_010_000 ++
-    u8:0b11_1_1_0001 ++
-    u8:0b001_1_010_0
+    u8:0b001_1_010_0 ++  // 0x34 <- last byte in the memory
+    u8:0b11_1_1_0001 ++  // 0xF1
+    u8:0b01_010_000 ++   // 0x50
+    u8:0b001_010_1_0 ++  // 0x2A
+    u8:0b11_010_1_00 ++  // 0xD4
+    u8:0b0100_001_0 ++   // 0x42
+    u8:0b01_010_1_01 ++  // 0x55
+    u8:0b1_001_010_1     // 0x95 <- first byte in the memory
 );
 
 // code         symbol  length  weight
@@ -344,10 +344,10 @@ const TEST_CTRL_1 = TestCtrl {
 
 const TEST_DATA_LEN_1 = u32:32;
 const TEST_DATA_1 = (
-    u8:0b0010_1_010 ++
-    u8:0b000_0_000 ++
-    u8:0b1_1_000000 ++
-    u8:0b001_011_1_1
+    u8:0b001_011_1_1 ++ // 0x2F <- last byte in the memory
+    u8:0b1_1_000000 ++  // 0xC0
+    u8:0b000_0_000 ++   // 0x00
+    u8:0b0010_1_010     // 0x2A <- first byte in the memory
 );
 
 const TEST_DECODED_LITERALS_1 = common::LiteralsDataWithSync[2]:[
@@ -383,7 +383,10 @@ const TEST_CTRL_2 = TestCtrl {
 };
 
 const TEST_DATA_LEN_2 = u32:16;
-const TEST_DATA_2 = u64:0b00000001_00001101;
+const TEST_DATA_2 = (
+    u8:0b00001101 ++ // 0x0D <- last byte in the memory
+    u8:0b00000001    // 0x01 <- first byte in the memory
+);
 
 // code         symbol  length  weight
 // N/A          0x03    0       0
@@ -546,113 +549,113 @@ proc HuffmanLiteralsDecoder_test {
         let (tok, resp) = recv(tok, resp_r);
         assert_eq(TestResp {status: Status::OKAY}, resp);
 
-        //trace_fmt!("Test Case #2");
-        //// send ctrl
-        //let tok = send(tok, ctrl_s, TEST_CTRL_1);
-        //trace_fmt!("Sent #2 ctrl {:#x}", TEST_CTRL_1);
+        trace_fmt!("Test Case #2");
+        // send ctrl
+        let tok = send(tok, ctrl_s, TEST_CTRL_1);
+        trace_fmt!("Sent #2 ctrl {:#x}", TEST_CTRL_1);
 
-        //// receive Axi requests and send responses
-        //trace_fmt!("Sending data from AXI");
-        //const AXI_READS_NUM  = (TEST_DATA_LEN_1 + u32:7) / u32:8;
-        //let tok = for (i, tok):(u32, token) in range(u32:0, AXI_READS_NUM) {
-        //    let addr = TEST_CTRL_1.base_addr + (AXI_READS_NUM - u32:1 - i) as uN[TEST_AXI_ADDR_W];
-        //    let aligned_addr = addr & !(addr % TEST_AXI_DATA_DIV8 as uN[TEST_AXI_ADDR_W]);
-        //    let expected_axi_ar = TestAxiAr {
-        //        addr: aligned_addr,
-        //        size: axi::AxiAxSize::MAX_4B_TRANSFER,
-        //        burst: axi::AxiAxBurst::INCR,
-        //        ..zero!<TestAxiAr>()
-        //    };
-        //    let (tok, axi_ar) = recv(tok, axi_ar_r);
-        //    trace_fmt!("Received #{} AxiAr {:#x}", i + u32:1, axi_ar);
-        //    assert_eq(expected_axi_ar, axi_ar);
+        // receive Axi requests and send responses
+        trace_fmt!("Sending data from AXI");
+        const AXI_READS_NUM  = (TEST_DATA_LEN_1 + u32:7) / u32:8;
+        let tok = for (i, tok):(u32, token) in range(u32:0, AXI_READS_NUM) {
+            let addr = TEST_CTRL_1.base_addr + (AXI_READS_NUM - u32:1 - i) as uN[TEST_AXI_ADDR_W];
+            let aligned_addr = addr & !(addr % TEST_AXI_DATA_DIV8 as uN[TEST_AXI_ADDR_W]);
+            let expected_axi_ar = TestAxiAr {
+                addr: aligned_addr,
+                size: axi::AxiAxSize::MAX_4B_TRANSFER,
+                burst: axi::AxiAxBurst::INCR,
+                ..zero!<TestAxiAr>()
+            };
+            let (tok, axi_ar) = recv(tok, axi_ar_r);
+            trace_fmt!("Received #{} AxiAr {:#x}", i + u32:1, axi_ar);
+            assert_eq(expected_axi_ar, axi_ar);
 
-        //    let axi_r = TestAxiR {
-        //        id: axi_ar.id,
-        //        data: (TEST_DATA_1 >> (TEST_AXI_DATA_W * ( i / TEST_AXI_DATA_DIV8))) as u32,
-        //        resp: axi::AxiReadResp::OKAY,
-        //        last: i == (AXI_READS_NUM - u32:1),
-        //    };
+            let axi_r = TestAxiR {
+                id: axi_ar.id,
+                data: (TEST_DATA_1 >> (TEST_AXI_DATA_W * (((AXI_READS_NUM - u32:1) - i) / TEST_AXI_DATA_DIV8))) as uN[TEST_AXI_DATA_W],
+                resp: axi::AxiReadResp::OKAY,
+                last: i == (AXI_READS_NUM - u32:1),
+            };
 
-        //    let tok = send(tok, axi_r_s, axi_r);
-        //    trace_fmt!("Sent #{} AxiR {:#x}", i + u32:1, axi_r);
+            let tok = send(tok, axi_r_s, axi_r);
+            trace_fmt!("Sent #{} AxiR {:#x}", i + u32:1, axi_r);
 
-        //    tok
-        //}(tok);
+            tok
+        }(tok);
 
-        //// receive decoded literals
-        //let tok = for ((i, test_decoded_literals), tok):((u32, common::LiteralsDataWithSync), token) in enumerate(TEST_DECODED_LITERALS_1) {
-        //    let (tok, decoded_literals) = recv(tok, decoded_literals_r);
-        //    trace_fmt!("Received #{} decoded literals {:#x}", i + u32:1, decoded_literals);
-        //    assert_eq(test_decoded_literals, decoded_literals);
-        //    tok
-        //}(tok);
+        // receive decoded literals
+        let tok = for ((i, test_decoded_literals), tok):((u32, common::LiteralsDataWithSync), token) in enumerate(TEST_DECODED_LITERALS_1) {
+            let (tok, decoded_literals) = recv(tok, decoded_literals_r);
+            trace_fmt!("Received #{} decoded literals {:#x}", i + u32:1, decoded_literals);
+            assert_eq(test_decoded_literals, decoded_literals);
+            tok
+        }(tok);
 
-        //let (tok, resp) = recv(tok, resp_r);
-        //assert_eq(TestResp {status: Status::OKAY}, resp);
+        let (tok, resp) = recv(tok, resp_r);
+        assert_eq(TestResp {status: Status::OKAY}, resp);
 
-        //trace_fmt!("Test Case #3");
-        //// send ctrl
-        //let tok = send(tok, ctrl_s, TEST_CTRL_2);
-        //trace_fmt!("Sent #3 ctrl {:#x}", TEST_CTRL_2);
+        trace_fmt!("Test Case #3");
+        // send ctrl
+        let tok = send(tok, ctrl_s, TEST_CTRL_2);
+        trace_fmt!("Sent #3 ctrl {:#x}", TEST_CTRL_2);
 
-        //// receive RAM read requests and send responses
-        //trace_fmt!("Sending weight memory content");
-        //let tok = for (_, tok): (u32, token) in range(u32:0, u32:2) {
-        //    for (i, tok):(u32, token) in range(u32:0, array_size(TEST_WEIGHT_MEMORY_2)) {
-        //        let (tok, weights_ram_rd_req) = recv(tok, weights_ram_rd_req_r);
-        //        trace_fmt!("Received #{} ReadReq {:#x}", i + u32:1, weights_ram_rd_req);
+        // receive RAM read requests and send responses
+        trace_fmt!("Sending weight memory content");
+        let tok = for (_, tok): (u32, token) in range(u32:0, u32:2) {
+            for (i, tok):(u32, token) in range(u32:0, array_size(TEST_WEIGHT_MEMORY_2)) {
+                let (tok, weights_ram_rd_req) = recv(tok, weights_ram_rd_req_r);
+                trace_fmt!("Received #{} ReadReq {:#x}", i + u32:1, weights_ram_rd_req);
 
-        //        let read_resp = TestWeightsRamRdResp {
-        //            data: TEST_WEIGHT_MEMORY_2[weights_ram_rd_req.addr] as u32,
-        //        };
+                let read_resp = TestWeightsRamRdResp {
+                    data: TEST_WEIGHT_MEMORY_2[weights_ram_rd_req.addr] as u32,
+                };
 
-        //        let tok = send(tok, weights_ram_rd_resp_s, read_resp);
-        //        trace_fmt!("Sent #{} ReadResp {:#x}", i + u32:1, read_resp);
+                let tok = send(tok, weights_ram_rd_resp_s, read_resp);
+                trace_fmt!("Sent #{} ReadResp {:#x}", i + u32:1, read_resp);
 
-        //        tok
-        //    }(tok)
-        //}(tok);
+                tok
+            }(tok)
+        }(tok);
 
-        //// receive Axi requests and send responses
-        //trace_fmt!("Sending data from AXI");
-        //const AXI_READS_NUM  = (TEST_DATA_LEN_2 + u32:7) / u32:8;
-        //let tok = for (i, tok):(u32, token) in range(u32:0, AXI_READS_NUM) {
-        //    let addr = TEST_CTRL_2.base_addr + (AXI_READS_NUM - u32:1 - i) as uN[TEST_AXI_ADDR_W];
-        //    let aligned_addr = addr & !(addr % TEST_AXI_DATA_DIV8 as uN[TEST_AXI_ADDR_W]);
-        //    let expected_axi_ar = TestAxiAr {
-        //        addr: aligned_addr,
-        //        size: axi::AxiAxSize::MAX_4B_TRANSFER,
-        //        burst: axi::AxiAxBurst::INCR,
-        //        ..zero!<TestAxiAr>()
-        //    };
-        //    let (tok, axi_ar) = recv(tok, axi_ar_r);
-        //    trace_fmt!("Received #{} AxiAr {:#x}", i + u32:1, axi_ar);
-        //    assert_eq(expected_axi_ar, axi_ar);
+        // receive Axi requests and send responses
+        trace_fmt!("Sending data from AXI");
+        const AXI_READS_NUM  = (TEST_DATA_LEN_2 + u32:7) / u32:8;
+        let tok = for (i, tok):(u32, token) in range(u32:0, AXI_READS_NUM) {
+            let addr = TEST_CTRL_2.base_addr + (AXI_READS_NUM - u32:1 - i) as uN[TEST_AXI_ADDR_W];
+            let aligned_addr = addr & !(addr % TEST_AXI_DATA_DIV8 as uN[TEST_AXI_ADDR_W]);
+            let expected_axi_ar = TestAxiAr {
+                addr: aligned_addr,
+                size: axi::AxiAxSize::MAX_4B_TRANSFER,
+                burst: axi::AxiAxBurst::INCR,
+                ..zero!<TestAxiAr>()
+            };
+            let (tok, axi_ar) = recv(tok, axi_ar_r);
+            trace_fmt!("Received #{} AxiAr {:#x}", i + u32:1, axi_ar);
+            assert_eq(expected_axi_ar, axi_ar);
 
-        //    let axi_r = TestAxiR {
-        //        id: axi_ar.id,
-        //        data: (TEST_DATA_2 >> (TEST_AXI_DATA_W * ( i / TEST_AXI_DATA_DIV8))) as u32,
-        //        resp: axi::AxiReadResp::OKAY,
-        //        last: i == (AXI_READS_NUM - u32:1),
-        //    };
+            let axi_r = TestAxiR {
+                id: axi_ar.id,
+                data: (TEST_DATA_2 >> (TEST_AXI_DATA_W * (((AXI_READS_NUM - u32:1) - i) / TEST_AXI_DATA_DIV8))) as uN[TEST_AXI_DATA_W],
+                resp: axi::AxiReadResp::OKAY,
+                last: i == (AXI_READS_NUM - u32:1),
+            };
 
-        //    let tok = send(tok, axi_r_s, axi_r);
-        //    trace_fmt!("Sent #{} AxiR {:#x}", i + u32:1, axi_r);
+            let tok = send(tok, axi_r_s, axi_r);
+            trace_fmt!("Sent #{} AxiR {:#x}", i + u32:1, axi_r);
 
-        //    tok
-        //}(tok);
+            tok
+        }(tok);
 
-        //// receive decoded literals
-        //let tok = for ((i, test_decoded_literals), tok):((u32, common::LiteralsDataWithSync), token) in enumerate(TEST_DECODED_LITERALS_2) {
-        //    let (tok, decoded_literals) = recv(tok, decoded_literals_r);
-        //    trace_fmt!("Received #{} decoded literals {:#x}", i + u32:1, decoded_literals);
-        //    assert_eq(test_decoded_literals, decoded_literals);
-        //    tok
-        //}(tok);
+        // receive decoded literals
+        let tok = for ((i, test_decoded_literals), tok):((u32, common::LiteralsDataWithSync), token) in enumerate(TEST_DECODED_LITERALS_2) {
+            let (tok, decoded_literals) = recv(tok, decoded_literals_r);
+            trace_fmt!("Received #{} decoded literals {:#x}", i + u32:1, decoded_literals);
+            assert_eq(test_decoded_literals, decoded_literals);
+            tok
+        }(tok);
 
-        //let (tok, resp) = recv(tok, resp_r);
-        //assert_eq(TestResp {status: Status::OKAY}, resp);
+        let (tok, resp) = recv(tok, resp_r);
+        assert_eq(TestResp {status: Status::OKAY}, resp);
 
         send(tok, terminator, true);
     }

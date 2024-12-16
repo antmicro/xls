@@ -103,7 +103,7 @@ struct LiteralsBufferReaderToWriterSync {
 }
 
 // PacketDecoder is responsible for receiving read bytes from RAMs response
-// handler, removing the "last" flag from each literal and adding this flag
+// handler, removing the "literals_last" flag from each literal and adding this flag
 // to the packet. It also validates the data.
 proc PacketDecoder<RAM_ADDR_WIDTH: u32> {
     literals_in_r: chan<SequenceExecutorPacket<RAM_DATA_WIDTH>> in;
@@ -133,11 +133,11 @@ proc PacketDecoder<RAM_ADDR_WIDTH: u32> {
             )
         }(CopyOrMatchContent:0);
 
-        // Extract last and validate packet. The resulting last is set if and
+        // Extract literals_last and validate packet. The resulting last is set if and
         // only if any of the literas has it set. Also if any literal has set
         // this flag, then the flag in following literal must also be set. In
         // other case, the assertion is triggered.
-        let (last, _, packet_valid, _) = for (i, (last, prev_literal_last, packet_valid, prev_calc)): (u32, (bool, bool, bool, bool)) in range(u32:0, RAM_NUM) {
+        let (literals_last, _, packet_valid, _) = for (i, (last, prev_literal_last, packet_valid, prev_calc)): (u32, (bool, bool, bool, bool)) in range(u32:0, RAM_NUM) {
             let literal_last = (literals.content >> (RAM_DATA_WIDTH * (i + u32:1) - u32:1)) as u1;
             let calc = if (i == literals.length as uN[32]) {
               false
@@ -161,14 +161,14 @@ proc PacketDecoder<RAM_ADDR_WIDTH: u32> {
             }
         }((false, false, true, true));
 
-        assert!(packet_valid && (literals.last == last), "Invalid packet");
+        assert!(packet_valid && (literals.last == literals_last), "Invalid packet");
 
         // Send literals data
         let tok = send(tok, literals_out_s, SequenceExecutorPacket<common::SYMBOL_WIDTH> {
             msg_type: SequenceExecutorMessageType::LITERAL,
             length: literals.length,
             content: literals_data,
-            last: last
+            last: literals_last
         });
 
         // Send sync data to buffer writer
@@ -377,10 +377,10 @@ proc LiteralsBufferMux {
         send_if(tok1, out_literals_s, literals_valid, LiteralsData {
             data: literals_data.data,
             length: literals_data.length,
-            last: literals_data.last,
+            last: literals_data.literals_last,
         });
 
-        if (literals_data.literals_last) {
+        if (literals_data.last) {
             LiteralsBufferMuxState { literals_id: state.literals_id + LitID:1, ..state }
         } else {
             state
@@ -974,14 +974,14 @@ enum LiteralsChannel: u2 {
 }
 
 const TEST_LITERALS_DATA: (LiteralsChannel, LiteralsDataWithSync)[9] = [
-    (LiteralsChannel::RAW, LiteralsDataWithSync {data: LitData:0x12_3456_789A, length: LitLength:5, last: false, id: LitID:0, literals_last: true}),
-    (LiteralsChannel::RLE, LiteralsDataWithSync {data: LitData:0xBBBB_BBBB, length: LitLength:4, last: false, id: LitID:1, literals_last: true}),
-    (LiteralsChannel::HUFF, LiteralsDataWithSync {data: LitData:0x64, length: LitLength:1, last: false, id: LitID:2, literals_last: true}),
-    (LiteralsChannel::RLE, LiteralsDataWithSync {data: LitData:0xABCD_DCBA_1234_4321, length: LitLength:8, last: false, id: LitID:3, literals_last: true}),
-    (LiteralsChannel::RAW, LiteralsDataWithSync {data: LitData:0x21_4365, length: LitLength:3, last: false, id: LitID:4, literals_last: true}),
-    (LiteralsChannel::RLE, LiteralsDataWithSync {data: LitData:0xAA_BBBB_CCCC_DDDD, length: LitLength:7, last: false, id: LitID:5, literals_last: true}),
+    (LiteralsChannel::RAW, LiteralsDataWithSync {data: LitData:0x12_3456_789A, length: LitLength:5, last: true, id: LitID:0, literals_last: false}),
+    (LiteralsChannel::RLE, LiteralsDataWithSync {data: LitData:0xBBBB_BBBB, length: LitLength:4, last: true, id: LitID:1, literals_last: false}),
+    (LiteralsChannel::HUFF, LiteralsDataWithSync {data: LitData:0x64, length: LitLength:1, last: true, id: LitID:2, literals_last: false}),
+    (LiteralsChannel::RLE, LiteralsDataWithSync {data: LitData:0xABCD_DCBA_1234_4321, length: LitLength:8, last: true, id: LitID:3, literals_last: false}),
+    (LiteralsChannel::RAW, LiteralsDataWithSync {data: LitData:0x21_4365, length: LitLength:3, last: true, id: LitID:4, literals_last: false}),
+    (LiteralsChannel::RLE, LiteralsDataWithSync {data: LitData:0xAA_BBBB_CCCC_DDDD, length: LitLength:7, last: true, id: LitID:5, literals_last: false}),
     (LiteralsChannel::RAW, LiteralsDataWithSync {data: LitData:0xDCBA_ABCD_1234_4321, length: LitLength:8, last: false, id: LitID:6, literals_last: false}),
-    (LiteralsChannel::RAW, LiteralsDataWithSync {data: LitData:0x78, length: LitLength:1, last: false, id: LitID:6, literals_last: true}),
+    (LiteralsChannel::RAW, LiteralsDataWithSync {data: LitData:0x78, length: LitLength:1, last: true, id: LitID:6, literals_last: false}),
     (LiteralsChannel::HUFF, LiteralsDataWithSync {data: LitData:0x26, length: LitLength:1, last: true, id: LitID:7, literals_last: true}),
 ];
 

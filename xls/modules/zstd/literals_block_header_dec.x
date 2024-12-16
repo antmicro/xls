@@ -75,18 +75,18 @@ pub struct LiteralsHeader {
     compressed_size: u20,
 }
 
-pub fn parse_literals_header(header_raw: u40) -> (LiteralsHeader, u3) {
+pub fn parse_literals_header(header_raw: u40) -> (LiteralsHeader, u3, u8) {
     let (literal_type, header_size) = parse_literals_header_first_byte(header_raw[0:8]);
-    let (regenerated_size, compressed_size, header_length) = match (header_size) {
-        LiteralsHeaderSize::SINGLE_BYTE => (header_raw[3:8] as u20, header_raw[3:8] as u20, u3:1),
-        LiteralsHeaderSize::TWO_BYTES => (header_raw[4:16] as u20, header_raw[4:16] as u20, u3:2),
-        LiteralsHeaderSize::THREE_BYTES => (header_raw[4:24] as u20, header_raw[4:24] as u20, u3:3),
-        LiteralsHeaderSize::COMP_THREE_BYTES => (header_raw[4:14] as u20, header_raw[14:24] as u20, u3:3),
-        LiteralsHeaderSize::COMP_FOUR_BYTES => (header_raw[4:18] as u20, header_raw[18:32] as u20, u3:4),
-        LiteralsHeaderSize::COMP_FIVE_BYTES => (header_raw[4:22] as u20, header_raw[22:40] as u20, u3:5),
+    let (regenerated_size, compressed_size, header_length, symbol) = match (header_size) {
+        LiteralsHeaderSize::SINGLE_BYTE => (header_raw[3:8] as u20, header_raw[3:8] as u20, u3:1, header_raw[8:16]),
+        LiteralsHeaderSize::TWO_BYTES => (header_raw[4:16] as u20, header_raw[4:16] as u20, u3:2, header_raw[16:24]),
+        LiteralsHeaderSize::THREE_BYTES => (header_raw[4:24] as u20, header_raw[4:24] as u20, u3:3, header_raw[24:32]),
+        LiteralsHeaderSize::COMP_THREE_BYTES => (header_raw[4:14] as u20, header_raw[14:24] as u20, u3:3, header_raw[24:32]),
+        LiteralsHeaderSize::COMP_FOUR_BYTES => (header_raw[4:18] as u20, header_raw[18:32] as u20, u3:4, u8:0),
+        LiteralsHeaderSize::COMP_FIVE_BYTES => (header_raw[4:22] as u20, header_raw[22:40] as u20, u3:5, u8:0),
         // fail!() doesn't work with quicktest, JIT failes to translate such function
         //_ => fail!("Unrecognized_header_sizeC" ,CompressedBlockSize {
-        _ => (u20:0, u20:0, u3:0),
+        _ => (u20:0, u20:0, u3:0, u8:0),
     };
     (LiteralsHeader {
         literal_type: literal_type,
@@ -95,12 +95,12 @@ pub fn parse_literals_header(header_raw: u40) -> (LiteralsHeader, u3) {
             LiteralsBlockType::RLE => u20:1,
             _ => compressed_size,
         }
-    }, header_length)
+    }, header_length, symbol)
 }
 
 #[quickcheck]
 fn test_parse_literals_header(x: u40) -> bool {
-    let (header, header_length_bytes) = parse_literals_header(x);
+    let (header, header_length_bytes, symbol) = parse_literals_header(x);
     let (_, header_size) = parse_literals_header_first_byte(x[0:8]);
 
     let length_bytes_equivalence = match (header_size) {
@@ -138,7 +138,17 @@ fn test_parse_literals_header(x: u40) -> bool {
             _ => false
         }
     };
-    length_bytes_equivalence && raw_length_equivalence && regen_comp_size_equivalence
+
+    let symbol_equivalence = match (header_size) {
+        LiteralsHeaderSize::SINGLE_BYTE => symbol == x[8:16],
+        LiteralsHeaderSize::TWO_BYTES => symbol == x[16:24],
+        LiteralsHeaderSize::THREE_BYTES | LiteralsHeaderSize::COMP_THREE_BYTES => symbol == x[24:32],
+        LiteralsHeaderSize::COMP_FOUR_BYTES => symbol == u8:0,
+        LiteralsHeaderSize::COMP_FIVE_BYTES => symbol == u8:0,
+        _ => false
+    };
+
+    length_bytes_equivalence && raw_length_equivalence && regen_comp_size_equivalence && symbol_equivalence
 }
 
 pub enum LiteralsHeaderDecoderStatus : u1 {
@@ -196,11 +206,10 @@ pub proc LiteralsHeaderDecoder<AXI_DATA_W: u32, AXI_ADDR_W: u32> {
         // TODO: handle multiple receives on mem_rd_resp_r when AXI_DATA_W < 40
         const_assert!(AXI_DATA_W >= u32:64);
         let (tok, raw) = recv(tok, mem_rd_resp_r);
-        let (header, length) = parse_literals_header(raw.data[:40]);
+        let (header, length, symbol) = parse_literals_header(raw.data[:40]);
         send(tok, resp_s, Resp {
             header: header,
-            // FIXME: Add symbol prefetchning
-            symbol: u8:0xDE,
+            symbol: symbol,
             length: length,
             status: match (raw.status) {
                 MemReaderStatus::OKAY => Status::OKAY,
@@ -255,111 +264,111 @@ proc LiteralsHeaderDecoderTest {
         let tok = join();
 
         // test data format: raw header, expected size in bytes, expected parsed header
-        let tests: (u40, u3, LiteralsHeader)[16] = [
-            // 2 bits block type == RAW, 1 bit size_format == 0, 5 bits regenerated_size
-            (u40:0b10100_0_00, u3:1, LiteralsHeader {
+        let tests: (u40, u3, LiteralsHeader, u8)[16] = [
+            // 2 bits block type == RAW, 1 bit size_format == 0, 5 bits regenerated_size, symbol: 0xAA
+            (u40:0b10101010_10100_0_00, u3:1, LiteralsHeader {
                 literal_type: LiteralsBlockType::RAW,
                 regenerated_size: u20:0b10100,
                 compressed_size: u20:0b10100,
-            }),
-            // 2 bits block type == RAW, 2 bit size_format == 1, 12 bits regenerated_size
-            (u40:0b101010101010_01_00, u3:2, LiteralsHeader {
+            }, u8:0xAA),
+            // 2 bits block type == RAW, 2 bit size_format == 1, 12 bits regenerated_size, symbol: 0xF5
+            (u40:0b11110101_101010101010_01_00, u3:2, LiteralsHeader {
                 literal_type: LiteralsBlockType::RAW,
                 regenerated_size: u20:0b101010101010,
                 compressed_size: u20:0b101010101010,
-            }),
-            // 2 bits block type == RAW, 1 bit size_format == 2, 5 bits regenerated_size
-            (u40:0b10101_0_00, u3:1, LiteralsHeader {
+            }, u8:0xF5),
+            // 2 bits block type == RAW, 1 bit size_format == 2, 5 bits regenerated_size, symbol: 0xF0
+            (u40:0b11110000_10101_0_00, u3:1, LiteralsHeader {
                 literal_type: LiteralsBlockType::RAW,
                 regenerated_size: u20:0b10101,
                 compressed_size: u20:0b10101,
-            }),
-            // 2 bits block type == RAW, 2 bit size_format == 3, 20 bits regenerated_size
-            (u40:0b10101010101010101010_11_00, u3:3, LiteralsHeader {
+            }, u8:0xF0),
+            // 2 bits block type == RAW, 2 bit size_format == 3, 20 bits regenerated_size, symbol: 0xF0
+            (u40:0b11110000_10101010101010101010_11_00, u3:3, LiteralsHeader {
                 literal_type: LiteralsBlockType::RAW,
                 regenerated_size: u20:0b10101010101010101010,
                 compressed_size: u20:0b10101010101010101010,
-            }),
+            }, u8:0xF0),
 
-            // 2 bits block type == RLE, 1 bit size_format == 0, 5 bits regenerated_size
-            (u40:0b10100_0_01, u3:1, LiteralsHeader {
+            // 2 bits block type == RLE, 1 bit size_format == 0, 5 bits regenerated_size, symbol: 0xF0
+            (u40:0b11110000_10100_0_01, u3:1, LiteralsHeader {
                 literal_type: LiteralsBlockType::RLE,
                 regenerated_size: u20:0b10100,
                 compressed_size: u20:1,
-            }),
-            // 2 bits block type == RLE, 2 bits size_format == 1, 12 bits regenerated_size
-            (u40:0b101010101010_01_01, u3:2, LiteralsHeader {
+            }, u8:0xF0),
+            // 2 bits block type == RLE, 2 bits size_format == 1, 12 bits regenerated_size, symbol: 0xF0
+            (u40:0b11110000_101010101010_01_01, u3:2, LiteralsHeader {
                 literal_type: LiteralsBlockType::RLE,
                 regenerated_size: u20:0b101010101010,
                 compressed_size: u20:1,
-            }),
-            // 2 bits block type == RLE, 1 bit size_format == 2, 5 bits regenerated_size
-            (u40:0b10101_0_01, u3:1, LiteralsHeader {
+            }, u8:0xF0),
+            // 2 bits block type == RLE, 1 bit size_format == 2, 5 bits regenerated_size, symbol: 0xF0
+            (u40:0b11110000_10101_0_01, u3:1, LiteralsHeader {
                 literal_type: LiteralsBlockType::RLE,
                 regenerated_size: u20:0b10101,
                 compressed_size: u20:1,
-            }),
-            // 2 bits block type == RLE, 2 bits size_format == 3, 20 bits regenerated_size
-            (u40:0b10101010101010101010_11_01, u3:3, LiteralsHeader {
+            }, u8:0xF0),
+            // 2 bits block type == RLE, 2 bits size_format == 3, 20 bits regenerated_size, symbol: 0xF0
+            (u40:0b11110000_10101010101010101010_11_01, u3:3, LiteralsHeader {
                 literal_type: LiteralsBlockType::RLE,
                 regenerated_size: u20:0b10101010101010101010,
                 compressed_size: u20:1,
-            }),
+            }, u8:0xF0),
 
-            // 2 bits block type == COMPRESSED, 2 bits size_format == 0, 10 bits regenerated_size and compressed_size
-            (u40:0b1010101010_0101010101_00_10, u3:3, LiteralsHeader {
+            // 2 bits block type == COMPRESSED, 2 bits size_format == 0, 10 bits regenerated_size and compressed_size, symbol: 0xF0
+            (u40:0b11110000_1010101010_0101010101_00_10, u3:3, LiteralsHeader {
                 literal_type: LiteralsBlockType::COMP,
                 regenerated_size: u20:0b0101010101,
                 compressed_size: u20:0b1010101010,
-            }),
-            // 2 bits block type == COMPRESSED, 2 bits size_format == 1, 10 bits regenerated_size and compressed_size
-            (u40:0b1010101010_0101010101_01_10, u3:3, LiteralsHeader {
+            }, u8:0xF0),
+            // 2 bits block type == COMPRESSED, 2 bits size_format == 1, 10 bits regenerated_size and compressed_size, symbol: 0xF0
+            (u40:0b11110000_1010101010_0101010101_01_10, u3:3, LiteralsHeader {
                 literal_type: LiteralsBlockType::COMP_4,
                 regenerated_size: u20:0b0101010101,
                 compressed_size: u20:0b1010101010,
-            }),
-            // 2 bits block type == COMPRESSED, 2 bits size_format == 2, 14 bits regenerated_size and compressed_size
+            }, u8:0xF0),
+            // 2 bits block type == COMPRESSED, 2 bits size_format == 2, 14 bits regenerated_size and compressed_size, symbol: 0x0
             (u40:0b10101010101010_01010101010101_10_10, u3:4, LiteralsHeader {
                 literal_type: LiteralsBlockType::COMP_4,
                 regenerated_size: u20:0b01010101010101,
                 compressed_size: u20:0b10101010101010,
-            }),
-            // 2 bits block type == COMPRESSED, 2 bits size_format == 3, 18 bits regenerated_size and compressed_size
+            }, u8:0x0),
+            // 2 bits block type == COMPRESSED, 2 bits size_format == 3, 18 bits regenerated_size and compressed_size, symbol: 0x0
             (u40:0b101010101010101010_010101010101010101_11_10, u3:5, LiteralsHeader {
                 literal_type: LiteralsBlockType::COMP_4,
                 regenerated_size: u20:0b010101010101010101,
                 compressed_size: u20:0b101010101010101010,
-            }),
+            }, u8:0x0),
 
-            // 2 bits block type == TREELESS, 2 bits size_format == 0, 10 bits regenerated_size and compressed_size
+            // 2 bits block type == TREELESS, 2 bits size_format == 0, 10 bits regenerated_size and compressed_size, symbol: 0x0
             (u40:0b1010101010_0101010101_00_11, u3:3, LiteralsHeader {
                 literal_type: LiteralsBlockType::TREELESS,
                 regenerated_size: u20:0b0101010101,
                 compressed_size: u20:0b1010101010,
-            }),
-            // 2 bits block type == TREELESS, 2 bits size_format == 1, 10 bits regenerated_size and compressed_size
+            }, u8:0x0),
+            // 2 bits block type == TREELESS, 2 bits size_format == 1, 10 bits regenerated_size and compressed_size, symbol: 0x0
             (u40:0b1010101010_0101010101_01_11, u3:3, LiteralsHeader {
                 literal_type: LiteralsBlockType::TREELESS_4,
                 regenerated_size: u20:0b0101010101,
                 compressed_size: u20:0b1010101010,
-            }),
-            // 2 bits block type == TREELESS, 2 bits size_format == 2, 14 bits regenerated_size and compressed_size
+            }, u8:0x0),
+            // 2 bits block type == TREELESS, 2 bits size_format == 2, 14 bits regenerated_size and compressed_size, symbol: 0x0
             (u40:0b10101010101010_01010101010101_10_11, u3:4, LiteralsHeader {
                 literal_type: LiteralsBlockType::TREELESS_4,
                 regenerated_size: u20:0b01010101010101,
                 compressed_size: u20:0b10101010101010,
-            }),
-            // 2 bits block type == TREELESS, 2 bits size_format == 3, 18 bits regenerated_size and compressed_size
+            }, u8:0x0),
+            // 2 bits block type == TREELESS, 2 bits size_format == 3, 18 bits regenerated_size and compressed_size, symbol: 0x0
             (u40:0b101010101010101010_010101010101010101_11_11, u3:5, LiteralsHeader {
                 literal_type: LiteralsBlockType::TREELESS_4,
                 regenerated_size: u20:0b010101010101010101,
                 compressed_size: u20:0b101010101010101010,
-            }),
+            }, u8:0x0),
         ];
         const ADDR = uN[TEST_AXI_ADDR_W]:0xDEAD;
 
         // positive cases
-        let tok = for ((_, (test_vec, expected_length, expected_header)), tok): ((u32, (u40, u3, LiteralsHeader)), token) in enumerate(tests) {
+        let tok = for ((_, (test_vec, expected_length, expected_header, expected_symbol)), tok): ((u32, (u40, u3, LiteralsHeader, u8)), token) in enumerate(tests) {
             send(tok, req_s, Req {
                 addr: ADDR,
             });
@@ -377,8 +386,7 @@ proc LiteralsHeaderDecoderTest {
             let (tok, resp) = recv(tok, resp_r);
             assert_eq(resp, LiteralsHeaderDecoderResp {
                 header: expected_header,
-                // FIXME: symbol prefetching
-                symbol: u8:0xDE,
+                symbol: expected_symbol,
                 status: LiteralsHeaderDecoderStatus::OKAY,
                 length: expected_length,
             });

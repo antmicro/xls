@@ -1308,145 +1308,148 @@ proc LiteralsDecoder_test {
     init { }
 
     next (state: ()) {
-const TEST_MEMORY: AxiRamWrReq[12] = [
-    // Literals #0 (RAW; 8 bytes)
-    // Header: 0x40
-    AxiRamWrReq { addr: AxiRamAddr:0x0, data: AxiRamData:0x5734_65A6_DB5D_B040, mask: AxiRamMask:0xFF },    // AXI addr: 0x0
-    AxiRamWrReq { addr: AxiRamAddr:0x1, data: AxiRamData:0x16, mask: AxiRamMask:0xFF },                     // AXI addr: 0x8
+        const TEST_MEMORY: AxiRamWrReq[12] = [
+            // Literals #0 (RAW; 8 bytes)
+            // Header: 0x40
+            AxiRamWrReq { addr: AxiRamAddr:0x0, data: AxiRamData:0x5734_65A6_DB5D_B040, mask: AxiRamMask:0xFF },    // AXI addr: 0x0
+            AxiRamWrReq { addr: AxiRamAddr:0x1, data: AxiRamData:0x16, mask: AxiRamMask:0xFF },                     // AXI addr: 0x8
 
-    // Literals #1 (RLE; 4 bytes)
-    // Header: 0x21
-    AxiRamWrReq { addr: AxiRamAddr:0x2, data: AxiRamData:0x2321, mask: AxiRamMask:0xFF },                   // AXI addr: 0x10
+            // Literals #1 (RLE; 4 bytes)
+            // Header: 0x21
+            AxiRamWrReq { addr: AxiRamAddr:0x2, data: AxiRamData:0x2321, mask: AxiRamMask:0xFF },                   // AXI addr: 0x10
 
-    // Literals #2 (RLE; 2 bytes)
-    // Header: 0x11
-    AxiRamWrReq { addr: AxiRamAddr:0x4, data: AxiRamData:0x3511, mask: AxiRamMask:0xFF },                   // AXI addr: 0x20
+            // Literals #2 (RLE; 2 bytes)
+            // Header: 0x11
+            AxiRamWrReq { addr: AxiRamAddr:0x4, data: AxiRamData:0x3511, mask: AxiRamMask:0xFF },                   // AXI addr: 0x20
 
-    // Literals #3 (RAW; 15 bytes)
-    // Header: 0x78
-    AxiRamWrReq { addr: AxiRamAddr:0x6, data: AxiRamData:0xFB41_C67B_6053_7078, mask: AxiRamMask:0xFF },    // AXI addr: 0x30
-    AxiRamWrReq { addr: AxiRamAddr:0x7, data: AxiRamData:0x9B0F_9CE1_BAA9_6D4C, mask: AxiRamMask:0xFF },    // AXI addr: 0x38
+            // Literals #3 (RAW; 15 bytes)
+            // Header: 0x78
+            AxiRamWrReq { addr: AxiRamAddr:0x6, data: AxiRamData:0xFB41_C67B_6053_7078, mask: AxiRamMask:0xFF },    // AXI addr: 0x30
+            AxiRamWrReq { addr: AxiRamAddr:0x7, data: AxiRamData:0x9B0F_9CE1_BAA9_6D4C, mask: AxiRamMask:0xFF },    // AXI addr: 0x38
 
-    // Literals #4 (RLE; 12 bytes)
-    // Header: 0x61
-    AxiRamWrReq { addr: AxiRamAddr:0x20, data: AxiRamData:0x5A61, mask: AxiRamMask:0xFF },                  // AXI addr: 0x100
+            // Literals #4 (RLE; 12 bytes)
+            // Header: 0x61
+            AxiRamWrReq { addr: AxiRamAddr:0x20, data: AxiRamData:0x5A61, mask: AxiRamMask:0xFF },                  // AXI addr: 0x100
 
-    // Literals #5 (RLE; 0 bytes)
-    // Header: 0x01
-    AxiRamWrReq { addr: AxiRamAddr:0x40, data: AxiRamData:0xFF01, mask: AxiRamMask:0xFF },                  // AXI addr: 0x200
+            // Literals #5 (RLE; 0 bytes)
+            // Header: 0x01
+            AxiRamWrReq { addr: AxiRamAddr:0x40, data: AxiRamData:0xFF01, mask: AxiRamMask:0xFF },                  // AXI addr: 0x200
 
-    // Literals #6 (RAW; 31 bytes)
-    // Header: 0xF8
-    AxiRamWrReq { addr: AxiRamAddr:0x60, data: AxiRamData:0x943E_9618_34C2_47F8, mask: AxiRamMask:0xFF },   // AXI addr: 0x300
-    AxiRamWrReq { addr: AxiRamAddr:0x61, data: AxiRamData:0x02D0_E8D7_289A_BE60, mask: AxiRamMask:0xFF },   // AXI addr: 0x308
-    AxiRamWrReq { addr: AxiRamAddr:0x62, data: AxiRamData:0x64C3_8BE1_FA8D_12BC, mask: AxiRamMask:0xFF },   // AXI addr: 0x310
-    AxiRamWrReq { addr: AxiRamAddr:0x63, data: AxiRamData:0x1963_F1CE_21C2_94F8, mask: AxiRamMask:0xFF },   // AXI addr: 0x318
-];
+            // Literals #6 (RAW; 31 bytes)
+            // Header: 0xF8
+            AxiRamWrReq { addr: AxiRamAddr:0x60, data: AxiRamData:0x943E_9618_34C2_47F8, mask: AxiRamMask:0xFF },   // AXI addr: 0x300
+            AxiRamWrReq { addr: AxiRamAddr:0x61, data: AxiRamData:0x02D0_E8D7_289A_BE60, mask: AxiRamMask:0xFF },   // AXI addr: 0x308
+            AxiRamWrReq { addr: AxiRamAddr:0x62, data: AxiRamData:0x64C3_8BE1_FA8D_12BC, mask: AxiRamMask:0xFF },   // AXI addr: 0x310
+            AxiRamWrReq { addr: AxiRamAddr:0x63, data: AxiRamData:0x1963_F1CE_21C2_94F8, mask: AxiRamMask:0xFF },   // AXI addr: 0x318
 
-const TEST_CTRL: CtrlReq[7] = [
-    CtrlReq {addr: AxiAddr:0x0, literals_last: false},
-    CtrlReq {addr: AxiAddr:0x10, literals_last: false},
-    CtrlReq {addr: AxiAddr:0x20, literals_last: false},
-    CtrlReq {addr: AxiAddr:0x30, literals_last: true},
-    CtrlReq {addr: AxiAddr:0x100, literals_last: false},
-    CtrlReq {addr: AxiAddr:0x200, literals_last: false},
-    CtrlReq {addr: AxiAddr:0x300, literals_last: true},
-];
+            // Literals #7 (Huffman; 22 bytes)
+            // Header:
+        ];
 
-const TEST_EXPECTED_RESP: CtrlResp[7] = [
-    CtrlResp {status: CtrlStatus::OKAY},
-    CtrlResp {status: CtrlStatus::OKAY},
-    CtrlResp {status: CtrlStatus::OKAY},
-    CtrlResp {status: CtrlStatus::OKAY},
-    CtrlResp {status: CtrlStatus::OKAY},
-    CtrlResp {status: CtrlStatus::OKAY},
-    CtrlResp {status: CtrlStatus::OKAY},
-];
+        const TEST_CTRL: CtrlReq[7] = [
+            CtrlReq {addr: AxiAddr:0x0, literals_last: false},
+            CtrlReq {addr: AxiAddr:0x10, literals_last: false},
+            CtrlReq {addr: AxiAddr:0x20, literals_last: false},
+            CtrlReq {addr: AxiAddr:0x30, literals_last: true},
+            CtrlReq {addr: AxiAddr:0x100, literals_last: false},
+            CtrlReq {addr: AxiAddr:0x200, literals_last: false},
+            CtrlReq {addr: AxiAddr:0x300, literals_last: true},
+        ];
 
-const TEST_BUF_CTRL: LiteralsBufferCtrl[5] = [
-    LiteralsBufferCtrl {length: u32:11, last: false},
-    LiteralsBufferCtrl {length: u32:2 , last: false},
-    LiteralsBufferCtrl {length: u32:16, last: true},
-    LiteralsBufferCtrl {length: u32:11, last: false},
-    LiteralsBufferCtrl {length: u32:32, last: true},
-];
+        const TEST_EXPECTED_RESP: CtrlResp[7] = [
+            CtrlResp {status: CtrlStatus::OKAY},
+            CtrlResp {status: CtrlStatus::OKAY},
+            CtrlResp {status: CtrlStatus::OKAY},
+            CtrlResp {status: CtrlStatus::OKAY},
+            CtrlResp {status: CtrlStatus::OKAY},
+            CtrlResp {status: CtrlStatus::OKAY},
+            CtrlResp {status: CtrlStatus::OKAY},
+        ];
 
-const TEST_EXPECTED_LITERALS: SequenceExecutorPacket[11] = [
-    // Literals #0 (RAW)
-    SequenceExecutorPacket {
-        msg_type: SequenceExecutorMessageType::LITERAL,
-        length: CopyOrMatchLength:8,
-        content: CopyOrMatchContent:0x1657_3465_A6DB_5DB0,
-        last: false
-    },
-    SequenceExecutorPacket {
-        msg_type: SequenceExecutorMessageType::LITERAL,
-        length: CopyOrMatchLength:3,
-        content: CopyOrMatchContent:0x23_2323,
-        last: false
-    },
-    // Literals #1 (RLE)
-    SequenceExecutorPacket {
-        msg_type: SequenceExecutorMessageType::LITERAL,
-        length: CopyOrMatchLength:2,
-        content: CopyOrMatchContent:0x35_23,
-        last: false
-    },
-    // Literals #2 (RLE)
-    SequenceExecutorPacket {
-        msg_type: SequenceExecutorMessageType::LITERAL,
-        length: CopyOrMatchLength:8,
-        content: CopyOrMatchContent:0xFB41_C67B_6053_7035,
-        last: false
-    },
-    SequenceExecutorPacket {
-        msg_type: SequenceExecutorMessageType::LITERAL,
-        length: CopyOrMatchLength:8,
-        content: CopyOrMatchContent:0x9B0F_9CE1_BAA9_6D4C,
-        last: true
-    },
-    // Literals #3 (RAW)
-    SequenceExecutorPacket {
-        msg_type: SequenceExecutorMessageType::LITERAL,
-        length: CopyOrMatchLength:8,
-        content: CopyOrMatchContent:0x5A5A_5A5A_5A5A_5A5A,
-        last: false
-    },
-    SequenceExecutorPacket {
-        msg_type: SequenceExecutorMessageType::LITERAL,
-        length: CopyOrMatchLength:3,
-        content: CopyOrMatchContent:0x5A_5A5A,
-        last: false
-    },
-    // Literals #4 (RLE)
-    // Literals #5 (RLE)
-    // EMPTY
-    // Literals #6 (RAW)
-    SequenceExecutorPacket {
-        msg_type: SequenceExecutorMessageType::LITERAL,
-        length: CopyOrMatchLength:8,
-        content: CopyOrMatchContent:0x943E_9618_34C2_475A,
-        last: false
-    },
-    SequenceExecutorPacket {
-        msg_type: SequenceExecutorMessageType::LITERAL,
-        length: CopyOrMatchLength:8,
-        content: CopyOrMatchContent:0x02D0_E8D7_289A_BE60,
-        last: false
-    },
-    SequenceExecutorPacket {
-        msg_type: SequenceExecutorMessageType::LITERAL,
-        length: CopyOrMatchLength:8,
-        content: CopyOrMatchContent:0x64C3_8BE1_FA8D_12BC,
-        last: false
-    },
-    SequenceExecutorPacket {
-        msg_type: SequenceExecutorMessageType::LITERAL,
-        length: CopyOrMatchLength:8,
-        content: CopyOrMatchContent:0x1963_F1CE_21C2_94F8,
-        last: true
-    },
-];
+        const TEST_BUF_CTRL: LiteralsBufferCtrl[5] = [
+            LiteralsBufferCtrl {length: u32:11, last: false},
+            LiteralsBufferCtrl {length: u32:2 , last: false},
+            LiteralsBufferCtrl {length: u32:16, last: true},
+            LiteralsBufferCtrl {length: u32:11, last: false},
+            LiteralsBufferCtrl {length: u32:32, last: true},
+        ];
+
+        const TEST_EXPECTED_LITERALS: SequenceExecutorPacket[11] = [
+            // Literals #0 (RAW)
+            SequenceExecutorPacket {
+                msg_type: SequenceExecutorMessageType::LITERAL,
+                length: CopyOrMatchLength:8,
+                content: CopyOrMatchContent:0x1657_3465_A6DB_5DB0,
+                last: false
+            },
+            SequenceExecutorPacket {
+                msg_type: SequenceExecutorMessageType::LITERAL,
+                length: CopyOrMatchLength:3,
+                content: CopyOrMatchContent:0x23_2323,
+                last: false
+            },
+            // Literals #1 (RLE)
+            SequenceExecutorPacket {
+                msg_type: SequenceExecutorMessageType::LITERAL,
+                length: CopyOrMatchLength:2,
+                content: CopyOrMatchContent:0x35_23,
+                last: false
+            },
+            // Literals #2 (RLE)
+            SequenceExecutorPacket {
+                msg_type: SequenceExecutorMessageType::LITERAL,
+                length: CopyOrMatchLength:8,
+                content: CopyOrMatchContent:0xFB41_C67B_6053_7035,
+                last: false
+            },
+            SequenceExecutorPacket {
+                msg_type: SequenceExecutorMessageType::LITERAL,
+                length: CopyOrMatchLength:8,
+                content: CopyOrMatchContent:0x9B0F_9CE1_BAA9_6D4C,
+                last: true
+            },
+            // Literals #3 (RAW)
+            SequenceExecutorPacket {
+                msg_type: SequenceExecutorMessageType::LITERAL,
+                length: CopyOrMatchLength:8,
+                content: CopyOrMatchContent:0x5A5A_5A5A_5A5A_5A5A,
+                last: false
+            },
+            SequenceExecutorPacket {
+                msg_type: SequenceExecutorMessageType::LITERAL,
+                length: CopyOrMatchLength:3,
+                content: CopyOrMatchContent:0x5A_5A5A,
+                last: false
+            },
+            // Literals #4 (RLE)
+            // Literals #5 (RLE)
+            // EMPTY
+            // Literals #6 (RAW)
+            SequenceExecutorPacket {
+                msg_type: SequenceExecutorMessageType::LITERAL,
+                length: CopyOrMatchLength:8,
+                content: CopyOrMatchContent:0x943E_9618_34C2_475A,
+                last: false
+            },
+            SequenceExecutorPacket {
+                msg_type: SequenceExecutorMessageType::LITERAL,
+                length: CopyOrMatchLength:8,
+                content: CopyOrMatchContent:0x02D0_E8D7_289A_BE60,
+                last: false
+            },
+            SequenceExecutorPacket {
+                msg_type: SequenceExecutorMessageType::LITERAL,
+                length: CopyOrMatchLength:8,
+                content: CopyOrMatchContent:0x64C3_8BE1_FA8D_12BC,
+                last: false
+            },
+            SequenceExecutorPacket {
+                msg_type: SequenceExecutorMessageType::LITERAL,
+                length: CopyOrMatchLength:8,
+                content: CopyOrMatchContent:0x1963_F1CE_21C2_94F8,
+                last: true
+            },
+        ];
 
         let tok = join();
 

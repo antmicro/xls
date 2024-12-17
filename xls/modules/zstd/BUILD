@@ -2356,6 +2356,38 @@ xls_benchmark_ir(
 	},
 )
 
+verilog_library(
+    name = "literals_decoder_ctrl_verilog_lib",
+    srcs = [
+        ":literals_decoder_ctrl.v",
+    ],
+)
+
+synthesize_rtl(
+    name = "literals_decoder_ctrl_synth_asap7",
+    standard_cells = "@org_theopenroadproject_asap7sc7p5t_28//:asap7-sc7p5t_rev28_rvt",
+    top_module = "LiteralsDecoderCtrl",
+    deps = [
+        ":literals_decoder_ctrl_verilog_lib",
+    ],
+)
+
+benchmark_synth(
+    name = "literals_decoder_ctrl_benchmark_synth",
+    synth_target = ":literals_decoder_ctrl_synth_asap7",
+)
+
+place_and_route(
+    name = "literals_decoder_ctrl_place_and_route",
+    clock_period = "750",
+    core_padding_microns = 2,
+    min_pin_distance = "0.5",
+    placement_density = "0.30",
+    stop_after_step = "global_routing",
+    synthesized_rtl = ":literals_decoder_ctrl_synth_asap7",
+    target_die_utilization_percentage = "10",
+)
+
 xls_dslx_verilog(
     name = "literals_decoder_verilog",
     codegen_args = {

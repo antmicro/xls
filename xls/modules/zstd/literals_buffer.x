@@ -377,14 +377,17 @@ proc LiteralsBufferMux {
         send_if(tok1, out_literals_s, literals_valid, LiteralsData {
             data: literals_data.data,
             length: literals_data.length,
-            last: literals_data.literals_last,
+            last: literals_data.literals_last & literals_data.last,
         });
 
-        if (literals_data.last) {
-            LiteralsBufferMuxState { literals_id: state.literals_id + LitID:1, ..state }
-        } else {
-            state
-        }
+        let next_state = match (literals_data.last, literals_data.literals_last) {
+            (false, false) => state,
+            (false, true) => state,
+            (true, false) => LiteralsBufferMuxState { literals_id: state.literals_id + LitID:1, ..state },
+            (true, true) => zero!<LiteralsBufferMuxState>(),
+        };
+
+        next_state
     }
 }
 

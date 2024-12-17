@@ -380,7 +380,7 @@ proc RefillingShiftBufferInternal<
 pub proc RefillingShiftBuffer<
     DATA_W: u32,
     ADDR_W: u32,
-    BACKWARDS: bool,
+    BACKWARDS: bool = {false},
     LENGTH_W: u32 = {length_width(DATA_W)},
 > {
     type MemReaderReq = mem_reader::MemReaderReq<ADDR_W>;

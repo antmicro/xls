@@ -17,6 +17,7 @@ import std;
 import xls.examples.ram;
 import xls.modules.zstd.common;
 import xls.modules.zstd.memory.axi;
+import xls.modules.zstd.memory.axi_ram;
 import xls.modules.zstd.memory.mem_reader;
 import xls.modules.zstd.sequence_conf_dec;
 import xls.modules.zstd.fse_lookup_dec;
@@ -922,6 +923,15 @@ const TEST_AXI_DATA_W = u32:64;
 const TEST_AXI_DEST_W = u32:8;
 const TEST_AXI_ID_W = u32:8;
 
+const TEST_INPUT_RAM_DATA_W = TEST_AXI_DATA_W;
+const TEST_INPUT_RAM_SIZE = u32:1024;
+const TEST_INPUT_RAM_ADDR_W = TEST_AXI_ADDR_W;
+const TEST_INPUT_RAM_WORD_PARTITION_SIZE = TEST_INPUT_RAM_DATA_W / u32:8;
+const TEST_INPUT_RAM_NUM_PARTITIONS = ram::num_partitions(TEST_INPUT_RAM_WORD_PARTITION_SIZE, TEST_INPUT_RAM_DATA_W);
+const TEST_INPUT_RAM_SIMULTANEOUS_READ_WRITE_BEHAVIOR = ram::SimultaneousReadWriteBehavior::READ_BEFORE_WRITE;
+const TEST_INPUT_RAM_INITIALIZED = false;
+const TEST_INPUT_RAM_ASSERT_VALID_READ = true;
+
 const TEST_DPD_RAM_DATA_W = u32:16;
 const TEST_DPD_RAM_SIZE = u32:256;
 const TEST_DPD_RAM_ADDR_W = std::clog2(TEST_DPD_RAM_SIZE);
@@ -945,6 +955,11 @@ const TEST_TMP_RAM_NUM_PARTITIONS = ram::num_partitions(TEST_TMP_RAM_WORD_PARTIT
 proc SequenceDecoderTest {
    type Req = SequenceDecoderReq<TEST_AXI_ADDR_W>;
    type Resp = SequenceDecoderResp;
+
+   type InputRamRdReq = ram::ReadReq<TEST_INPUT_RAM_ADDR_W, TEST_INPUT_RAM_NUM_PARTITIONS>;
+   type InputRamRdResp = ram::ReadResp<TEST_INPUT_RAM_DATA_W>;
+   type InputRamWrReq = ram::WriteReq<TEST_INPUT_RAM_ADDR_W, TEST_INPUT_RAM_DATA_W, TEST_INPUT_RAM_NUM_PARTITIONS>;
+   type InputRamWrResp = ram::WriteResp;
 
    type DpdRamRdReq = ram::ReadReq<TEST_DPD_RAM_ADDR_W, TEST_DPD_RAM_NUM_PARTITIONS>;
    type DpdRamRdResp = ram::ReadResp<TEST_DPD_RAM_DATA_W>;
@@ -986,115 +1001,157 @@ proc SequenceDecoderTest {
    config(
        terminator: chan<bool> out
    ) {
-       // RAM for probability distribution
-       let (dpd_rd_req_s, dpd_rd_req_r) = chan<DpdRamRdReq>("dpd_rd_req");
-       let (dpd_rd_resp_s, dpd_rd_resp_r) = chan<DpdRamRdResp>("dpd_rd_resp");
-       let (dpd_wr_req_s, dpd_wr_req_r) = chan<DpdRamWrReq>("dpd_wr_req");
-       let (dpd_wr_resp_s, dpd_wr_resp_r) = chan<DpdRamWrResp>("dpd_wr_resp");
+        // RAM for probability distribution
+        let (dpd_rd_req_s, dpd_rd_req_r) = chan<DpdRamRdReq>("dpd_rd_req");
+        let (dpd_rd_resp_s, dpd_rd_resp_r) = chan<DpdRamRdResp>("dpd_rd_resp");
+        let (dpd_wr_req_s, dpd_wr_req_r) = chan<DpdRamWrReq>("dpd_wr_req");
+        let (dpd_wr_resp_s, dpd_wr_resp_r) = chan<DpdRamWrResp>("dpd_wr_resp");
 
-       spawn ram::RamModel<
-           TEST_DPD_RAM_DATA_W,
-           TEST_DPD_RAM_SIZE,
-           TEST_DPD_RAM_WORD_PARTITION_SIZE
-       >(dpd_rd_req_r, dpd_rd_resp_s, dpd_wr_req_r, dpd_wr_resp_s);
+        spawn ram::RamModel<
+            TEST_DPD_RAM_DATA_W,
+            TEST_DPD_RAM_SIZE,
+            TEST_DPD_RAM_WORD_PARTITION_SIZE
+        >(dpd_rd_req_r, dpd_rd_resp_s, dpd_wr_req_r, dpd_wr_resp_s);
 
-       // RAMs for temporary values when decoding probability distribution
-       let (tmp_rd_req_s, tmp_rd_req_r) = chan<TmpRamRdReq>("tmp_rd_req");
-       let (tmp_rd_resp_s, tmp_rd_resp_r) = chan<TmpRamRdResp>("tmp_rd_resp");
-       let (tmp_wr_req_s, tmp_wr_req_r) = chan<TmpRamWrReq>("tmp_wr_req");
-       let (tmp_wr_resp_s, tmp_wr_resp_r) = chan<TmpRamWrResp>("tmp_wr_resp");
+        // RAMs for temporary values when decoding probability distribution
+        let (tmp_rd_req_s, tmp_rd_req_r) = chan<TmpRamRdReq>("tmp_rd_req");
+        let (tmp_rd_resp_s, tmp_rd_resp_r) = chan<TmpRamRdResp>("tmp_rd_resp");
+        let (tmp_wr_req_s, tmp_wr_req_r) = chan<TmpRamWrReq>("tmp_wr_req");
+        let (tmp_wr_resp_s, tmp_wr_resp_r) = chan<TmpRamWrResp>("tmp_wr_resp");
 
-       spawn ram::RamModel<
-           TEST_TMP_RAM_DATA_W,
-           TEST_TMP_RAM_SIZE,
-           TEST_TMP_RAM_WORD_PARTITION_SIZE
-       >(tmp_rd_req_r, tmp_rd_resp_s, tmp_wr_req_r, tmp_wr_resp_s);
+        spawn ram::RamModel<
+            TEST_TMP_RAM_DATA_W,
+            TEST_TMP_RAM_SIZE,
+            TEST_TMP_RAM_WORD_PARTITION_SIZE
+        >(tmp_rd_req_r, tmp_rd_resp_s, tmp_wr_req_r, tmp_wr_resp_s);
 
-       // RAM with default FSE lookup for Literal Lengths
-       let (ll_def_fse_rd_req_s, ll_def_fse_rd_req_r) = chan<FseRamRdReq>("ll_def_fse_rd_req");
-       let (ll_def_fse_rd_resp_s, ll_def_fse_rd_resp_r) = chan<FseRamRdResp>("ll_def_fse_rd_resp");
-       let (ll_def_fse_wr_req_s, ll_def_fse_wr_req_r) = chan<FseRamWrReq>("ll_def_fse_wr_req");
-       let (ll_def_fse_wr_resp_s, ll_def_fse_wr_resp_r) = chan<FseRamWrResp>("ll_def_fse_wr_resp");
+        // RAM with default FSE lookup for Literal Lengths
+        let (ll_def_fse_rd_req_s, ll_def_fse_rd_req_r) = chan<FseRamRdReq>("ll_def_fse_rd_req");
+        let (ll_def_fse_rd_resp_s, ll_def_fse_rd_resp_r) = chan<FseRamRdResp>("ll_def_fse_rd_resp");
+        let (ll_def_fse_wr_req_s, ll_def_fse_wr_req_r) = chan<FseRamWrReq>("ll_def_fse_wr_req");
+        let (ll_def_fse_wr_resp_s, ll_def_fse_wr_resp_r) = chan<FseRamWrResp>("ll_def_fse_wr_resp");
 
-       spawn ram::RamModel<
-           TEST_FSE_RAM_DATA_W,
-           TEST_FSE_RAM_SIZE,
-           TEST_FSE_RAM_WORD_PARTITION_SIZE
-       >(ll_def_fse_rd_req_r, ll_def_fse_rd_resp_s, ll_def_fse_wr_req_r, ll_def_fse_wr_resp_s);
+        spawn ram::RamModel<
+            TEST_FSE_RAM_DATA_W,
+            TEST_FSE_RAM_SIZE,
+            TEST_FSE_RAM_WORD_PARTITION_SIZE
+        >(ll_def_fse_rd_req_r, ll_def_fse_rd_resp_s, ll_def_fse_wr_req_r, ll_def_fse_wr_resp_s);
 
-       // RAM for FSE lookup for Literal Lengths
-       let (ll_fse_rd_req_s, ll_fse_rd_req_r) = chan<FseRamRdReq>("ll_fse_rd_req");
-       let (ll_fse_rd_resp_s, ll_fse_rd_resp_r) = chan<FseRamRdResp>("ll_fse_rd_resp");
-       let (ll_fse_wr_req_s, ll_fse_wr_req_r) = chan<FseRamWrReq>("ll_fse_wr_req");
-       let (ll_fse_wr_resp_s, ll_fse_wr_resp_r) = chan<FseRamWrResp>("ll_fse_wr_resp");
+        // RAM for FSE lookup for Literal Lengths
+        let (ll_fse_rd_req_s, ll_fse_rd_req_r) = chan<FseRamRdReq>("ll_fse_rd_req");
+        let (ll_fse_rd_resp_s, ll_fse_rd_resp_r) = chan<FseRamRdResp>("ll_fse_rd_resp");
+        let (ll_fse_wr_req_s, ll_fse_wr_req_r) = chan<FseRamWrReq>("ll_fse_wr_req");
+        let (ll_fse_wr_resp_s, ll_fse_wr_resp_r) = chan<FseRamWrResp>("ll_fse_wr_resp");
 
-       spawn ram::RamModel<
-           TEST_FSE_RAM_DATA_W,
-           TEST_FSE_RAM_SIZE,
-           TEST_FSE_RAM_WORD_PARTITION_SIZE
-       >(ll_fse_rd_req_r, ll_fse_rd_resp_s, ll_fse_wr_req_r, ll_fse_wr_resp_s);
+        spawn ram::RamModel<
+            TEST_FSE_RAM_DATA_W,
+            TEST_FSE_RAM_SIZE,
+            TEST_FSE_RAM_WORD_PARTITION_SIZE
+        >(ll_fse_rd_req_r, ll_fse_rd_resp_s, ll_fse_wr_req_r, ll_fse_wr_resp_s);
 
-       // RAM with default FSE lookup for Match Lengths
-       let (ml_def_fse_rd_req_s, ml_def_fse_rd_req_r) = chan<FseRamRdReq>("ml_def_fse_rd_req");
-       let (ml_def_fse_rd_resp_s, ml_def_fse_rd_resp_r) = chan<FseRamRdResp>("ml_def_fse_rd_resp");
-       let (ml_def_fse_wr_req_s, ml_def_fse_wr_req_r) = chan<FseRamWrReq>("ml_def_fse_wr_req");
-       let (ml_def_fse_wr_resp_s, ml_def_fse_wr_resp_r) = chan<FseRamWrResp>("ml_def_fse_wr_resp");
+        // RAM with default FSE lookup for Match Lengths
+        let (ml_def_fse_rd_req_s, ml_def_fse_rd_req_r) = chan<FseRamRdReq>("ml_def_fse_rd_req");
+        let (ml_def_fse_rd_resp_s, ml_def_fse_rd_resp_r) = chan<FseRamRdResp>("ml_def_fse_rd_resp");
+        let (ml_def_fse_wr_req_s, ml_def_fse_wr_req_r) = chan<FseRamWrReq>("ml_def_fse_wr_req");
+        let (ml_def_fse_wr_resp_s, ml_def_fse_wr_resp_r) = chan<FseRamWrResp>("ml_def_fse_wr_resp");
 
-       spawn ram::RamModel<
-           TEST_FSE_RAM_DATA_W,
-           TEST_FSE_RAM_SIZE,
-           TEST_FSE_RAM_WORD_PARTITION_SIZE
-       >(ml_def_fse_rd_req_r, ml_def_fse_rd_resp_s, ml_def_fse_wr_req_r, ml_def_fse_wr_resp_s);
+        spawn ram::RamModel<
+            TEST_FSE_RAM_DATA_W,
+            TEST_FSE_RAM_SIZE,
+            TEST_FSE_RAM_WORD_PARTITION_SIZE
+        >(ml_def_fse_rd_req_r, ml_def_fse_rd_resp_s, ml_def_fse_wr_req_r, ml_def_fse_wr_resp_s);
 
-       // RAM for FSE lookup for Match Lengths
-       let (ml_fse_rd_req_s, ml_fse_rd_req_r) = chan<FseRamRdReq>("ml_fse_rd_req");
-       let (ml_fse_rd_resp_s, ml_fse_rd_resp_r) = chan<FseRamRdResp>("ml_fse_rd_resp");
-       let (ml_fse_wr_req_s, ml_fse_wr_req_r) = chan<FseRamWrReq>("ml_fse_wr_req");
-       let (ml_fse_wr_resp_s, ml_fse_wr_resp_r) = chan<FseRamWrResp>("ml_fse_wr_resp");
+        // RAM for FSE lookup for Match Lengths
+        let (ml_fse_rd_req_s, ml_fse_rd_req_r) = chan<FseRamRdReq>("ml_fse_rd_req");
+        let (ml_fse_rd_resp_s, ml_fse_rd_resp_r) = chan<FseRamRdResp>("ml_fse_rd_resp");
+        let (ml_fse_wr_req_s, ml_fse_wr_req_r) = chan<FseRamWrReq>("ml_fse_wr_req");
+        let (ml_fse_wr_resp_s, ml_fse_wr_resp_r) = chan<FseRamWrResp>("ml_fse_wr_resp");
 
-       spawn ram::RamModel<
-           TEST_FSE_RAM_DATA_W,
-           TEST_FSE_RAM_SIZE,
-           TEST_FSE_RAM_WORD_PARTITION_SIZE
-       >(ml_fse_rd_req_r, ml_fse_rd_resp_s, ml_fse_wr_req_r, ml_fse_wr_resp_s);
+        spawn ram::RamModel<
+            TEST_FSE_RAM_DATA_W,
+            TEST_FSE_RAM_SIZE,
+            TEST_FSE_RAM_WORD_PARTITION_SIZE
+        >(ml_fse_rd_req_r, ml_fse_rd_resp_s, ml_fse_wr_req_r, ml_fse_wr_resp_s);
 
-       // RAM with default FSE lookup for Offsets
-       let (of_def_fse_rd_req_s, of_def_fse_rd_req_r) = chan<FseRamRdReq>("of_def_fse_rd_req");
-       let (of_def_fse_rd_resp_s, of_def_fse_rd_resp_r) = chan<FseRamRdResp>("of_def_fse_rd_resp");
-       let (of_def_fse_wr_req_s, of_def_fse_wr_req_r) = chan<FseRamWrReq>("of_def_fse_wr_req");
-       let (of_def_fse_wr_resp_s, of_def_fse_wr_resp_r) = chan<FseRamWrResp>("of_def_fse_wr_resp");
+        // RAM with default FSE lookup for Offsets
+        let (of_def_fse_rd_req_s, of_def_fse_rd_req_r) = chan<FseRamRdReq>("of_def_fse_rd_req");
+        let (of_def_fse_rd_resp_s, of_def_fse_rd_resp_r) = chan<FseRamRdResp>("of_def_fse_rd_resp");
+        let (of_def_fse_wr_req_s, of_def_fse_wr_req_r) = chan<FseRamWrReq>("of_def_fse_wr_req");
+        let (of_def_fse_wr_resp_s, of_def_fse_wr_resp_r) = chan<FseRamWrResp>("of_def_fse_wr_resp");
 
-       spawn ram::RamModel<
-           TEST_FSE_RAM_DATA_W,
-           TEST_FSE_RAM_SIZE,
-           TEST_FSE_RAM_WORD_PARTITION_SIZE
-       >(of_def_fse_rd_req_r, of_def_fse_rd_resp_s, of_def_fse_wr_req_r, of_def_fse_wr_resp_s);
+        spawn ram::RamModel<
+            TEST_FSE_RAM_DATA_W,
+            TEST_FSE_RAM_SIZE,
+            TEST_FSE_RAM_WORD_PARTITION_SIZE
+        >(of_def_fse_rd_req_r, of_def_fse_rd_resp_s, of_def_fse_wr_req_r, of_def_fse_wr_resp_s);
 
-       // RAM for FSE lookup for Offsets
-       let (of_fse_rd_req_s, of_fse_rd_req_r) = chan<FseRamRdReq>("of_fse_rd_req");
-       let (of_fse_rd_resp_s, of_fse_rd_resp_r) = chan<FseRamRdResp>("of_fse_rd_resp");
-       let (of_fse_wr_req_s, of_fse_wr_req_r) = chan<FseRamWrReq>("of_fse_wr_req");
-       let (of_fse_wr_resp_s, of_fse_wr_resp_r) = chan<FseRamWrResp>("of_fse_wr_resp");
+        // RAM for FSE lookup for Offsets
+        let (of_fse_rd_req_s, of_fse_rd_req_r) = chan<FseRamRdReq>("of_fse_rd_req");
+        let (of_fse_rd_resp_s, of_fse_rd_resp_r) = chan<FseRamRdResp>("of_fse_rd_resp");
+        let (of_fse_wr_req_s, of_fse_wr_req_r) = chan<FseRamWrReq>("of_fse_wr_req");
+        let (of_fse_wr_resp_s, of_fse_wr_resp_r) = chan<FseRamWrResp>("of_fse_wr_resp");
 
-       spawn ram::RamModel<
-           TEST_FSE_RAM_DATA_W,
-           TEST_FSE_RAM_SIZE,
-           TEST_FSE_RAM_WORD_PARTITION_SIZE
-       >(of_fse_rd_req_r, of_fse_rd_resp_s, of_fse_wr_req_r, of_fse_wr_resp_s);
+        spawn ram::RamModel<
+            TEST_FSE_RAM_DATA_W,
+            TEST_FSE_RAM_SIZE,
+            TEST_FSE_RAM_WORD_PARTITION_SIZE
+        >(of_fse_rd_req_r, of_fse_rd_resp_s, of_fse_wr_req_r, of_fse_wr_resp_s);
+
+        // Input Memory
+
+        let (input_rd_req_s, input_rd_req_r) = chan<InputRamRdReq>("input_rd_req");
+        let (input_rd_resp_s, input_rd_resp_r) = chan<InputRamRdResp>("input_rd_resp");
+        let (_input_wr_req_s, input_wr_req_r) = chan<InputRamWrReq>("input_wr_req");
+        let (input_wr_resp_s, _input_wr_resp_r) = chan<InputRamWrResp>("input_wr_resp");
+
+         spawn ram::RamModel<
+            TEST_INPUT_RAM_DATA_W,
+            TEST_INPUT_RAM_SIZE,
+            TEST_INPUT_RAM_WORD_PARTITION_SIZE,
+            TEST_INPUT_RAM_SIMULTANEOUS_READ_WRITE_BEHAVIOR,
+            TEST_INPUT_RAM_INITIALIZED,
+            TEST_INPUT_RAM_ASSERT_VALID_READ,
+            TEST_INPUT_RAM_ADDR_W,
+            TEST_INPUT_RAM_NUM_PARTITIONS,
+        >(input_rd_req_r, input_rd_resp_s, input_wr_req_r, input_wr_resp_s);
+
+        let (ss_axi_ar_s, ss_axi_ar_r) = chan<MemAxiAr>("ss_axi_ar");
+        let (ss_axi_r_s, ss_axi_r_r) = chan<MemAxiR>("ss_axi_r");
+
+        spawn axi_ram::AxiRamReader<
+            TEST_AXI_ADDR_W, TEST_AXI_DATA_W, TEST_AXI_DEST_W, TEST_AXI_ID_W,
+            TEST_INPUT_RAM_SIZE
+        >(
+            ss_axi_ar_r, ss_axi_r_s,
+            input_rd_req_s, input_rd_resp_r,
+        );
+
+        let (fl_axi_ar_s, fl_axi_ar_r) = chan<MemAxiAr>("fl_axi_ar");
+        let (fl_axi_r_s, fl_axi_r_r) = chan<MemAxiR>("fl_axi_r");
+
+        spawn axi_ram::AxiRamReader<
+            TEST_AXI_ADDR_W, TEST_AXI_DATA_W, TEST_AXI_DEST_W, TEST_AXI_ID_W,
+            TEST_INPUT_RAM_SIZE
+        >(
+            fl_axi_ar_r, fl_axi_r_s,
+            input_rd_req_s, input_rd_resp_r,
+        );
+
+        let (fd_axi_ar_s, fd_axi_ar_r) = chan<MemAxiAr>("fd_axi_ar");
+        let (fd_axi_r_s, fd_axi_r_r) = chan<MemAxiR>("fd_axi_r");
+
+        spawn axi_ram::AxiRamReader<
+            TEST_AXI_ADDR_W, TEST_AXI_DATA_W, TEST_AXI_DEST_W, TEST_AXI_ID_W,
+            TEST_INPUT_RAM_SIZE
+        >(
+            fd_axi_ar_r, fd_axi_r_s,
+            input_rd_req_s, input_rd_resp_r,
+        );
 
        // Sequence Decoder
 
        let (req_s, req_r) = chan<Req>("req");
        let (resp_s, resp_r) = chan<Resp>("resp");
-
-       let (ss_axi_ar_s, ss_axi_ar_r) = chan<MemAxiAr>("ss_axi_ar");
-       let (ss_axi_r_s, ss_axi_r_r) = chan<MemAxiR>("ss_axi_r");
-
-       let (fl_axi_ar_s, fl_axi_ar_r) = chan<MemAxiAr>("fl_axi_ar");
-       let (fl_axi_r_s, fl_axi_r_r) = chan<MemAxiR>("fl_axi_r");
-
-       let (fd_axi_ar_s, fd_axi_ar_r) = chan<MemAxiAr>("fd_axi_ar");
-       let (fd_axi_r_s, fd_axi_r_r) = chan<MemAxiR>("fd_axi_r");
 
        let (fd_command_s, fd_command_r) = chan<CommandConstructorData>("fd_command");
 
@@ -1134,6 +1191,22 @@ proc SequenceDecoderTest {
 
    next(state: ()) {
        let tok = join();
+
+        let tok = unroll_for! (test_i, tok): (u32, token) in range(u32:0, frames_count) {
+            trace_fmt!("Loading testcase {:x}", test_i + u32:1);
+            let frame = zstd_frame_testcases::FRAMES[test_i];
+            let tok = for (i, tok): (u32, token) in range(u32:0, frame.array_length) {
+                let req = RamWrReq {
+                    addr: i as uN[TEST_RAM_ADDR_W],
+                    data: frame.data[i] as uN[TEST_RAM_DATA_W],
+                    mask: uN[TEST_RAM_NUM_PARTITIONS]:0xFF
+                };
+                let tok = send(tok, ram_wr_req_fh_s, req);
+                let tok = send(tok, ram_wr_req_bh_s, req);
+                let tok = send(tok, ram_wr_req_raw_s, req);
+                tok
+            }(tok);
+        }
 
        send(tok, terminator, true);
    }

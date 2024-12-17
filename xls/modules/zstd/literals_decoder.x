@@ -20,7 +20,6 @@ import xls.examples.ram;
 import xls.modules.zstd.common as common;
 import xls.modules.zstd.literals_block_header_dec as literals_block_header_dec;
 import xls.modules.zstd.literals_buffer as literals_buffer;
-//import xls.modules.zstd.literals_dispatcher as literals_dispatcher;
 import xls.modules.zstd.memory.axi as axi;
 import xls.modules.zstd.memory.axi_ram;
 import xls.modules.zstd.memory.mem_reader as mem_reader;

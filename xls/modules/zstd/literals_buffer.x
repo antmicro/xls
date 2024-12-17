@@ -385,6 +385,7 @@ proc LiteralsBufferMux {
             (false, true) => state,
             (true, false) => LiteralsBufferMuxState { literals_id: state.literals_id + LitID:1, ..state },
             (true, true) => zero!<LiteralsBufferMuxState>(),
+            (_, _) => state,
         };
 
         next_state

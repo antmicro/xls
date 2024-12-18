@@ -45,7 +45,7 @@ struct State {
     sync: BlockSyncData,
 }
 
-proc CommandConstructor {
+pub proc CommandConstructor {
     sequence_decoder_r: chan<CommandConstructorData> in;
     command_aggregator_s: chan<ExtendedBlockDataPacket> out;
     literals_buffer_resp_r: chan<SequenceExecutorPacket> in;

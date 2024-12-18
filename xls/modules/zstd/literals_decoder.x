@@ -42,7 +42,7 @@ type SequenceExecutorMessageType = common::SequenceExecutorMessageType;
 type SequenceExecutorPacket = common::SequenceExecutorPacket<common::SYMBOL_WIDTH>;
 type Streams = common::Streams;
 
-struct LiteralsDecoderCtrlReq<AXI_ADDR_W: u32> {
+pub struct LiteralsDecoderCtrlReq<AXI_ADDR_W: u32> {
     addr: uN[AXI_ADDR_W],
     literals_last: bool
 }
@@ -52,7 +52,7 @@ pub enum LiteralsDecoderCtrlStatus: u1 {
     ERROR = 1,
 }
 
-struct LiteralsDecoderCtrlResp {
+pub struct LiteralsDecoderCtrlResp {
     status: LiteralsDecoderCtrlStatus
 }
 
@@ -594,7 +594,7 @@ proc LiteralsDecoderCtrl_test {
     }
 }
 
-proc LiteralsDecoder<
+pub proc LiteralsDecoder<
     HISTORY_BUFFER_SIZE_KB: u32,
     // AXI parameters
     AXI_DATA_W: u32, AXI_ADDR_W: u32, AXI_ID_W: u32, AXI_DEST_W: u32,

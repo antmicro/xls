@@ -407,6 +407,34 @@ const LITERALS_BUFFER_RAM_WORD_PARTITION_SIZE: u32 = LITERALS_BUFFER_RAM_DATA_WI
 
 const AXI_CHAN_N = u32:6;
 
+type ExtendedPacket = common::ExtendedBlockDataPacket;
+
+const COMP_BLOCK_DEC_TESTCASES: (u64[64], ExtendedPacket[128])[1] = [
+    (
+        u64[64]:[
+            u64:0xff1d25c00e109236,
+            u64:0x8aad541ff47ffebb,
+            u64:0xc000b000b2687,
+            u64:0x98ff7fffffd7ffdf,
+            u64:0xffbeff7f7fb3fff3,
+            u64:0x8d77dbebfdb9ffbe,
+            u64:0xf3ef7dfafdfeceeb,
+            u64:0x6fcfe7fff7fbfd7f,
+            u64:0x40a8161fb9fdffff,
+            u64:0xc0a84df134544ca,
+            u64:0x100eec609988403b,
+            u64:0xfd6b1ca24d0ce438,
+            u64:0xb66651065104a4df,
+            u64:0xc84d93392e00e0e9,
+            u64:0x2f8e8c7f1081493f,
+            u64:0xda8df0c39e029d53,
+            u64:0x1ed58bc5d9b01637,
+            u64:0x1e85af,
+            u64:0, ...
+        ],
+        ExtendedPacket[128]:[zero!<ExtendedPacket>(), ...])
+];
+
 #[test_proc]
 proc CompressBlockDecoderTest {
     type Req = CompressBlockDecoderReq<TEST_AXI_ADDR_W>;
@@ -467,7 +495,7 @@ proc CompressBlockDecoderTest {
     terminator: chan<bool> out;
     req_s: chan<Req> out;
     resp_r: chan<Resp> in;
-    cmd_constr_out_r: chan<common::ExtendedBlockDataPacket> in;
+    cmd_constr_out_r: chan<ExtendedPacket> in;
     axi_ram_wr_req_s: chan<TestcaseRamWrReq>[AXI_CHAN_N] out;
     axi_ram_wr_resp_r: chan<TestcaseRamWrResp>[AXI_CHAN_N] in;
 
@@ -477,7 +505,7 @@ proc CompressBlockDecoderTest {
         let (resp_s, resp_r) = chan<Resp>("resp");
 
         // output from Command constructor to Sequence executor
-        let (cmd_constr_out_s, cmd_constr_out_r) = chan<common::ExtendedBlockDataPacket>("cmd_constr_out");
+        let (cmd_constr_out_s, cmd_constr_out_r) = chan<ExtendedPacket>("cmd_constr_out");
 
         // Huffman weights memory
         let (huffman_lit_weights_mem_rd_req_s, _huffman_lit_weights_mem_rd_req_r) = chan<HuffmanWeightsReadReq>("huffman_lit_weights_mem_rd_req");
@@ -590,6 +618,37 @@ proc CompressBlockDecoderTest {
 
     next(state: ()) {
         let tok = join();
+
+        let tok = unroll_for!(test_i, tok): (u32, token) in range(u32:0, array_size(COMP_BLOCK_DEC_TESTCASES)) {
+            let (input, _) = COMP_BLOCK_DEC_TESTCASES[test_i];
+
+            trace_fmt!("Loading testcase {:x}", test_i);
+            let tok = for ((i, input_data), tok): ((u32, u64), token) in enumerate(input) {
+                let req = TestcaseRamWrReq {
+                    addr: i as uN[TEST_CASE_RAM_ADDR_WIDTH],
+                    data: input_data as uN[TEST_CASE_RAM_DATA_WIDTH],
+                    mask: uN[TEST_CASE_RAM_NUM_PARTITIONS]:0xF
+                };
+                // Write to all RAMs
+                let tok = unroll_for! (j, tok): (u32, token) in range(u32:0, AXI_CHAN_N) {
+                    let tok = send(tok, axi_ram_wr_req_s[j], req);
+                    let (tok, _) = recv(tok, axi_ram_wr_resp_r[j]);
+                    tok
+                }(tok);
+                tok
+            }(tok);
+
+            // let tok = send(tok, req_s, Req {
+                // addr: uN[AXI_ADDR_W]:0x0,
+                // length: uN[AXI_ADDR_W]:???,
+                // id: u32:1234,
+                // last_block: false,            
+            // });
+            // let (tok, resp) = recv(tok, resp_r);
+
+            tok
+        }(tok);
+
         send(tok, terminator, true);
     }
 }

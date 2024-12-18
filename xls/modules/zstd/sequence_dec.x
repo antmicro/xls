@@ -127,19 +127,23 @@ pub proc FseLookupCtrl<AXI_ADDR_W: u32> {
                 u2:0 => trace_fmt!("Handling ML"),
             };
 
-            trace_fmt!("Sending request to demux {:#x}", state.cnt);
+            // trace_fmt!("Sending request to demux {:#x}", state.cnt);
             let tok1 = send_if(tok0, fse_demux_req_s, do_set, state.cnt);
-            trace_fmt!("Waiting for response from demux if {:#x}", do_set);
+            trace_fmt!("[SequenceDecoderCtrl/FseLookupCtrl]: Sent fse_demux req {:#x}", state.cnt);
+
             let (tok2, demux_resp) = recv_if(tok1, fse_demux_resp_r, do_set, ());
-            trace_fmt!("Received response from demux");
+            trace_fmt!("[SequenceDecoderCtrl/FseLookupCtrl]: Received demux resp {:#x}", demux_resp);
+            // trace_fmt!("Received response from demux");
 
             let fld_req = FseLookupDecoderReq { addr: uN[AXI_ADDR_W]:0 };
-            trace_fmt!("Sending request to FseLookupDecoder {:#x} if {:#x}", demux_resp, do_set);
+            // trace_fmt!("Sending request to FseLookupDecoder {:#x} if {:#x}", demux_resp, do_set);
             let tok3 = send_if(tok2, fld_req_s, do_set, fld_req);
+            trace_fmt!("[SequenceDecoderCtrl/FseLookupCtrl]: Sent FseLookupDecoder req {:#x}", fld_req);
 
-            trace_fmt!("Waiting for response from FseLookupDecoder");
+            // trace_fmt!("Waiting for response from FseLookupDecoder");
             let (tok4, fld_resp) = recv_if(tok3, fld_resp_r, do_set, zero!<FseLookupDecoderResp>());
-            trace_fmt!("Received response from from FseLookupDecoder {:#x}", fld_resp);
+            trace_fmt!("[SequenceDecoderCtrl/FseLookupCtrl]: Received FseLookupDecoder resp {:#x}", fld_resp);
+            // trace_fmt!("Received response from from FseLookupDecoder {:#x}", fld_resp);
 
             if state.cnt == u2:0 {
                 let tok5 = send(tok4, resp_s, Resp {});
@@ -421,12 +425,16 @@ pub proc SequenceDecoderCtrl<AXI_ADDR_W: u32> {
 
         // Receive Sequence Decoder request
         let (tok_req_sd, req) = recv(join(), sd_req_r);
+        trace_fmt!("[SequenceDecoderCtrl]: Received Sequence Decoder request: {:#x}", req);
 
-        // Request decoding Frame Header
-        let tok_send_scd = send(tok_req_sd, scd_req_s, SequenceConfDecoderReq { addr: req.addr });
+        // Request decoding Sequence Header
+        let scd_req = SequenceConfDecoderReq { addr: req.addr };
+        let tok_send_scd = send(tok_req_sd, scd_req_s, scd_req);
+        trace_fmt!("[SequenceDecoderCtrl]: Sent Sequence Decoder request: {:#x}", scd_req);
 
-        // Receive decoded Frame Header
+        // Receive decoded Seqence Header
         let (tok_recv_scd, conf_resp) = recv(tok_send_scd, scd_resp_r);
+        trace_fmt!("[SequenceDecoderCtrl]: Received decoded Sequence header: {:#x}", conf_resp);
 
         // Request decoding lookups
         let tok_send_ctrl = send(tok_recv_scd, flc_req_s, FseLookupCtrlReq {
@@ -437,6 +445,8 @@ pub proc SequenceDecoderCtrl<AXI_ADDR_W: u32> {
 
         // Receive response about deoded lookups
         let (tok_recv_ctrl, _) = recv(tok_send_ctrl, flc_resp_r);
+
+        fail!("asdfasdf", true);
 
         // Set proper LL lookup through demux
         let ll_demux_sel = (conf_resp.header.literals_mode != CompressionMode::PREDEFINED);
@@ -950,11 +960,20 @@ const TEST_TMP_RAM_ADDR_W = std::clog2(TEST_TMP_RAM_SIZE);
 const TEST_TMP_RAM_WORD_PARTITION_SIZE = TEST_TMP_RAM_DATA_W;
 const TEST_TMP_RAM_NUM_PARTITIONS = ram::num_partitions(TEST_TMP_RAM_WORD_PARTITION_SIZE, TEST_TMP_RAM_DATA_W);
 
+const TEST_RAM_DATA = u64[3]:[
+    u64:0xD2C7_9685_8C80_8407,
+    u64:0x0000_0000_3090_0010,
+    u64:0, ...
+];
 
 #[test_proc]
 proc SequenceDecoderTest {
    type Req = SequenceDecoderReq<TEST_AXI_ADDR_W>;
    type Resp = SequenceDecoderResp;
+
+   type InputAddr = uN[TEST_INPUT_RAM_ADDR_W];
+   type InputData = uN[TEST_INPUT_RAM_DATA_W];
+   type InputMask = uN[TEST_INPUT_RAM_NUM_PARTITIONS];
 
    type InputRamRdReq = ram::ReadReq<TEST_INPUT_RAM_ADDR_W, TEST_INPUT_RAM_NUM_PARTITIONS>;
    type InputRamRdResp = ram::ReadResp<TEST_INPUT_RAM_DATA_W>;
@@ -986,15 +1005,10 @@ proc SequenceDecoderTest {
 
    fd_command_r: chan<CommandConstructorData> in;
 
-   ss_axi_ar_r: chan<MemAxiAr> in;
-   ss_axi_r_s: chan<MemAxiR> out;
-
-   fl_axi_ar_r: chan<MemAxiAr> in;
-   fl_axi_r_s: chan<MemAxiR> out;
-
-   fd_axi_ar_r: chan<MemAxiAr> in;
-   fd_axi_r_s: chan<MemAxiR> out;
-
+   input_rd_req_s: chan<InputRamRdReq> out;
+   input_rd_resp_r: chan<InputRamRdResp> in;
+   input_wr_req_s: chan<InputRamWrReq> out;
+   input_wr_resp_r: chan<InputRamWrResp> in;
 
    init { }
 
@@ -1101,8 +1115,8 @@ proc SequenceDecoderTest {
 
         let (input_rd_req_s, input_rd_req_r) = chan<InputRamRdReq>("input_rd_req");
         let (input_rd_resp_s, input_rd_resp_r) = chan<InputRamRdResp>("input_rd_resp");
-        let (_input_wr_req_s, input_wr_req_r) = chan<InputRamWrReq>("input_wr_req");
-        let (input_wr_resp_s, _input_wr_resp_r) = chan<InputRamWrResp>("input_wr_resp");
+        let (input_wr_req_s, input_wr_req_r) = chan<InputRamWrReq>("input_wr_req");
+        let (input_wr_resp_s, input_wr_resp_r) = chan<InputRamWrResp>("input_wr_resp");
 
          spawn ram::RamModel<
             TEST_INPUT_RAM_DATA_W,
@@ -1183,31 +1197,33 @@ proc SequenceDecoderTest {
            terminator,
            req_s, resp_r,
            fd_command_r,
-           ss_axi_ar_r, ss_axi_r_s,
-           fl_axi_ar_r, fl_axi_r_s,
-           fd_axi_ar_r, fd_axi_r_s,
+           input_rd_req_s, input_rd_resp_r, input_wr_req_s, input_wr_resp_r,
+
+
        )
    }
 
-   next(state: ()) {
-       let tok = join();
+    next(state: ()) {
+        let tok = join();
 
-    //    let tok = unroll_for! (test_i, tok): (u32, token) in range(u32:0, frames_count) {
-            // trace_fmt!("Loading testcase {:x}", test_i + u32:1);
-            // let frame = zstd_frame_testcases::FRAMES[test_i];
-            // let tok = for (i, tok): (u32, token) in range(u32:0, frame.array_length) {
-                // let req = RamWrReq {
-                    // addr: i as uN[TEST_RAM_ADDR_W],
-                    // data: frame.data[i] as uN[TEST_RAM_DATA_W],
-                    // mask: uN[TEST_RAM_NUM_PARTITIONS]:0xFF
-                // };
-                // let tok = send(tok, ram_wr_req_fh_s, req);
-                // let tok = send(tok, ram_wr_req_bh_s, req);
-                // let tok = send(tok, ram_wr_req_raw_s, req);
-                // tok
-            // }(tok);
-        // }
+        // FILL THE TEST DATA
+        let tok = unroll_for! (i, tok): (u32, token) in range(u32:0, array_size(TEST_RAM_DATA)) {
+            let req = InputRamWrReq {
+                addr: i as InputAddr,
+                data: TEST_RAM_DATA[i] as InputData,
+                mask: !InputMask:0,
+            };
+            let tok = send(tok, input_wr_req_s, req);
+            let (tok, _) = recv(tok, input_wr_resp_r);
+            tok
+        }(tok);
 
-       send(tok, terminator, true);
+        // START DECODING
+        let tok = send(tok, req_s, Req {
+            addr: uN[TEST_AXI_ADDR_W]:0,
+        });
+        let (tok, _) = recv(tok, resp_r);
+
+        send(tok, terminator, true);
    }
 }

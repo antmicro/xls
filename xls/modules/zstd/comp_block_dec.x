@@ -32,14 +32,22 @@ type SequenceExecutorPacket = common::SequenceExecutorPacket<common::SYMBOL_WIDT
 type ExtendedPacket = common::ExtendedBlockDataPacket;
 type SequenceExecutorMessageType = common::SequenceExecutorMessageType;
 type BlockDataPacket = common::BlockDataPacket;
+type BlockSize = common::BlockSize;
+
+pub enum CompressBlockDecoderStatus: u1 {
+    OK = 0,
+    ERROR = 1,
+}
 
 pub struct CompressBlockDecoderReq<AXI_ADDR_W: u32> { 
     addr: uN[AXI_ADDR_W],
-    length: uN[AXI_ADDR_W],
+    length: BlockSize,
     id: u32,
     last_block: bool,
 }
-pub struct CompressBlockDecoderResp { }
+pub struct CompressBlockDecoderResp {
+    status: CompressBlockDecoderStatus
+}
 
 pub proc CompressBlockDecoder<
     // AXI parameters
@@ -354,7 +362,9 @@ pub proc CompressBlockDecoder<
         let (tok_fin_seq, seq_resp) = recv(tok_seq, seq_dec_resp_r);
 
         let tok_finish = join(tok_fin_lit, tok_fin_seq);
-        send(tok_finish, resp_s, Resp {});
+        send(tok_finish, resp_s, Resp {
+            status: CompressBlockDecoderStatus::OK
+        });
     }
 }
 
@@ -989,7 +999,7 @@ proc CompressBlockDecoderTest {
             trace_fmt!("Starting processing testcase {:x}", test_i);
             let tok = send(tok, req_s, Req {
                 addr: uN[TEST_AXI_ADDR_W]:0x0,
-                length: input_length,
+                length: input_length as BlockSize,
                 id: u32:1234,
                 last_block: false,
             });

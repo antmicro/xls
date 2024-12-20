@@ -195,7 +195,7 @@ pub fn num_partitions(word_partition_size: u32, data_width: u32) -> u32 {
 pub proc RamModel<DATA_WIDTH:u32, SIZE:u32, WORD_PARTITION_SIZE:u32={u32:0},
   SIMULTANEOUS_READ_WRITE_BEHAVIOR:SimultaneousReadWriteBehavior=
    {SimultaneousReadWriteBehavior::READ_BEFORE_WRITE},
-  INITIALIZED:bool={false},
+  INITIALIZED:bool={true},
   ASSERT_VALID_READ:bool={true}, ADDR_WIDTH:u32 = {std::clog2(SIZE)},
   NUM_PARTITIONS:u32={num_partitions(WORD_PARTITION_SIZE, DATA_WIDTH)}> {
 

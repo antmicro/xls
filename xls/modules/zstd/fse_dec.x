@@ -19,6 +19,30 @@ import xls.modules.zstd.math;
 import xls.modules.zstd.refilling_shift_buffer;
 
 type FseTableRecord = common::FseTableRecord;
+
+//
+// type Base = u16;
+// type Symbol = u16;
+// type NumOfBits = u16;
+//
+// struct FseTableRecord {
+//     symbol: Symbol,
+//     num_of_bits: NumOfBits,
+//     base: Base
+// }
+//
+// pub fn bits_to_fse_record(bit: u48) -> FseTableRecord {
+//     FseTableRecord {
+//         symbol: bit[0:16],
+//         num_of_bits: bit[16:32],
+//         base: bit[32:48]
+//     }
+// }
+//
+// fn fse_record_to_bits(record: FseTableRecord) -> u48 {
+//     record.base ++ record.num_of_bits ++ record.symbol
+// }
+
 type BlockSyncData = common::BlockSyncData;
 type SequenceExecutorMessageType = common::SequenceExecutorMessageType;
 type SequenceExecutorPacket = common::SequenceExecutorPacket<common::SYMBOLS_IN_PACKET>;
@@ -81,20 +105,21 @@ enum SEQ_PART : u2 {
 
 enum FseDecoderFSM : u4 {
     RECV_CTRL = 0,
-    INIT_OF_STATE = 1,
-    INIT_ML_STATE = 2,
-    INIT_LL_STATE = 3,
-    SEND_RAM_RD_REQ = 4,
-    RECV_RAM_RD_RESP = 5,
-    READ_OF_BITS = 6,
-    READ_ML_BITS = 7,
-    READ_LL_BITS = 8,
-    UPDATE_OF_STATE = 9,
-    UPDATE_ML_STATE = 10,
-    UPDATE_LL_STATE = 11,
-    SEND_COMMAND_LITERAL = 12,
-    SEND_COMMAND_SEQUENCE = 13,
-    SEND_FINISH = 14,
+    PADDING = 1,
+    INIT_OF_STATE = 2,
+    INIT_ML_STATE = 3,
+    INIT_LL_STATE = 4,
+    SEND_RAM_RD_REQ = 5,
+    RECV_RAM_RD_RESP = 6,
+    READ_OF_BITS = 7,
+    READ_ML_BITS = 8,
+    READ_LL_BITS = 9,
+    UPDATE_OF_STATE = 10,
+    UPDATE_ML_STATE = 11,
+    UPDATE_LL_STATE = 12,
+    SEND_COMMAND_LITERAL = 13,
+    SEND_COMMAND_SEQUENCE = 14,
+    SEND_FINISH = 15,
 }
 
 struct FseDecoderState {
@@ -118,6 +143,7 @@ struct FseDecoderState {
     read_bits_needed: u7,
     sent_buf_ctrl: bool,
     shift_buffer_error: bool,
+    padding: u32,
 }
 
 pub proc FseDecoder<
@@ -186,7 +212,9 @@ pub proc FseDecoder<
 
         // receive ctrl
         let (_, ctrl, ctrl_valid) = recv_if_non_blocking(tok0, ctrl_r, state.fsm == FseDecoderFSM::RECV_CTRL, zero!<FseDecoderCtrl>());
-
+        if ctrl_valid {
+            trace_fmt!("ctrl: {:#x}", ctrl);
+        } else {};
         let state = if ctrl_valid {
             FseDecoderState {
                 ctrl: ctrl,
@@ -216,6 +244,21 @@ pub proc FseDecoder<
             base: of_rd_resp.data[0:16],
         };
 
+
+
+        // let ll_fse_table_record = bits_to_fse_record(ll_rd_resp.data);
+        // let ml_fse_table_record = bits_to_fse_record(ml_rd_resp.data);
+        // let of_fse_table_record = bits_to_fse_record(of_rd_resp.data);
+
+        // if ll_rd_resp_valid {
+        //     trace_fmt!("ll_fse_table_record: {:#x}", ll_fse_table_record);
+        // } else {};
+        // if ml_rd_resp_valid {
+        //     trace_fmt!("ml_fse_table_record: {:#x}", ml_fse_table_record);
+        // } else {};
+        // if of_rd_resp_valid {
+        //     trace_fmt!("of_fse_table_record: {:#x}", of_fse_table_record);
+        // } else {};
         // validate LL and ML symbols
         assert!(!(ll_rd_resp_valid && ll_fse_table_record.symbol > SEQ_MAX_CODES_LL), "invalid_literal_length_symbol");
         assert!(!(ml_rd_resp_valid && ml_fse_table_record.symbol > SEQ_MAX_CODES_ML), "invalid_match_length_symbol");
@@ -223,12 +266,23 @@ pub proc FseDecoder<
         // request records
         let do_send_ram_rd_req = state.fsm == FseDecoderFSM::SEND_RAM_RD_REQ;
 
-        send_if(tok0, ll_fse_rd_req_s, do_send_ram_rd_req, FseRamRdReq { addr: state.ll_state as RamAddr, mask: RAM_MASK_ALL});
-        send_if(tok0, ml_fse_rd_req_s, do_send_ram_rd_req, FseRamRdReq { addr: state.ml_state as RamAddr, mask: RAM_MASK_ALL});
-        send_if(tok0, of_fse_rd_req_s, do_send_ram_rd_req, FseRamRdReq { addr: state.of_state as RamAddr, mask: RAM_MASK_ALL});
+        let ll_req = FseRamRdReq { addr: state.ll_state as RamAddr, mask: RAM_MASK_ALL};
+        let ml_req = FseRamRdReq { addr: state.ml_state as RamAddr, mask: RAM_MASK_ALL};
+        let of_req = FseRamRdReq { addr: state.of_state as RamAddr, mask: RAM_MASK_ALL};
+
+        send_if(tok0, ll_fse_rd_req_s, do_send_ram_rd_req, ll_req);
+        send_if(tok0, ml_fse_rd_req_s, do_send_ram_rd_req, ml_req);
+        send_if(tok0, of_fse_rd_req_s, do_send_ram_rd_req, of_req);
+
+        if do_send_ram_rd_req {
+            trace_fmt!("ll_req: {:#x}", ll_req);
+            trace_fmt!("ml_req: {:#x}", ml_req);
+            trace_fmt!("of_req: {:#x}", of_req);
+        } else {};
 
         // read bits
         let do_read_bits = (
+            state.fsm == FseDecoderFSM::PADDING ||
             state.fsm == FseDecoderFSM::INIT_OF_STATE ||
             state.fsm == FseDecoderFSM::INIT_ML_STATE ||
             state.fsm == FseDecoderFSM::INIT_LL_STATE ||
@@ -247,6 +301,10 @@ pub proc FseDecoder<
             state.read_bits_needed - state.read_bits_length
         };
 
+        if do_send_buf_ctrl {
+            trace_fmt!("Asking for {:#x} data", buf_ctrl_length);
+        } else {};
+
         send_if(tok0, rsb_ctrl_s, do_send_buf_ctrl, RefillingSBCtrl {
             length: buf_ctrl_length,
         });
@@ -255,7 +313,11 @@ pub proc FseDecoder<
             FseDecoderState { sent_buf_ctrl: do_send_buf_ctrl, ..state }
         } else { state };
 
-        let (_, buf_data, buf_data_valid) = recv_if_non_blocking(tok0, rsb_data_r, do_read_bits && state.sent_buf_ctrl, zero!<RefillingSBOutput>());
+        let recv_sb_output = (do_read_bits && state.sent_buf_ctrl);
+        let (_, buf_data, buf_data_valid) = recv_if_non_blocking(tok0, rsb_data_r, recv_sb_output, zero!<RefillingSBOutput>());
+        if buf_data_valid {
+            trace_fmt!("[FseDecoder] Received data {:#x} in state {}", buf_data, state.fsm);
+        } else { };
 
         let state = if do_read_bits & buf_data_valid {
             FseDecoderState {
@@ -269,6 +331,7 @@ pub proc FseDecoder<
 
         // send command
         let command_data = if state.fsm == FseDecoderFSM::SEND_COMMAND_LITERAL {
+            trace_fmt!("(ll: {:#x}, ml: {:#x}, of: {:#x}", state.ll, state.ml, state.of);
             SequenceExecutorPacket {
                 msg_type: SequenceExecutorMessageType::LITERAL,
                 length: state.ll,
@@ -298,18 +361,47 @@ pub proc FseDecoder<
         match (state.fsm) {
             FseDecoderFSM::RECV_CTRL => {
                 if (ctrl_valid) {
+                    trace_fmt!("[FseDecoder]: Moving to PADDING");
                     FseDecoderState {
-                        fsm: FseDecoderFSM::INIT_LL_STATE,
+                        fsm: FseDecoderFSM::PADDING,
                         ctrl: ctrl,
                         read_bits: u16:0,
                         read_bits_length: u7:0,
-                        read_bits_needed: state.ctrl.ll_acc_log,
+                        read_bits_needed: u7:1,
                         ..state
                     }
                 } else { state }
             },
+            FseDecoderFSM::PADDING => {
+                if (state.read_bits_needed == state.read_bits_length && !state.sent_buf_ctrl) {
+                    trace_fmt!("[FseDecoder]: Moving to INIT_LL_STATE");
+
+                    let padding_available = (state.read_bits as u1 == u1:0);
+                    if padding_available {
+                        FseDecoderState {
+                            fsm: FseDecoderFSM::PADDING,
+                            read_bits: u16:0,
+                            read_bits_length: u7:0,
+                            read_bits_needed: u7:1,
+                            padding: state.padding + u32:1,
+                            ..state
+                        }
+                    } else {
+                        trace_fmt!("padding is: {:#x}", state.padding + u32:1);
+                        FseDecoderState {
+                            fsm: FseDecoderFSM::INIT_LL_STATE,
+                            read_bits: u16:0,
+                            read_bits_length: u7:0,
+                            read_bits_needed: state.ctrl.ll_acc_log,
+                            ..state
+                        }
+                    }
+                } else { state }
+            },
+
             FseDecoderFSM::INIT_LL_STATE => {
                 if (state.read_bits_needed == state.read_bits_length && !state.sent_buf_ctrl) {
+                    trace_fmt!("[FseDecoder]: Moving to INIT_OF_STATE");
                     FseDecoderState {
                         fsm: FseDecoderFSM::INIT_OF_STATE,
                         ll_state: state.read_bits,
@@ -322,6 +414,7 @@ pub proc FseDecoder<
             },
             FseDecoderFSM::INIT_OF_STATE => {
                 if (state.read_bits_needed == state.read_bits_length && !state.sent_buf_ctrl) {
+                    trace_fmt!("[FseDecoder]: Moving to INIT_ML_STATE");
                     FseDecoderState {
                         fsm: FseDecoderFSM::INIT_ML_STATE,
                         of_state: state.read_bits,
@@ -334,6 +427,7 @@ pub proc FseDecoder<
             },
             FseDecoderFSM::INIT_ML_STATE => {
                 if (state.read_bits_needed == state.read_bits_length && !state.sent_buf_ctrl) {
+                    trace_fmt!("[FseDecoder]: Moving to RAM_RD_REQ");
                     FseDecoderState {
                         fsm: FseDecoderFSM::SEND_RAM_RD_REQ,
                         ml_state: state.read_bits,
@@ -345,6 +439,7 @@ pub proc FseDecoder<
                 } else { state }
             },
             FseDecoderFSM::SEND_RAM_RD_REQ => {
+                // trace_fmt!("State LL: {} ML: {} OF: {}", state.ll_state, state.ml_state, state.of_state);
                 trace_fmt!("State LL: {:#x} ML: {:#x} OF: {:#x}", state.ll_state, state.ml_state, state.of_state);
                 FseDecoderState {
                     fsm: FseDecoderFSM::RECV_RAM_RD_RESP,
@@ -381,6 +476,7 @@ pub proc FseDecoder<
             },
             FseDecoderFSM::READ_OF_BITS => {
                 if ((state.read_bits_needed == state.read_bits_length) && !state.sent_buf_ctrl) {
+                    trace_fmt!("of_code: {:#x}", state.of_fse_table_record.symbol);
                     FseDecoderState {
                         fsm: FseDecoderFSM::READ_ML_BITS,
                         of: (math::logshiftl(u32:1, state.of_fse_table_record.symbol) + state.read_bits as u32) as u64,

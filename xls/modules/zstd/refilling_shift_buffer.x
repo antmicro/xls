@@ -64,7 +64,7 @@ fn reverse_byte_order<N_BITS: u32, N_BYTES: u32 = {N_BITS / u32:8}>(data: uN[N_B
     unroll_for! (i, acc): (u32, uN[N_BITS]) in range(u32:0, N_BYTES) {
         let offset = i * u32:8;
         let offset_rev = (N_BYTES - i - u32:1) * u32:8;
-        acc | (data[offset +: u8] as uN[N_BITS] << offset_rev)
+        acc | (rev(data[offset +: u8]) as uN[N_BITS] << offset_rev)
     }(uN[N_BITS]:0)
 }
 
@@ -76,7 +76,7 @@ fn test_reverse_byte_order() {
 }
 
 proc RefillingShiftBufferInternal<
-    DATA_W: u32, ADDR_W: u32, BACKWARDS: bool = {false},
+    DATA_W: u32, ADDR_W: u32, BACKWARDS: bool = {false}, INSTANCE: u32 = {u32:0},
     LENGTH_W: u32 = {length_width(DATA_W)},
     DATA_W_DIV8: u32 = {DATA_W / u32:8},
     BUFFER_W: u32 = {DATA_W * u32:2},             // TODO: fix implementation detail of ShiftBuffer leaking here
@@ -185,12 +185,12 @@ proc RefillingShiftBufferInternal<
         };
         send_if(tok, reader_req_s, do_refill_cycle, mem_req);
         if (do_refill_cycle) {
-            trace_fmt!("Sent request for data to memory: {:#x}", mem_req);
+            trace_fmt!("[{:#x}] Sent request for data to memory: {:#x}", INSTANCE, mem_req);
         } else {};
         // receive data from memory
         let (_, reader_resp, reader_resp_valid) = recv_non_blocking(tok, reader_resp_r, zero!<MemReaderResp>());
         if reader_resp_valid {
-            trace_fmt!("Received data from memory: {:#x}", reader_resp);
+            trace_fmt!("[{:#x}] Received data from memory: {:#x}", INSTANCE, reader_resp);
         } else {};
         // always send some data regardless of the reader_resp.status to allow for all requests
         // to complete (possibly with invalid data) since the response channel queue must be empty for
@@ -253,23 +253,27 @@ proc RefillingShiftBufferInternal<
             // reset the counter after a flush since its state will be invalid after that
             BufferSize:0
         } else {
-            // keep track of current amount of bits in the buffer 
+            // keep track of current amount of bits in the buffer
             state.bits_to_axi_error + input_bits - output_bits
         };
         // check if we will consume at least one bit from the data that returned AXI error
         let reads_error_bits = snoop_data_valid && state.bits_to_axi_error < snoop_data.length as BufferSize;
-        
+
         // data snoop forwarding logic
         // forward data heading for the ShiftBuffer output, attaching an error bit
         // if we've encountered an AXI error, unless we're flushing - in that case discard snoop_data
         let forward_snooped_data = snoop_data_valid && !flushing;
         send_if(tok, buffer_data_out_s, forward_snooped_data, RSBOutput {
-            data: snoop_data.data,
-            length: snoop_data.length, 
+            data: if BACKWARDS {
+                rev(snoop_data.data) >> (u32:64 - snoop_data.length as u32)
+            } else {
+                snoop_data.data
+            },
+            length: snoop_data.length,
             error: axi_error && reads_error_bits,
         });
         if forward_snooped_data {
-            trace_fmt!("Forwarded snooped data output packet: {:#x}", snoop_data);
+            trace_fmt!("[{:#x}] Forwarded snooped data output packet: {:#x}", INSTANCE, snoop_data);
         } else {};
 
         // FSM
@@ -381,6 +385,7 @@ pub proc RefillingShiftBuffer<
     DATA_W: u32,
     ADDR_W: u32,
     BACKWARDS: bool = {false},
+    INSTANCE: u32 = {u32:0},
     LENGTH_W: u32 = {length_width(DATA_W)},
 > {
     type MemReaderReq = mem_reader::MemReaderReq<ADDR_W>;
@@ -407,7 +412,7 @@ pub proc RefillingShiftBuffer<
         spawn shift_buffer::ShiftBuffer<DATA_W, LENGTH_W>(
             snoop_ctrl_r, buffer_data_in_r, snoop_data_out_s
         );
-        spawn RefillingShiftBufferInternal<DATA_W, ADDR_W, BACKWARDS>(
+        spawn RefillingShiftBufferInternal<DATA_W, ADDR_W, BACKWARDS, INSTANCE>(
             reader_req_s,
             reader_resp_r,
             start_req_r,

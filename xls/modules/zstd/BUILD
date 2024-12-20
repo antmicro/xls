@@ -2020,6 +2020,21 @@ place_and_route(
 )
 
 xls_dslx_library(
+    name = "ram_mux_dslx",
+    srcs = [
+        "ram_mux.x"
+    ],
+    deps = [
+        "//xls/examples:ram_dslx",
+    ],
+)
+
+xls_dslx_test(
+    name = "ram_mux_dslx_test",
+    library = ":ram_mux_dslx",
+)
+
+xls_dslx_library(
     name = "sequence_dec_dslx",
     srcs = [
         "sequence_dec.x"
@@ -2030,6 +2045,7 @@ xls_dslx_library(
         ":ram_demux3_dslx",
         ":common_dslx",
         ":fse_dec_dslx",
+        ":ram_mux_dslx",
         "//xls/modules/zstd/memory:mem_reader_dslx",
         "//xls/modules/zstd/memory:axi_ram_dslx",
         "//xls/modules/zstd:refilling_shift_buffer_dslx",

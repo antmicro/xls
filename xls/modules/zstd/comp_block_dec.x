@@ -33,15 +33,15 @@ type ExtendedPacket = common::ExtendedBlockDataPacket;
 type SequenceExecutorMessageType = common::SequenceExecutorMessageType;
 type BlockDataPacket = common::BlockDataPacket;
 
-struct CompressBlockDecoderReq<AXI_ADDR_W: u32> { 
+pub struct CompressBlockDecoderReq<AXI_ADDR_W: u32> { 
     addr: uN[AXI_ADDR_W],
     length: uN[AXI_ADDR_W],
     id: u32,
     last_block: bool,
 }
-struct CompressBlockDecoderResp { }
+pub struct CompressBlockDecoderResp { }
 
-proc CompressBlockDecoder<
+pub proc CompressBlockDecoder<
     // AXI parameters
     AXI_DATA_W: u32, AXI_ADDR_W: u32, AXI_ID_W: u32, AXI_DEST_W: u32,
 

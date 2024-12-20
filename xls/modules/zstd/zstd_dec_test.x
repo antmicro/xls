@@ -21,6 +21,12 @@ import xls.modules.zstd.sequence_executor;
 import xls.modules.zstd.zstd_frame_testcases;
 import xls.modules.zstd.memory.axi_ram;
 import xls.modules.zstd.zstd_dec;
+import xls.modules.zstd.comp_block_dec;
+import xls.modules.zstd.sequence_dec;
+import xls.modules.zstd.memory.mem_reader;
+import xls.modules.zstd.huffman_literals_dec;
+import xls.modules.zstd.parallel_rams;
+import xls.modules.zstd.literals_buffer;
 
 const TEST_WINDOW_LOG_MAX = u32:30;
 
@@ -45,13 +51,53 @@ const TEST_HB_RAM_INITIALIZED = sequence_executor::TEST_RAM_INITIALIZED;
 const TEST_HB_RAM_ASSERT_VALID_READ:bool = false;
 
 const TEST_RAM_DATA_W:u32 = TEST_AXI_DATA_W;
-const TEST_RAM_SIZE:u32 = u32:16384;
+const TEST_RAM_SIZE:u32 = u32:4096;
 const TEST_RAM_ADDR_W:u32 = std::clog2(TEST_RAM_SIZE);
 const TEST_RAM_WORD_PARTITION_SIZE:u32 = u32:8;
 const TEST_RAM_NUM_PARTITIONS:u32 = ram::num_partitions(TEST_RAM_WORD_PARTITION_SIZE, TEST_RAM_DATA_W);
 const TEST_RAM_BASE_ADDR:u32 = u32:0;
 const TEST_RAM_SIMULTANEOUS_READ_WRITE_BEHAVIOR = ram::SimultaneousReadWriteBehavior::READ_BEFORE_WRITE;
 const TEST_RAM_INITIALIZED = true;
+
+const TEST_DPD_RAM_DATA_W = u32:16;
+const TEST_DPD_RAM_SIZE = u32:256;
+const TEST_DPD_RAM_ADDR_W = std::clog2(TEST_DPD_RAM_SIZE);
+const TEST_DPD_RAM_WORD_PARTITION_SIZE = TEST_DPD_RAM_DATA_W;
+const TEST_DPD_RAM_NUM_PARTITIONS = ram::num_partitions(
+    TEST_DPD_RAM_WORD_PARTITION_SIZE, TEST_DPD_RAM_DATA_W);
+
+const TEST_FSE_RAM_DATA_W = u32:48;
+const TEST_FSE_RAM_SIZE = u32:256;
+const TEST_FSE_RAM_ADDR_W = std::clog2(TEST_FSE_RAM_SIZE);
+const TEST_FSE_RAM_WORD_PARTITION_SIZE = TEST_FSE_RAM_DATA_W / u32:3;
+const TEST_FSE_RAM_NUM_PARTITIONS = ram::num_partitions(
+    TEST_FSE_RAM_WORD_PARTITION_SIZE, TEST_FSE_RAM_DATA_W);
+
+const TEST_TMP_RAM_DATA_W = u32:16;
+const TEST_TMP_RAM_SIZE = u32:256;
+const TEST_TMP_RAM_ADDR_W = std::clog2(TEST_TMP_RAM_SIZE);
+const TEST_TMP_RAM_WORD_PARTITION_SIZE = TEST_TMP_RAM_DATA_W;
+const TEST_TMP_RAM_NUM_PARTITIONS = ram::num_partitions(
+    TEST_TMP_RAM_WORD_PARTITION_SIZE, TEST_TMP_RAM_DATA_W);
+
+const HUFFMAN_WEIGHTS_RAM_ADDR_W: u32 = huffman_literals_dec::WEIGHTS_ADDR_WIDTH;
+const HUFFMAN_WEIGHTS_RAM_DATA_W: u32 = huffman_literals_dec::WEIGHTS_DATA_WIDTH;
+const HUFFMAN_WEIGHTS_RAM_NUM_PARTITIONS: u32 = huffman_literals_dec::WEIGHTS_NUM_PARTITIONS;
+// Huffman prescan memory parameters
+const HUFFMAN_PRESCAN_RAM_ADDR_W: u32 = huffman_literals_dec::PRESCAN_ADDR_WIDTH;
+const HUFFMAN_PRESCAN_RAM_DATA_W: u32 = huffman_literals_dec::PRESCAN_DATA_WIDTH;
+const HUFFMAN_PRESCAN_RAM_NUM_PARTITIONS: u32 = huffman_literals_dec::PRESCAN_NUM_PARTITIONS;
+
+const HISTORY_BUFFER_SIZE_KB = common::HISTORY_BUFFER_SIZE_KB;
+
+// Literals buffer memory parameters
+const LITERALS_BUFFER_RAM_ADDR_W: u32 = parallel_rams::ram_addr_width(HISTORY_BUFFER_SIZE_KB);
+const LITERALS_BUFFER_RAM_SIZE: u32 = parallel_rams::ram_size(HISTORY_BUFFER_SIZE_KB);
+const LITERALS_BUFFER_RAM_DATA_W: u32 = literals_buffer::RAM_DATA_WIDTH;
+const LITERALS_BUFFER_RAM_NUM_PARTITIONS: u32 = literals_buffer::RAM_NUM_PARTITIONS;
+const LITERALS_BUFFER_RAM_WORD_PARTITION_SIZE: u32 = LITERALS_BUFFER_RAM_DATA_W;
+
+const AXI_CHAN_N = u32:6;
 
 const TEST_MOCK_OUTPUT_RAM_SIZE:u32 = TEST_RAM_SIZE / TEST_AXI_DATA_W_DIV8;
 
@@ -90,6 +136,52 @@ proc ZstdDecoderTest {
     type RamWrResp = ram::WriteResp;
 
     type ZstdDecodedPacket = common::ZstdDecodedPacket;
+
+    type Req = comp_block_dec::CompressBlockDecoderReq<TEST_AXI_ADDR_W>;
+    type Resp = comp_block_dec::CompressBlockDecoderResp;
+
+    type SequenceDecReq = sequence_dec::SequenceDecoderReq<TEST_AXI_ADDR_W>;
+    type SequenceDecResp = sequence_dec::SequenceDecoderResp;
+
+    type MemReaderReq  = mem_reader::MemReaderReq<TEST_AXI_ADDR_W>;
+    type MemReaderResp = mem_reader::MemReaderResp<TEST_AXI_DATA_W, TEST_AXI_ADDR_W>;
+
+    type MemAxiAr = axi::AxiAr<TEST_AXI_ADDR_W, TEST_AXI_ID_W>;
+    type MemAxiR = axi::AxiR<TEST_AXI_DATA_W, TEST_AXI_ID_W>;
+    type MemAxiAw = axi::AxiAw<TEST_AXI_ADDR_W, TEST_AXI_ID_W>;
+    type MemAxiW = axi::AxiW<TEST_AXI_DATA_W, TEST_AXI_DATA_W_DIV8>;
+    type MemAxiB = axi::AxiB<TEST_AXI_ID_W>;
+
+    type DpdRamRdReq = ram::ReadReq<TEST_DPD_RAM_ADDR_W, TEST_DPD_RAM_NUM_PARTITIONS>;
+    type DpdRamRdResp = ram::ReadResp<TEST_DPD_RAM_DATA_W>;
+    type DpdRamWrReq = ram::WriteReq<TEST_DPD_RAM_ADDR_W, TEST_DPD_RAM_DATA_W, TEST_DPD_RAM_NUM_PARTITIONS>;
+    type DpdRamWrResp = ram::WriteResp;
+
+    type TmpRamRdReq = ram::ReadReq<TEST_TMP_RAM_ADDR_W, TEST_TMP_RAM_NUM_PARTITIONS>;
+    type TmpRamRdResp = ram::ReadResp<TEST_TMP_RAM_DATA_W>;
+    type TmpRamWrReq = ram::WriteReq<TEST_TMP_RAM_ADDR_W, TEST_TMP_RAM_DATA_W, TEST_TMP_RAM_NUM_PARTITIONS>;
+    type TmpRamWrResp = ram::WriteResp;
+
+    type FseRamRdReq = ram::ReadReq<TEST_FSE_RAM_ADDR_W, TEST_FSE_RAM_NUM_PARTITIONS>;
+    type FseRamRdResp = ram::ReadResp<TEST_FSE_RAM_DATA_W>;
+    type FseRamWrReq = ram::WriteReq<TEST_FSE_RAM_ADDR_W, TEST_FSE_RAM_DATA_W, TEST_FSE_RAM_NUM_PARTITIONS>;
+    type FseRamWrResp = ram::WriteResp;
+
+    type SequenceExecutorPacket = common::SequenceExecutorPacket<common::SYMBOL_WIDTH>;
+    type CommandConstructorData = common::CommandConstructorData;
+
+    type HuffmanWeightsReadReq    = ram::ReadReq<HUFFMAN_WEIGHTS_RAM_ADDR_W, HUFFMAN_WEIGHTS_RAM_NUM_PARTITIONS>;
+    type HuffmanWeightsReadResp   = ram::ReadResp<HUFFMAN_WEIGHTS_RAM_DATA_W>;
+    type HuffmanPrescanReadReq    = ram::ReadReq<HUFFMAN_PRESCAN_RAM_ADDR_W, HUFFMAN_PRESCAN_RAM_NUM_PARTITIONS>;
+    type HuffmanPrescanReadResp   = ram::ReadResp<HUFFMAN_PRESCAN_RAM_DATA_W>;
+    type HuffmanPrescanWriteReq   = ram::WriteReq<HUFFMAN_PRESCAN_RAM_ADDR_W, HUFFMAN_PRESCAN_RAM_DATA_W, HUFFMAN_PRESCAN_RAM_NUM_PARTITIONS>;
+    type HuffmanPrescanWriteResp  = ram::WriteResp;
+
+    type LitBufRamRdReq = ram::ReadReq<LITERALS_BUFFER_RAM_ADDR_W, LITERALS_BUFFER_RAM_NUM_PARTITIONS>;
+    type LitBufRamRdResp = ram::ReadResp<LITERALS_BUFFER_RAM_DATA_W>;
+    type LitBufRamWrReq = ram::WriteReq<LITERALS_BUFFER_RAM_ADDR_W, LITERALS_BUFFER_RAM_DATA_W, LITERALS_BUFFER_RAM_NUM_PARTITIONS>;
+    type LitBufRamWrResp = ram::WriteResp;
+
     terminator: chan<bool> out;
     csr_axi_aw_s: chan<CsrAxiAw> out;
     csr_axi_w_s: chan<CsrAxiW> out;
@@ -102,6 +194,10 @@ proc ZstdDecoderTest {
     bh_axi_r_s: chan<MemAxiR> out;
     raw_axi_ar_r: chan<MemAxiAr> in;
     raw_axi_r_s: chan<MemAxiR> out;
+    
+    axi_ram_wr_req_s: chan<RamWrReq>[AXI_CHAN_N] out;
+    axi_ram_wr_resp_r: chan<RamWrResp>[AXI_CHAN_N] in;
+
     output_axi_aw_r: chan<MemAxiAw> in;
     output_axi_w_r: chan<MemAxiW> in;
     output_axi_b_s: chan<MemAxiB> out;
@@ -166,15 +262,116 @@ proc ZstdDecoderTest {
         let (notify_s, notify_r) = chan<()>("notify");
         let (reset_s, reset_r) = chan<()>("reset");
 
+        // Huffman weights memory
+        let (huffman_lit_weights_mem_rd_req_s, _huffman_lit_weights_mem_rd_req_r) = chan<HuffmanWeightsReadReq>("huffman_lit_weights_mem_rd_req");
+        let (_huffman_lit_weights_mem_rd_resp_s, huffman_lit_weights_mem_rd_resp_r) = chan<HuffmanWeightsReadResp>("huffman_lit_weights_mem_rd_resp");
+
+        // Huffman prescan memory
+        let (huffman_lit_prescan_mem_rd_req_s, _huffman_lit_prescan_mem_rd_req_r) = chan<HuffmanPrescanReadReq>("huffman_lit_prescan_mem_rd_req");
+        let (_huffman_lit_prescan_mem_rd_resp_s, huffman_lit_prescan_mem_rd_resp_r) = chan<HuffmanPrescanReadResp>("huffman_lit_prescan_mem_rd_resp");
+        let (huffman_lit_prescan_mem_wr_req_s, _huffman_lit_prescan_mem_wr_req_r) = chan<HuffmanPrescanWriteReq>("huffman_lit_prescan_mem_wr_req");
+        let (_huffman_lit_prescan_mem_wr_resp_s, huffman_lit_prescan_mem_wr_resp_r) = chan<HuffmanPrescanWriteResp>("huffman_lit_prescan_mem_wr_resp");
+
+        // AXI channels for various blocks
+        let (axi_ram_rd_req_s, axi_ram_rd_req_r) = chan<RamRdReq>[AXI_CHAN_N]("axi_ram_rd_req");
+        let (axi_ram_rd_resp_s, axi_ram_rd_resp_r) = chan<RamRdResp>[AXI_CHAN_N]("axi_ram_rd_resp");
+        let (axi_ram_wr_req_s, axi_ram_wr_req_r) = chan<RamWrReq>[AXI_CHAN_N]("axi_ram_wr_req");
+        let (axi_ram_wr_resp_s, axi_ram_wr_resp_r) = chan<RamWrResp>[AXI_CHAN_N]("axi_ram_wr_resp");
+        let (axi_ram_ar_s, axi_ram_ar_r) = chan<MemAxiAr>[AXI_CHAN_N]("axi_ram_ar");
+        let (axi_ram_r_s, axi_ram_r_r) = chan<MemAxiR>[AXI_CHAN_N]("axi_ram_r");
+        unroll_for! (i, ()): (u32, ()) in range(u32:0, AXI_CHAN_N) {
+            spawn ram::RamModel<
+                TEST_RAM_DATA_W, TEST_RAM_SIZE, TEST_RAM_WORD_PARTITION_SIZE,
+                TEST_RAM_SIMULTANEOUS_READ_WRITE_BEHAVIOR, TEST_RAM_INITIALIZED
+            >(
+                axi_ram_rd_req_r[i], axi_ram_rd_resp_s[i], axi_ram_wr_req_r[i], axi_ram_wr_resp_s[i]  
+            );
+            spawn axi_ram::AxiRamReader<
+                TEST_AXI_ADDR_W, TEST_AXI_DATA_W, TEST_AXI_DEST_W, TEST_AXI_ID_W, TEST_RAM_SIZE,
+                TEST_RAM_BASE_ADDR, TEST_RAM_DATA_W, TEST_RAM_ADDR_W
+            >(
+                axi_ram_ar_r[i], axi_ram_r_s[i], axi_ram_rd_req_s[i], axi_ram_rd_resp_r[i]
+            );
+        }(());
+
+        // Literals buffer RAMs
+        let (litbuf_rd_req_s,  litbuf_rd_req_r) = chan<LitBufRamRdReq>[u32:8]("litbuf_rd_req");
+        let (litbuf_rd_resp_s, litbuf_rd_resp_r) = chan<LitBufRamRdResp>[u32:8]("litbuf_rd_resp");
+        let (litbuf_wr_req_s,  litbuf_wr_req_r) = chan<LitBufRamWrReq>[u32:8]("litbuf_wr_req");
+        let (litbuf_wr_resp_s, litbuf_wr_resp_r) = chan<LitBufRamWrResp>[u32:8]("litbuf_wr_resp");
+        unroll_for! (i, ()): (u32, ()) in range(u32:0, u32:8) {
+            spawn ram::RamModel<
+                LITERALS_BUFFER_RAM_DATA_W, LITERALS_BUFFER_RAM_SIZE, LITERALS_BUFFER_RAM_WORD_PARTITION_SIZE,
+                TEST_RAM_SIMULTANEOUS_READ_WRITE_BEHAVIOR, TEST_RAM_INITIALIZED
+            >(
+                litbuf_rd_req_r[i], litbuf_rd_resp_s[i], litbuf_wr_req_r[i], litbuf_wr_resp_s[i]
+            );
+        }(());
+
+        // RAMs for FSE decoder
+        // DPD RAM
+        let (dpd_rd_req_s, dpd_rd_req_r) = chan<DpdRamRdReq>("dpd_rd_req");
+        let (dpd_rd_resp_s, dpd_rd_resp_r) = chan<DpdRamRdResp>("dpd_rd_resp");
+        let (dpd_wr_req_s, dpd_wr_req_r) = chan<DpdRamWrReq>("dpd_wr_req");
+        let (dpd_wr_resp_s, dpd_wr_resp_r) = chan<DpdRamWrResp>("dpd_wr_resp");
+        spawn ram::RamModel<
+            TEST_DPD_RAM_DATA_W, TEST_DPD_RAM_SIZE, TEST_DPD_RAM_WORD_PARTITION_SIZE,
+            TEST_RAM_SIMULTANEOUS_READ_WRITE_BEHAVIOR, TEST_RAM_INITIALIZED
+        >(
+            dpd_rd_req_r, dpd_rd_resp_s, dpd_wr_req_r, dpd_wr_resp_s,
+        );
+
+        // TMP RAM
+        let (tmp_rd_req_s, tmp_rd_req_r) = chan<TmpRamRdReq>("tmp_rd_req");
+        let (tmp_rd_resp_s, tmp_rd_resp_r) = chan<TmpRamRdResp>("tmp_rd_resp");
+        let (tmp_wr_req_s, tmp_wr_req_r) = chan<TmpRamWrReq>("tmp_wr_req");
+        let (tmp_wr_resp_s, tmp_wr_resp_r) = chan<TmpRamWrResp>("tmp_wr_resp");
+        spawn ram::RamModel<
+            TEST_TMP_RAM_DATA_W, TEST_TMP_RAM_SIZE, TEST_TMP_RAM_WORD_PARTITION_SIZE,
+            TEST_RAM_SIMULTANEOUS_READ_WRITE_BEHAVIOR, TEST_RAM_INITIALIZED
+        >(
+            tmp_rd_req_r, tmp_rd_resp_s, tmp_wr_req_r, tmp_wr_resp_s,
+        );
+
+        // FSE RAMs
+        let (fse_rd_req_s, fse_rd_req_r) = chan<FseRamRdReq>[u32:6]("tmp_rd_req");
+        let (fse_rd_resp_s, fse_rd_resp_r) = chan<FseRamRdResp>[u32:6]("tmp_rd_resp");
+        let (fse_wr_req_s, fse_wr_req_r) = chan<FseRamWrReq>[u32:6]("tmp_wr_req");
+        let (fse_wr_resp_s, fse_wr_resp_r) = chan<FseRamWrResp>[u32:6]("tmp_wr_resp");
+        unroll_for! (i, ()): (u32, ()) in range(u32:0, u32:6) {
+            spawn ram::RamModel<
+                TEST_FSE_RAM_DATA_W, TEST_FSE_RAM_SIZE, TEST_FSE_RAM_WORD_PARTITION_SIZE,
+                TEST_RAM_SIMULTANEOUS_READ_WRITE_BEHAVIOR, TEST_RAM_INITIALIZED
+            >(
+                fse_rd_req_r[i], fse_rd_resp_s[i], fse_wr_req_r[i], fse_wr_resp_s[i]
+            );
+        }(());
+
         spawn zstd_dec::ZstdDecoder<
             TEST_AXI_DATA_W, TEST_AXI_ADDR_W, TEST_AXI_ID_W, TEST_AXI_DEST_W,
             TEST_REGS_N, TEST_WINDOW_LOG_MAX,
             TEST_HB_ADDR_W, TEST_HB_DATA_W, TEST_HB_NUM_PARTITIONS, TEST_HB_SIZE_KB,
+            TEST_DPD_RAM_ADDR_W, TEST_DPD_RAM_DATA_W, TEST_DPD_RAM_NUM_PARTITIONS,
+            TEST_TMP_RAM_ADDR_W, TEST_TMP_RAM_DATA_W, TEST_TMP_RAM_NUM_PARTITIONS,
+            TEST_FSE_RAM_ADDR_W, TEST_FSE_RAM_DATA_W, TEST_FSE_RAM_NUM_PARTITIONS,
+            HISTORY_BUFFER_SIZE_KB, AXI_CHAN_N,
         >(
             csr_axi_aw_r, csr_axi_w_r, csr_axi_b_s, csr_axi_ar_r, csr_axi_r_s,
             fh_axi_ar_s, fh_axi_r_r,
             bh_axi_ar_s, bh_axi_r_r,
             raw_axi_ar_s, raw_axi_r_r,
+            axi_ram_ar_s, axi_ram_r_r,
+            dpd_rd_req_s, dpd_rd_resp_r,
+            dpd_wr_req_s, dpd_wr_resp_r,
+            tmp_rd_req_s, tmp_rd_resp_r,
+            tmp_wr_req_s, tmp_wr_resp_r,
+            fse_rd_req_s, fse_rd_resp_r,
+            fse_wr_req_s, fse_wr_resp_r,
+            litbuf_rd_req_s, litbuf_rd_resp_r,
+            litbuf_wr_req_s, litbuf_wr_resp_r,
+            huffman_lit_weights_mem_rd_req_s, huffman_lit_weights_mem_rd_resp_r,
+            huffman_lit_prescan_mem_rd_req_s, huffman_lit_prescan_mem_rd_resp_r,
+            huffman_lit_prescan_mem_wr_req_s, huffman_lit_prescan_mem_wr_resp_r,
             output_axi_aw_s, output_axi_w_s, output_axi_b_r,
             ram_rd_req_s[0], ram_rd_req_s[1], ram_rd_req_s[2], ram_rd_req_s[3],
             ram_rd_req_s[4], ram_rd_req_s[5], ram_rd_req_s[6], ram_rd_req_s[7],
@@ -271,6 +468,7 @@ proc ZstdDecoderTest {
             fh_axi_ar_r, fh_axi_r_s,
             bh_axi_ar_r, bh_axi_r_s,
             raw_axi_ar_r, raw_axi_r_s,
+            axi_ram_wr_req_s, axi_ram_wr_resp_r,
             output_axi_aw_r, output_axi_w_r, output_axi_b_s,
             ram_rd_req_r, ram_rd_resp_s, ram_wr_req_r, ram_wr_resp_s,
             ram_wr_req_fh_s, ram_wr_req_bh_s, ram_wr_req_raw_s,

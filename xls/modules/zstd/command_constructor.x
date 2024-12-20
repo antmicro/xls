@@ -87,7 +87,7 @@ pub proc CommandConstructor {
                 } else {
                     (zero!<State>(), true, false)
                 }
-                },
+            },
             Status::RECV_LITERALS => {
                 let received_literals = state.received_literals + literals.length;
                 if received_literals < state.literals_to_receive {

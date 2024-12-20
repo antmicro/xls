@@ -417,11 +417,11 @@ const AXI_CHAN_N = u32:6;
 
 // testcase format:
 // - block length (without block header, essentially length of sequences + literals sections),
-// - raw literals and sequences sections
+// - literals and sequences sections as they appear in memory
 // - expected output size
 // - expected output
-const COMP_BLOCK_DEC_TESTCASES: (u32, u64[64], u32, ExtendedPacket[128])[1] = [
-    // testcase #1 - compressed block with raw literals
+const COMP_BLOCK_DEC_TESTCASES: (u32, u64[64], u32, ExtendedPacket[128])[3] = [
+    // testcase #1 - RAW literals with lookups
     (
         u32:0xde,
         u64[64]:[
@@ -653,8 +653,120 @@ const COMP_BLOCK_DEC_TESTCASES: (u32, u64[64], u32, ExtendedPacket[128])[1] = [
                 msg_type: SequenceExecutorMessageType::SEQUENCE,
                 packet: BlockDataPacket { last: true, last_block: false, id: u32:1234, data: u64:0x10, length: u32:3 }
             },            
-            zero!<ExtendedPacket>(), ...]
-    )
+            zero!<ExtendedPacket>(), ...
+        ]
+    ),
+    // testcase #2 - simple RLE without lookups
+    (
+        u32:0x8,
+        u64[64]:[
+            u64:0x802030554016729,
+            u64:0, ...
+        ],
+        u32:2,
+        ExtendedPacket[128]:[
+            ExtendedPacket {
+                msg_type: SequenceExecutorMessageType::LITERAL,
+                packet: BlockDataPacket { last: true, last_block: false, id: u32:1234, data: u64:0x676767, length: u32:40 }
+            },
+            ExtendedPacket {
+                msg_type: SequenceExecutorMessageType::SEQUENCE,
+                packet: BlockDataPacket { last: true, last_block: false, id: u32:1234, data: u64:0x8, length: u32:5 }
+            }, 
+            zero!<ExtendedPacket>(), ...
+        ]
+    ),
+    // testcase #3 - RLE with lookups
+    (
+        u32:0x1a,
+        u64[64]:[
+            u64:0x1e502ec0a80b6cc1,
+            u64:0xa90c1de00eef5210,
+            u64:0x144551d29e920495,
+            u64:0x35e5,
+            u64:0, ...
+        ],
+        u32:19,
+        ExtendedPacket[128]:[
+            ExtendedPacket {
+                msg_type: SequenceExecutorMessageType::LITERAL,
+                packet: BlockDataPacket { last: true, last_block: false, id: u32:1234, data: u64:0x6c6c6c6c6c, length: u32:24 }
+            },
+            ExtendedPacket {
+                msg_type: SequenceExecutorMessageType::SEQUENCE,
+                packet: BlockDataPacket { last: false, last_block: false, id: u32:1234, data: u64:0x5, length: u32:3 }
+            },
+            ExtendedPacket {
+                msg_type: SequenceExecutorMessageType::LITERAL,
+                packet: BlockDataPacket { last: true, last_block: false, id: u32:1234, data: u64:0x6c6c6c6c6c6c6c, length: u32:8 }
+            },
+            ExtendedPacket {
+                msg_type: SequenceExecutorMessageType::SEQUENCE,
+                packet: BlockDataPacket { last: false, last_block: false, id: u32:1234, data: u64:0x9, length: u32:3 }
+            },
+            ExtendedPacket {
+                msg_type: SequenceExecutorMessageType::LITERAL,
+                packet: BlockDataPacket { last: true, last_block: false, id: u32:1234, data: u64:0x6c6c6c6c6c, length: u32:24 }
+            },
+            ExtendedPacket {
+                msg_type: SequenceExecutorMessageType::SEQUENCE,
+                packet: BlockDataPacket { last: false, last_block: false, id: u32:1234, data: u64:0xa, length: u32:3 }
+            },
+            ExtendedPacket {
+                msg_type: SequenceExecutorMessageType::SEQUENCE,
+                packet: BlockDataPacket { last: false, last_block: false, id: u32:1234, data: u64:0x11, length: u32:3 }
+            },
+            ExtendedPacket {
+                msg_type: SequenceExecutorMessageType::SEQUENCE,
+                packet: BlockDataPacket { last: false, last_block: false, id: u32:1234, data: u64:0xc, length: u32:3 }
+            },
+            ExtendedPacket {
+                msg_type: SequenceExecutorMessageType::LITERAL,
+                packet: BlockDataPacket { last: true, last_block: false, id: u32:1234, data: u64:0x6c6c6c, length: u32:40 }
+            },
+            ExtendedPacket {
+                msg_type: SequenceExecutorMessageType::SEQUENCE,
+                packet: BlockDataPacket { last: false, last_block: false, id: u32:1234, data: u64:0x4, length: u32:3 }
+            },
+            ExtendedPacket {
+                msg_type: SequenceExecutorMessageType::LITERAL,
+                packet: BlockDataPacket { last: true, last_block: false, id: u32:1234, data: u64:0x6c6c6c6c6c, length: u32:24 }
+            },
+            ExtendedPacket {
+                msg_type: SequenceExecutorMessageType::SEQUENCE,
+                packet: BlockDataPacket { last: false, last_block: false, id: u32:1234, data: u64:0x24, length: u32:3 }
+            },
+            ExtendedPacket {
+                msg_type: SequenceExecutorMessageType::SEQUENCE,
+                packet: BlockDataPacket { last: false, last_block: false, id: u32:1234, data: u64:0xa, length: u32:3 }
+            },
+            ExtendedPacket {
+                msg_type: SequenceExecutorMessageType::LITERAL,
+                packet: BlockDataPacket { last: true, last_block: false, id: u32:1234, data: u64:0x6c6c6c6c6c6c6c, length: u32:8 }
+            },
+            ExtendedPacket {
+                msg_type: SequenceExecutorMessageType::SEQUENCE,
+                packet: BlockDataPacket { last: false, last_block: false, id: u32:1234, data: u64:0x5, length: u32:4 }
+            },
+            ExtendedPacket {
+                msg_type: SequenceExecutorMessageType::LITERAL,
+                packet: BlockDataPacket { last: true, last_block: false, id: u32:1234, data: u64:0x6c6c6c6c, length: u32:32 }
+            },
+            ExtendedPacket {
+                msg_type: SequenceExecutorMessageType::SEQUENCE,
+                packet: BlockDataPacket { last: false, last_block: false, id: u32:1234, data: u64:0x14, length: u32:3 }
+            },
+            ExtendedPacket {
+                msg_type: SequenceExecutorMessageType::LITERAL,
+                packet: BlockDataPacket { last: true, last_block: false, id: u32:1234, data: u64:0x6c6c6c6c, length: u32:32 }
+            },
+            ExtendedPacket {
+                msg_type: SequenceExecutorMessageType::SEQUENCE,
+                packet: BlockDataPacket { last: true, last_block: false, id: u32:1234, data: u64:0x1c, length: u32:3 }
+            },
+            zero!<ExtendedPacket>(), ...
+        ]
+    ),
 ];
 
 #[test_proc]

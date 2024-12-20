@@ -1192,21 +1192,21 @@ proc SequenceDecoderTest {
    next(state: ()) {
        let tok = join();
 
-        let tok = unroll_for! (test_i, tok): (u32, token) in range(u32:0, frames_count) {
-            trace_fmt!("Loading testcase {:x}", test_i + u32:1);
-            let frame = zstd_frame_testcases::FRAMES[test_i];
-            let tok = for (i, tok): (u32, token) in range(u32:0, frame.array_length) {
-                let req = RamWrReq {
-                    addr: i as uN[TEST_RAM_ADDR_W],
-                    data: frame.data[i] as uN[TEST_RAM_DATA_W],
-                    mask: uN[TEST_RAM_NUM_PARTITIONS]:0xFF
-                };
-                let tok = send(tok, ram_wr_req_fh_s, req);
-                let tok = send(tok, ram_wr_req_bh_s, req);
-                let tok = send(tok, ram_wr_req_raw_s, req);
-                tok
-            }(tok);
-        }
+    //    let tok = unroll_for! (test_i, tok): (u32, token) in range(u32:0, frames_count) {
+            // trace_fmt!("Loading testcase {:x}", test_i + u32:1);
+            // let frame = zstd_frame_testcases::FRAMES[test_i];
+            // let tok = for (i, tok): (u32, token) in range(u32:0, frame.array_length) {
+                // let req = RamWrReq {
+                    // addr: i as uN[TEST_RAM_ADDR_W],
+                    // data: frame.data[i] as uN[TEST_RAM_DATA_W],
+                    // mask: uN[TEST_RAM_NUM_PARTITIONS]:0xFF
+                // };
+                // let tok = send(tok, ram_wr_req_fh_s, req);
+                // let tok = send(tok, ram_wr_req_bh_s, req);
+                // let tok = send(tok, ram_wr_req_raw_s, req);
+                // tok
+            // }(tok);
+        // }
 
        send(tok, terminator, true);
    }

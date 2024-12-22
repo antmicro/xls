@@ -282,7 +282,11 @@ proc RefillingShiftBufferInternal<
                 if (start_valid) {
                     State {
                         fsm: Fsm::REFILLING,
-                        curr_addr: start_req.start_addr,
+                        curr_addr: if BACKWARDS {
+                            start_req.start_addr - DATA_W_DIV8
+                        } else {
+                            start_req.start_addr
+                        },
                         ..state
                     }
                 } else {

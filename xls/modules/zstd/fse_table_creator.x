@@ -44,9 +44,10 @@ enum Status : u4 {
 struct FseTableCreatorState {
     status: Status,
     req: bool,
-    idx: u16,
-    num_symbs: u16,
-    curr_symbol: u16,
+    idx: u8,
+    // TODO: num_symbs is u8, possibly other fields as well
+    num_symbs: u8,
+    curr_symbol: u8,
     state_desc_for_symbol: u16,
     accuracy_log: u16,
     high_threshold: u16,
@@ -56,38 +57,34 @@ struct FseTableCreatorState {
     pos: u16,
 }
 
-pub struct FseTableRecord {
-    symbol: u16,
-    num_of_bits: u16,
-    base: u16
-}
+type FseTableRecord = common::FseTableRecord;
 
 pub struct FseStartMsg { num_symbs: SymbolCount, accuracy_log: AccuracyLog }
 
-fn fse_record_to_bits(record: FseTableRecord) -> u48 {
+pub fn fse_record_to_bits(record: FseTableRecord) -> u32 {
     record.base ++ record.num_of_bits ++ record.symbol
 }
 
 #[test]
 fn test_fse_record_to_bits() {
     let bit = fse_record_to_bits(
-        FseTableRecord { symbol: u16:0x0017, num_of_bits: u16:0x0005, base: u16:0x0020 }
+        FseTableRecord { symbol: u8:0x17, num_of_bits: u8:0x05, base: u16:0x0020 }
     );
-    assert_eq(bit, u48:0x0020_0005_0017);
+    assert_eq(bit, u32:0x0020_05_17);
 }
 
-pub fn bits_to_fse_record(bit: u48) -> FseTableRecord {
+pub fn bits_to_fse_record(bit: u32) -> FseTableRecord {
     FseTableRecord {
-        symbol: bit[0:16],
-        num_of_bits: bit[16:32],
-        base: bit[32:48]
+        symbol: bit[0:8],
+        num_of_bits: bit[8:16],
+        base: bit[16:32]
     }
 }
 
 #[test]
 fn test_bits_to_fse_record() {
-    let record = bits_to_fse_record(u48:0x0020_0005_0017);
-    assert_eq(record, FseTableRecord { symbol: u16:0x0017, num_of_bits: u16:0x0005, base: u16:0x0020 });
+    let record = bits_to_fse_record(u32:0x0020_05_17);
+    assert_eq(record, FseTableRecord { symbol: u8:0x17, num_of_bits: u8:0x05, base: u16:0x0020 });
 }
 
 pub proc FseTableCreator<
@@ -174,7 +171,7 @@ pub proc FseTableCreator<
     next(state: State) {
         const DPD_RAM_REQ_MASK_ALL = std::unsigned_max_value<DPD_RAM_NUM_PARTITIONS>();
         const FSE_RAM_REQ_MASK_ALL = std::unsigned_max_value<FSE_RAM_NUM_PARTITIONS>();
-        const FSE_RAM_REQ_MASK_SYMBOL = u3:0b001;
+        const FSE_RAM_REQ_MASK_SYMBOL = u4:0b0001;
         const TMP_RAM_REQ_MASK_ALL = std::unsigned_max_value<TMP_RAM_NUM_PARTITIONS>();
 
         // Type definitions repeated because of https://github.com/google/xls/issues/1368
@@ -208,7 +205,7 @@ pub proc FseTableCreator<
         let decreased_high_threshold = state.high_threshold - u16:1;
         let index_as_symbol_record = FseTableRecord {
             symbol: state.idx,
-            num_of_bits: u16:0,
+            num_of_bits: u8:0,
             base: u16:0
         };
         let fse_record_as_bits = fse_record_to_bits(index_as_symbol_record);
@@ -301,7 +298,7 @@ pub proc FseTableCreator<
 
         let complete_record = FseTableRecord {
             symbol: symbol,
-            num_of_bits: num_bits,
+            num_of_bits: checked_cast<u8>(num_bits),
             base: new_state_base
         };
         let complete_record_as_bits = fse_record_to_bits(complete_record);
@@ -330,7 +327,7 @@ pub proc FseTableCreator<
                     State {
                         status: Status::TEST_NEGATIVE_PROB,
                         req: true,
-                        num_symbs: checked_cast<u16>(fse_start_msg.num_symbs),
+                        num_symbs: checked_cast<u8>(fse_start_msg.num_symbs),
                         accuracy_log: checked_cast<u16>(fse_start_msg.accuracy_log),
                         high_threshold: u16:1 << fse_start_msg.accuracy_log,
                     ..state
@@ -340,21 +337,21 @@ pub proc FseTableCreator<
                     if dpd_resp.data == s16:-1 as u16 {
                         State { status: Status::HANDLE_NEGATIVE_PROB, ..state }
                     } else {
-                        let next_idx = state.idx + u16:1;
+                        let next_idx = state.idx + u8:1;
                         if next_idx < state.num_symbs {
                             State { status: Status::TEST_NEGATIVE_PROB, req: true, idx: next_idx, ..state }
                         } else {
-                            State { status: Status::START_ITERATING_POS, req: true, idx: u16:0, ..state }
+                            State { status: Status::START_ITERATING_POS, req: true, idx: u8:0, ..state }
                         }
                     }
                 },
                 Status::HANDLE_NEGATIVE_PROB => {
                     // https://github.com/facebook/zstd/blob/9f42fa0a043aa389534cf10ff086976c4c6b10a6/doc/educational_decoder/zstd_decompress.c#L2143-L2146
-                    let next_idx = state.idx + u16:1;
+                    let next_idx = state.idx + u8:1;
                     if next_idx < state.num_symbs {
                         State { status: Status::TEST_NEGATIVE_PROB, req: true, idx: next_idx, high_threshold: decreased_high_threshold, ..state }
                     } else {
-                        State { status: Status::START_ITERATING_POS, req: true, idx: u16:0, high_threshold: decreased_high_threshold, ..state }
+                        State { status: Status::START_ITERATING_POS, req: true, idx: u8:0, high_threshold: decreased_high_threshold, ..state }
                     }
                 },
                 Status::START_ITERATING_POS => {
@@ -364,11 +361,11 @@ pub proc FseTableCreator<
                     if dpd_resp.data as s16 > s16:0 {
                         State { status: Status::HANDLE_POSITIVE_PROB, req: true, ..state }
                     } else {
-                        let next_idx = state.idx + u16:1;
+                        let next_idx = state.idx + u8:1;
                         if next_idx < state.num_symbs {
                             State { status: Status::TEST_POSITIVE_PROB, req: true, idx: next_idx, ..state }
                         } else {
-                            State { status: Status::LAST_FOR, idx: u16:0, ..state }
+                            State { status: Status::LAST_FOR, idx: u8:0, ..state }
                         }
                     }
                 },
@@ -389,11 +386,11 @@ pub proc FseTableCreator<
                         State { status: Status::INNER_FOR_GET_POS, inner_for_idx: next_idx, ..state }
                     } else {
                         assert!(pos == IterIndex:0, "corruption_detected_while_decompressing");
-                        let next_idx = state.idx + u16:1;
+                        let next_idx = state.idx + u8:1;
                         if next_idx < state.num_symbs {
                             State { status: Status::TEST_POSITIVE_PROB, req: true, idx: next_idx, ..state }
                         } else {
-                            State { status: Status::LAST_FOR, idx: u16:0, ..state }
+                            State { status: Status::LAST_FOR, idx: u8:0, ..state }
                         }
                     }
                 },
@@ -406,8 +403,8 @@ pub proc FseTableCreator<
                     State { status: Status::SET_STATE_DESC, state_desc_for_symbol: tmp_resp.data, ..state }
                 },
                 Status::SET_STATE_DESC => {
-                    let next_idx = state.idx + u16:1;
-                    if next_idx < size {
+                    let next_idx = state.idx + u8:1;
+                    if next_idx as u16 < size {
                         State { status: Status::LAST_FOR, idx: next_idx, ..state }
                     } else {
                         State { status: Status::SEND_FINISH, ..state }
@@ -427,7 +424,7 @@ const TEST_DPD_RAM_WORD_PARTITION_SIZE = TEST_DPD_RAM_DATA_WIDTH;
 const TEST_DPD_RAM_NUM_PARTITIONS = ram::num_partitions(
     TEST_DPD_RAM_WORD_PARTITION_SIZE, TEST_DPD_RAM_DATA_WIDTH);
 
-const TEST_FSE_RAM_DATA_WIDTH = u32:48;
+const TEST_FSE_RAM_DATA_WIDTH = u32:32;
 const TEST_FSE_RAM_SIZE = u32:256;
 const TEST_FSE_RAM_ADDR_WIDTH = std::clog2(TEST_FSE_RAM_SIZE);
 const TEST_FSE_RAM_WORD_PARTITION_SIZE = TEST_FSE_RAM_DATA_WIDTH / u32:3;
@@ -490,38 +487,38 @@ proc FseTableCreatorInst {
 }
 
 const TEST_OFFSET_CODE_TABLE = FseTableRecord[32]:[
-    FseTableRecord { symbol: u16:0, num_of_bits: u16:5, base: u16:0 },
-    FseTableRecord { symbol: u16:6, num_of_bits: u16:4, base: u16:0 },
-    FseTableRecord { symbol: u16:9, num_of_bits: u16:5, base: u16:0 },
-    FseTableRecord { symbol: u16:15, num_of_bits: u16:5, base: u16:0 },
-    FseTableRecord { symbol: u16:21, num_of_bits: u16:5, base: u16:0 },
-    FseTableRecord { symbol: u16:3, num_of_bits: u16:5, base: u16:0 },
-    FseTableRecord { symbol: u16:7, num_of_bits: u16:4, base: u16:0 },
-    FseTableRecord { symbol: u16:12, num_of_bits: u16:5, base: u16:0 },
-    FseTableRecord { symbol: u16:18, num_of_bits: u16:5, base: u16:0 },
-    FseTableRecord { symbol: u16:23, num_of_bits: u16:5, base: u16:0 },
-    FseTableRecord { symbol: u16:5, num_of_bits: u16:5, base: u16:0 },
-    FseTableRecord { symbol: u16:8, num_of_bits: u16:4, base: u16:0 },
-    FseTableRecord { symbol: u16:14, num_of_bits: u16:5, base: u16:0 },
-    FseTableRecord { symbol: u16:20, num_of_bits: u16:5, base: u16:0 },
-    FseTableRecord { symbol: u16:2, num_of_bits: u16:5, base: u16:0 },
-    FseTableRecord { symbol: u16:7, num_of_bits: u16:4, base: u16:16 },
-    FseTableRecord { symbol: u16:11, num_of_bits: u16:5, base: u16:0 },
-    FseTableRecord { symbol: u16:17, num_of_bits: u16:5, base: u16:0 },
-    FseTableRecord { symbol: u16:22, num_of_bits: u16:5, base: u16:0 },
-    FseTableRecord { symbol: u16:4, num_of_bits: u16:5, base: u16:0 },
-    FseTableRecord { symbol: u16:8, num_of_bits: u16:4, base: u16:16 },
-    FseTableRecord { symbol: u16:13, num_of_bits: u16:5, base: u16:0 },
-    FseTableRecord { symbol: u16:19, num_of_bits: u16:5, base: u16:0 },
-    FseTableRecord { symbol: u16:1, num_of_bits: u16:5, base: u16:0 },
-    FseTableRecord { symbol: u16:6, num_of_bits: u16:4, base: u16:16 },
-    FseTableRecord { symbol: u16:10, num_of_bits: u16:5, base: u16:0 },
-    FseTableRecord { symbol: u16:16, num_of_bits: u16:5, base: u16:0 },
-    FseTableRecord { symbol: u16:28, num_of_bits: u16:5, base: u16:0 },
-    FseTableRecord { symbol: u16:27, num_of_bits: u16:5, base: u16:0 },
-    FseTableRecord { symbol: u16:26, num_of_bits: u16:5, base: u16:0 },
-    FseTableRecord { symbol: u16:25, num_of_bits: u16:5, base: u16:0 },
-    FseTableRecord { symbol: u16:24, num_of_bits: u16:5, base: u16:0 },
+    FseTableRecord { symbol: u8:0, num_of_bits: u8:5, base: u16:0 },
+    FseTableRecord { symbol: u8:6, num_of_bits: u8:4, base: u16:0 },
+    FseTableRecord { symbol: u8:9, num_of_bits: u8:5, base: u16:0 },
+    FseTableRecord { symbol: u8:15, num_of_bits: u8:5, base: u16:0 },
+    FseTableRecord { symbol: u8:21, num_of_bits: u8:5, base: u16:0 },
+    FseTableRecord { symbol: u8:3, num_of_bits: u8:5, base: u16:0 },
+    FseTableRecord { symbol: u8:7, num_of_bits: u8:4, base: u16:0 },
+    FseTableRecord { symbol: u8:12, num_of_bits: u8:5, base: u16:0 },
+    FseTableRecord { symbol: u8:18, num_of_bits: u8:5, base: u16:0 },
+    FseTableRecord { symbol: u8:23, num_of_bits: u8:5, base: u16:0 },
+    FseTableRecord { symbol: u8:5, num_of_bits: u8:5, base: u16:0 },
+    FseTableRecord { symbol: u8:8, num_of_bits: u8:4, base: u16:0 },
+    FseTableRecord { symbol: u8:14, num_of_bits: u8:5, base: u16:0 },
+    FseTableRecord { symbol: u8:20, num_of_bits: u8:5, base: u16:0 },
+    FseTableRecord { symbol: u8:2, num_of_bits: u8:5, base: u16:0 },
+    FseTableRecord { symbol: u8:7, num_of_bits: u8:4, base: u16:16 },
+    FseTableRecord { symbol: u8:11, num_of_bits: u8:5, base: u16:0 },
+    FseTableRecord { symbol: u8:17, num_of_bits: u8:5, base: u16:0 },
+    FseTableRecord { symbol: u8:22, num_of_bits: u8:5, base: u16:0 },
+    FseTableRecord { symbol: u8:4, num_of_bits: u8:5, base: u16:0 },
+    FseTableRecord { symbol: u8:8, num_of_bits: u8:4, base: u16:16 },
+    FseTableRecord { symbol: u8:13, num_of_bits: u8:5, base: u16:0 },
+    FseTableRecord { symbol: u8:19, num_of_bits: u8:5, base: u16:0 },
+    FseTableRecord { symbol: u8:1, num_of_bits: u8:5, base: u16:0 },
+    FseTableRecord { symbol: u8:6, num_of_bits: u8:4, base: u16:16 },
+    FseTableRecord { symbol: u8:10, num_of_bits: u8:5, base: u16:0 },
+    FseTableRecord { symbol: u8:16, num_of_bits: u8:5, base: u16:0 },
+    FseTableRecord { symbol: u8:28, num_of_bits: u8:5, base: u16:0 },
+    FseTableRecord { symbol: u8:27, num_of_bits: u8:5, base: u16:0 },
+    FseTableRecord { symbol: u8:26, num_of_bits: u8:5, base: u16:0 },
+    FseTableRecord { symbol: u8:25, num_of_bits: u8:5, base: u16:0 },
+    FseTableRecord { symbol: u8:24, num_of_bits: u8:5, base: u16:0 },
 ];
 
 #[test_proc]

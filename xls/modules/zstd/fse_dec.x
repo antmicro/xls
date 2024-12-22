@@ -17,6 +17,7 @@ import xls.examples.ram;
 import xls.modules.zstd.common;
 import xls.modules.zstd.math;
 import xls.modules.zstd.refilling_shift_buffer;
+import xls.modules.zstd.fse_table_creator;
 
 type FseTableRecord = common::FseTableRecord;
 
@@ -42,6 +43,8 @@ type FseTableRecord = common::FseTableRecord;
 // fn fse_record_to_bits(record: FseTableRecord) -> u48 {
 //     record.base ++ record.num_of_bits ++ record.symbol
 // }
+
+
 
 type BlockSyncData = common::BlockSyncData;
 type SequenceExecutorMessageType = common::SequenceExecutorMessageType;
@@ -228,27 +231,9 @@ pub proc FseDecoder<
         let (_, ml_rd_resp, ml_rd_resp_valid) = recv_if_non_blocking(tok0, ml_fse_rd_resp_r, state.fsm == FseDecoderFSM::RECV_RAM_RD_RESP, zero!<FseRamRdResp>());
         let (_, of_rd_resp, of_rd_resp_valid) = recv_if_non_blocking(tok0, of_fse_rd_resp_r, state.fsm == FseDecoderFSM::RECV_RAM_RD_RESP, zero!<FseRamRdResp>());
 
-        let ll_fse_table_record = FseTableRecord {
-            symbol: ll_rd_resp.data[24:32],
-            num_of_bits: ll_rd_resp.data[16:24],
-            base: ll_rd_resp.data[0:16],
-        };
-        let ml_fse_table_record = FseTableRecord {
-            symbol: ml_rd_resp.data[24:32],
-            num_of_bits: ml_rd_resp.data[16:24],
-            base: ml_rd_resp.data[0:16],
-        };
-        let of_fse_table_record = FseTableRecord {
-            symbol: of_rd_resp.data[24:32],
-            num_of_bits: of_rd_resp.data[16:24],
-            base: of_rd_resp.data[0:16],
-        };
-
-
-
-        // let ll_fse_table_record = bits_to_fse_record(ll_rd_resp.data);
-        // let ml_fse_table_record = bits_to_fse_record(ml_rd_resp.data);
-        // let of_fse_table_record = bits_to_fse_record(of_rd_resp.data);
+        let ll_fse_table_record = fse_table_creator::bits_to_fse_record(ll_rd_resp.data);
+        let ml_fse_table_record = fse_table_creator::bits_to_fse_record(ml_rd_resp.data);
+        let of_fse_table_record = fse_table_creator::bits_to_fse_record(of_rd_resp.data);
 
         // if ll_rd_resp_valid {
         //     trace_fmt!("ll_fse_table_record: {:#x}", ll_fse_table_record);
@@ -450,6 +435,7 @@ pub proc FseDecoder<
                 }
             },
             FseDecoderFSM::RECV_RAM_RD_RESP => {
+                trace_fmt!("RECV_RAM_RD_RESP");
                 // save fse records in state
                 let state = if ll_rd_resp_valid {
                     FseDecoderState { ll_fse_table_record: ll_fse_table_record, ll_fse_table_record_valid: true, ..state }
@@ -465,6 +451,7 @@ pub proc FseDecoder<
                     state.ml_fse_table_record_valid &&
                     state.of_fse_table_record_valid
                 ) {
+                    trace_fmt!("all states received: {:#x}", state);
                     FseDecoderState {
                         fsm: FseDecoderFSM::READ_OF_BITS,
                         read_bits: u16:0,

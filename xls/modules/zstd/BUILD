@@ -1458,6 +1458,7 @@ xls_dslx_library(
         "//xls/examples:ram_dslx",
         "//xls/modules/zstd/memory:axi_dslx",
         "//xls/modules/zstd/memory:axi_ram_dslx",
+        "//xls/modules/zstd:common_dslx",
         "//xls/modules/zstd:fse_table_creator_dslx",
         "//xls/modules/zstd:refilling_shift_buffer_dslx",
         "//xls/modules/zstd:fse_proba_freq_dec_dslx",
@@ -1859,6 +1860,7 @@ xls_dslx_library(
     deps = [
         ":common_dslx",
         ":math_dslx",
+        ":fse_table_creator_dslx",
         "//xls/modules/zstd:refilling_shift_buffer_dslx",
         "//xls/examples:ram_dslx",
     ],
@@ -2046,6 +2048,7 @@ xls_dslx_library(
         ":common_dslx",
         ":fse_dec_dslx",
         ":ram_mux_dslx",
+        ":fse_table_creator_dslx",
         "//xls/modules/zstd/memory:mem_reader_dslx",
         "//xls/modules/zstd/memory:axi_ram_dslx",
         "//xls/modules/zstd:refilling_shift_buffer_dslx",

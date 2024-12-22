@@ -27,7 +27,11 @@ import xls.modules.zstd.ram_mux;
 import xls.modules.zstd.refilling_shift_buffer;
 import xls.modules.zstd.fse_dec;
 import xls.modules.shift_buffer.shift_buffer;
+import xls.modules.zstd.fse_table_creator;
 
+
+type SequenceExecutorPacket = common::SequenceExecutorPacket<common::SYMBOL_WIDTH>;
+type SequenceExecutorMessageType = common::SequenceExecutorMessageType;
 
 enum SequenceDecoderStatus: u3 {
     OK = 0,
@@ -1010,7 +1014,7 @@ const TEST_DPD_RAM_ADDR_W = std::clog2(TEST_DPD_RAM_SIZE);
 const TEST_DPD_RAM_WORD_PARTITION_SIZE = TEST_DPD_RAM_DATA_W;
 const TEST_DPD_RAM_NUM_PARTITIONS = ram::num_partitions(TEST_DPD_RAM_WORD_PARTITION_SIZE, TEST_DPD_RAM_DATA_W);
 
-const TEST_FSE_RAM_DATA_W = u32:48;
+const TEST_FSE_RAM_DATA_W = u32:32;
 const TEST_FSE_RAM_SIZE = u32:256;
 const TEST_FSE_RAM_ADDR_W = std::clog2(TEST_FSE_RAM_SIZE);
 const TEST_FSE_RAM_WORD_PARTITION_SIZE = TEST_FSE_RAM_DATA_W / u32:3;
@@ -1025,34 +1029,121 @@ const TEST_TMP_RAM_NUM_PARTITIONS = ram::num_partitions(TEST_TMP_RAM_WORD_PARTIT
 
 // 3x predefined table
 const TEST_RAM_DATA = u64[5]:[
-    u64:0x0016A400E6C3000A,
-    u64:0x225100295B0012D6,
-    u64:0x1E00123CB813DB80,
-    u64:0x1026064002C4800A,
+    u64:0x025C51595BB40008,
+    u64:0xEF5EC5AEEF281C82,
+    u64:0x04BE0C2C6EA226E4,
+    u64:0x00000000C0F03DEE,
+    // u64:0x0016A400E6C3000A,
+    // u64:0x225100295B0012D6,
+    // u64:0x1E00123CB813DB80,
+    // u64:0x1026064002C4800A,
     u64:0x0, ...
 ];
 
+const EXPECTED_OUTPUT = SequenceExecutorPacket[16]:[
+    SequenceExecutorPacket {
+        msg_type: SequenceExecutorMessageType::LITERAL,
+        length: u64:0x0011,
+        content: u64:0x0,
+        last: false,
+    },
+    SequenceExecutorPacket {
+        msg_type: SequenceExecutorMessageType::SEQUENCE,
+        length: u64:0x0003,
+        content: u64:0x00fb,
+        last: false,
+    },
+    SequenceExecutorPacket {
+        msg_type: SequenceExecutorMessageType::LITERAL,
+        length: u64:0x0014,
+        content: u64:0x0,
+        last: false,
+    },
+    SequenceExecutorPacket {
+        msg_type: SequenceExecutorMessageType::SEQUENCE,
+        length: u64:0x0003,
+        content: u64:0x05f0,
+        last: false,
+    },
+    SequenceExecutorPacket {
+        msg_type: SequenceExecutorMessageType::LITERAL,
+        length: u64:0x0018,
+        content: u64:0x0,
+        last: false,
+    },
+    SequenceExecutorPacket {
+        msg_type: SequenceExecutorMessageType::SEQUENCE,
+        length: u64:0x0004,
+        content: u64:0x00f5,
+        last: false,
+    },
+    SequenceExecutorPacket {
+        msg_type: SequenceExecutorMessageType::LITERAL,
+        length: u64:0x00de,
+        content: u64:0x0,
+        last: false,
+    },
+    SequenceExecutorPacket {
+        msg_type: SequenceExecutorMessageType::SEQUENCE,
+        length: u64:0x0007,
+        content: u64:0x0193,
+        last: false,
+    },
+    SequenceExecutorPacket {
+        msg_type: SequenceExecutorMessageType::LITERAL,
+        length: u64:0x0015,
+        content: u64:0x0,
+        last: false,
+    },
+    SequenceExecutorPacket {
+        msg_type: SequenceExecutorMessageType::SEQUENCE,
+        length: u64:0x0004,
+        content: u64:0x03ae,
+        last: false,
+    },
+    SequenceExecutorPacket {
+        msg_type: SequenceExecutorMessageType::LITERAL,
+        length: u64:0x0034,
+        content: u64:0x0,
+        last: false,
+    },
+    SequenceExecutorPacket {
+        msg_type: SequenceExecutorMessageType::SEQUENCE,
+        length: u64:0x000c,
+        content: u64:0x010e,
+        last: false,
+    },
+    SequenceExecutorPacket {
+        msg_type: SequenceExecutorMessageType::LITERAL,
+        length: u64:0x0016,
+        content: u64:0x0,
+        last: false,
+    },
+    SequenceExecutorPacket {
+        msg_type: SequenceExecutorMessageType::SEQUENCE,
+        length: u64:0x0003,
+        content: u64:0x05c5,
+        last: false,
+    },
+    SequenceExecutorPacket {
+        msg_type: SequenceExecutorMessageType::LITERAL,
+        length: u64:0x002c,
+        content: u64:0x0,
+        last: false,
+    },
+    SequenceExecutorPacket {
+        msg_type: SequenceExecutorMessageType::SEQUENCE,
+        length: u64:0x0007,
+        content: u64:0x0176,
+        last: false,
+    },
+];
+
 type Base = u16;
-type Symbol = u16;
-type NumOfBits = u16;
+type Symbol = u8;
+type NumOfBits = u8;
 
-struct FseTableRecord {
-    symbol: Symbol,
-    num_of_bits: NumOfBits,
-    base: Base
-}
-
-pub fn bits_to_fse_record(bit: u48) -> FseTableRecord {
-    FseTableRecord {
-        symbol: bit[0:16],
-        num_of_bits: bit[16:32],
-        base: bit[32:48]
-    }
-}
-
-fn fse_record_to_bits(record: FseTableRecord) -> u48 {
-    record.base ++ record.num_of_bits ++ record.symbol
-}
+type FseTableRecord = common::FseTableRecord;
 
 const DEFAULT_LL_TABLE = FseTableRecord[64]: [
     FseTableRecord { symbol: Symbol:0,  num_of_bits: NumOfBits:4, base: Base:0  },
@@ -1633,7 +1724,7 @@ proc SequenceDecoderTest {
         let tok = unroll_for! (i, tok): (u32, token) in range(u32:0, array_size(DEFAULT_LL_TABLE)) {
             let req = FseRamWrReq {
                 addr: i as FseAddr,
-                data: fse_record_to_bits(DEFAULT_LL_TABLE[i]),
+                data: fse_table_creator::fse_record_to_bits(DEFAULT_LL_TABLE[i]),
                 mask: !FseMask:0,
             };
             let tok = send(tok, ll_def_test_wr_req_s, req);
@@ -1647,7 +1738,7 @@ proc SequenceDecoderTest {
         let tok = unroll_for! (i, tok): (u32, token) in range(u32:0, array_size(DEFAULT_OF_TABLE)) {
             let req = FseRamWrReq {
                 addr: i as FseAddr,
-                data: fse_record_to_bits(DEFAULT_OF_TABLE[i]),
+                data: fse_table_creator::fse_record_to_bits(DEFAULT_OF_TABLE[i]),
                 mask: !FseMask:0,
             };
             let tok = send(tok, of_def_test_wr_req_s, req);
@@ -1661,7 +1752,7 @@ proc SequenceDecoderTest {
         let tok = unroll_for! (i, tok): (u32, token) in range(u32:0, array_size(DEFAULT_ML_TABLE)) {
             let req = FseRamWrReq {
                 addr: i as FseAddr,
-                data: fse_record_to_bits(DEFAULT_ML_TABLE[i]),
+                data: fse_table_creator::fse_record_to_bits(DEFAULT_ML_TABLE[i]),
                 mask: !FseMask:0,
             };
             let tok = send(tok, ml_def_test_wr_req_s, req);
@@ -1673,8 +1764,16 @@ proc SequenceDecoderTest {
         // START DECODING
         let tok = send(tok, req_s, Req {
             start_addr: uN[TEST_AXI_ADDR_W]:0,
-            end_addr: uN[TEST_AXI_ADDR_W]:0x18,
+            end_addr: uN[TEST_AXI_ADDR_W]:28,
         });
+
+        let tok = for ((_, output), tok): ((u32, SequenceExecutorPacket), token) in enumerate(EXPECTED_OUTPUT) {
+            let (tok, recv_output) = recv(tok, fd_command_r);
+            trace_fmt!("Expected: {:#x}\nGot: {:#x}\n", output, recv_output);
+            assert_eq(output, recv_output.data);
+            tok
+        }(tok);
+
         let (tok, _) = recv(tok, resp_r);
 
         send(tok, terminator, true);

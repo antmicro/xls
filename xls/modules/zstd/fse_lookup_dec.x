@@ -24,6 +24,8 @@ import xls.modules.zstd.refilling_shift_buffer;
 import xls.modules.zstd.fse_proba_freq_dec;
 import xls.modules.shift_buffer.shift_buffer;
 
+type AccuracyLog = common::FseAccuracyLog;
+
 pub enum FseLookupDecoderStatus: u1 {
     OK = 0,
     ERROR = 1,
@@ -34,7 +36,8 @@ pub struct FseLookupDecoderReq<AXI_ADDR_W: u32> {
 }
 
 pub struct FseLookupDecoderResp {
-    status: FseLookupDecoderStatus
+    status: FseLookupDecoderStatus,
+    accuracy_log: common::FseAccuracyLog
 }
 
 pub proc FseLookupDecoder<
@@ -193,7 +196,12 @@ pub proc FseLookupDecoder<
         // wait for completion from FSE table creator
         let (tok, ()) = recv_if(tok, fse_table_finish_r, pf_dec_ok, ());
 
-        send(tok, resp_s, Resp { status: if pf_dec_ok { Status::OK } else { Status::ERROR } });
+        let resp = if pf_dec_ok {
+            Resp { status: Status::OK, accuracy_log: pf_dec_res.accuracy_log }
+        } else {
+            Resp { status: Status::ERROR, ..zero!<Resp>() }
+        };
+        send(tok, resp_s, resp);
     }
 }
 
@@ -981,7 +989,7 @@ proc FseLookupDecoderTest {
         let tok = join();
         // This has to be outside of unroll_for!, otherwise typechecker reports type mismatch on identical types
         let req_start = Req { addr: uN[TEST_AXI_ADDR_WIDTH]:0x0 };
-        let resp_ok = Resp { status: Status::OK };
+        let resp_ok = Resp { status: Status::OK, accuracy_log: AccuracyLog:8 };
 
         let tok = unroll_for!(test_i, tok): (u32, token) in range(u32:0, array_size(FSE_LOOKUP_DECODER_TESTCASES)) {
             let (input, output) = FSE_LOOKUP_DECODER_TESTCASES[test_i];

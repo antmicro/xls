@@ -494,6 +494,7 @@ pub proc FseDecoder<
                         FseDecoderState {
                             fsm: FseDecoderFSM::SEND_COMMAND_LITERAL,
                             of_state: state.of_fse_table_record.base + state.read_bits,
+                            ll: (SEQ_LITERAL_LENGTH_BASELINES[state.ll_fse_table_record.symbol] + state.read_bits as u32) as u64,
                             read_bits: u16:0,
                             read_bits_length: u7:0,
                             read_bits_needed: u7:0,

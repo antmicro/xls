@@ -86,6 +86,7 @@ proc LiteralsDecoderCtrl<AXI_ADDR_W: u32> {
     // Literals Decoder control
     lit_ctrl_req_r: chan<CtrlReq> in;
     lit_ctrl_resp_s: chan<CtrlResp> out;
+    lit_ctrl_header_s: chan<HeaderResp> out;
 
     // Literals Header Decoder
     lit_header_req_s: chan<HeaderReq> out;
@@ -111,6 +112,7 @@ proc LiteralsDecoderCtrl<AXI_ADDR_W: u32> {
         // Literals Decoder control
         lit_ctrl_req_r: chan<CtrlReq> in,
         lit_ctrl_resp_s: chan<CtrlResp> out,
+        lit_ctrl_header_s: chan<HeaderResp> out,
 
         // Literals Header Decoder
         lit_header_req_s: chan<HeaderReq> out,
@@ -129,7 +131,7 @@ proc LiteralsDecoderCtrl<AXI_ADDR_W: u32> {
         huffman_lit_resp_r: chan<HuffmanResp> in
     ) {
         (
-            lit_ctrl_req_r, lit_ctrl_resp_s,
+            lit_ctrl_req_r, lit_ctrl_resp_s, lit_ctrl_header_s,
             lit_header_req_s, lit_header_resp_r,
             raw_lit_req_s, raw_lit_resp_r,
             rle_lit_req_s, rle_lit_resp_r,
@@ -187,6 +189,8 @@ proc LiteralsDecoderCtrl<AXI_ADDR_W: u32> {
         if (header_resp_valid) {
             trace_fmt!("received HeaderReq: {:#x}", header_resp);
         } else {};
+
+        send_if(tok, lit_ctrl_header_s, header_resp_valid, header_resp);
 
         // Send literals header decoding request right after receiving CtrlRequest
         let header_req = HeaderReq {
@@ -327,6 +331,7 @@ proc LiteralsDecoderCtrlInst {
         // Literals Decoder control
         lit_ctrl_req_r: chan<CtrlReq> in,
         lit_ctrl_resp_s: chan<CtrlResp> out,
+        lit_ctrl_header_s: chan<HeaderResp> out,
 
         // Literals Header Decoder
         lit_header_req_s: chan<HeaderReq> out,
@@ -345,7 +350,7 @@ proc LiteralsDecoderCtrlInst {
         huffman_lit_resp_r: chan<HuffmanResp> in
     ) {
         spawn LiteralsDecoderCtrl<INST_AXI_ADDR_W>(
-            lit_ctrl_req_r, lit_ctrl_resp_s,
+            lit_ctrl_req_r, lit_ctrl_resp_s, lit_ctrl_header_s,
             lit_header_req_s, lit_header_resp_r,
             raw_lit_req_s, raw_lit_resp_r,
             rle_lit_req_s, rle_lit_resp_r,
@@ -386,6 +391,7 @@ proc LiteralsDecoderCtrl_test {
     // Literals Decoder control
     lit_ctrl_req_s: chan<CtrlReq> out;
     lit_ctrl_resp_r: chan<CtrlResp> in;
+    lit_ctrl_header_r: chan<HeaderResp> in;
 
     // Literals Header Decoder
     lit_header_req_r: chan<HeaderReq> in;
@@ -407,6 +413,7 @@ proc LiteralsDecoderCtrl_test {
         // Literals Decoder control
         let (lit_ctrl_req_s, lit_ctrl_req_r) = chan<CtrlReq>("lit_ctrl_req");
         let (lit_ctrl_resp_s, lit_ctrl_resp_r) = chan<CtrlResp>("lit_ctrl_resp");
+        let (lit_ctrl_header_s, lit_ctrl_header_r) = chan<HeaderResp>("lit_ctrl_resp");
 
         // Literals Header Decoder
         let (lit_header_req_s, lit_header_req_r) = chan<HeaderReq>("lit_header_req");
@@ -425,7 +432,7 @@ proc LiteralsDecoderCtrl_test {
         let (huffman_lit_resp_s, huffman_lit_resp_r) = chan<HuffmanResp>("huffman_lit_resp");
 
         spawn LiteralsDecoderCtrl<TEST_AXI_ADDR_W>(
-            lit_ctrl_req_r, lit_ctrl_resp_s,
+            lit_ctrl_req_r, lit_ctrl_resp_s, lit_ctrl_header_s,
             lit_header_req_s, lit_header_resp_r,
             raw_lit_req_s, raw_lit_resp_r,
             rle_lit_req_s, rle_lit_resp_r,
@@ -434,7 +441,7 @@ proc LiteralsDecoderCtrl_test {
 
         (
             terminator,
-            lit_ctrl_req_s, lit_ctrl_resp_r,
+            lit_ctrl_req_s, lit_ctrl_resp_r, lit_ctrl_header_r,
             lit_header_req_r, lit_header_resp_s,
             raw_lit_req_r, raw_lit_resp_s,
             rle_lit_req_r, rle_lit_resp_s,
@@ -632,6 +639,8 @@ pub proc LiteralsDecoder<
     type HuffmanPrescanWriteReq   = ram::WriteReq<HUFFMAN_PRESCAN_RAM_ADDR_WIDTH, HUFFMAN_PRESCAN_RAM_DATA_WIDTH, HUFFMAN_PRESCAN_RAM_NUM_PARTITIONS>;
     type HuffmanPrescanWriteResp  = ram::WriteResp;
 
+    type HeaderResp = literals_block_header_dec::LiteralsHeaderDecoderResp;
+
     config (
         // AXI Literals Header Decoder (manager)
         lit_header_axi_ar_s: chan<MemAxiAr> out,
@@ -648,6 +657,7 @@ pub proc LiteralsDecoder<
         // Literals Decoder control
         lit_ctrl_req_r: chan<CtrlReq> in,
         lit_ctrl_resp_s: chan<CtrlResp> out,
+        lit_ctrl_header_s: chan<HeaderResp> out,
 
         // Literals Decoder output control
         lit_buf_ctrl_r: chan<BufferCtrl> in,
@@ -787,7 +797,7 @@ pub proc LiteralsDecoder<
         );
 
         spawn LiteralsDecoderCtrl<AXI_ADDR_W> (
-            lit_ctrl_req_r, lit_ctrl_resp_s,
+            lit_ctrl_req_r, lit_ctrl_resp_s, lit_ctrl_header_s,
             lit_header_req_s, lit_header_resp_r,
             raw_lit_req_s, raw_lit_resp_r,
             rle_lit_req_s, rle_lit_resp_r,
@@ -835,6 +845,8 @@ proc LiteralsDecoderInst {
     type HuffmanPrescanWriteReq   = ram::WriteReq<INST_HUFFMAN_PRESCAN_RAM_ADDR_WIDTH, INST_HUFFMAN_PRESCAN_RAM_DATA_WIDTH, INST_HUFFMAN_PRESCAN_RAM_NUM_PARTITIONS>;
     type HuffmanPrescanWriteResp  = ram::WriteResp;
 
+    type HeaderResp = literals_block_header_dec::LiteralsHeaderDecoderResp;
+
     config (
         // AXI Literals Header Decoder (manager)
         lit_header_axi_ar_s: chan<MemAxiAr> out,
@@ -851,6 +863,7 @@ proc LiteralsDecoderInst {
         // Literals Decoder control
         lit_ctrl_req_r: chan<CtrlReq> in,
         lit_ctrl_resp_s: chan<CtrlResp> out,
+        lit_ctrl_header_s: chan<HeaderResp> out,
 
         // Literals Decoder output control
         lit_buf_ctrl_r: chan<BufferCtrl> in,
@@ -906,7 +919,7 @@ proc LiteralsDecoderInst {
             lit_header_axi_ar_s, lit_header_axi_r_r,
             raw_lit_axi_ar_s, raw_lit_axi_r_r,
             huffman_lit_axi_ar_s, huffman_lit_axi_r_r,
-            lit_ctrl_req_r, lit_ctrl_resp_s,
+            lit_ctrl_req_r, lit_ctrl_resp_s, lit_ctrl_header_s,
             lit_buf_ctrl_r, lit_buf_out_s,
             rd_req_m0_s, rd_req_m1_s, rd_req_m2_s, rd_req_m3_s,
             rd_req_m4_s, rd_req_m5_s, rd_req_m6_s, rd_req_m7_s,
@@ -1023,11 +1036,14 @@ proc LiteralsDecoder_test {
 
     type AxiAddr = uN[TEST_AXI_RAM_ADDR_W];
 
+    type HeaderResp = literals_block_header_dec::LiteralsHeaderDecoderResp;
+
     terminator: chan<bool> out;
 
     // Literals Decoder control
     ctrl_req_s: chan<CtrlReq> out;
     ctrl_resp_r: chan<CtrlResp> in;
+    ctrl_header_r: chan<HeaderResp> in;
 
     // Output control
     buf_ctrl_s: chan<BufferCtrl> out;
@@ -1058,6 +1074,7 @@ proc LiteralsDecoder_test {
 
         let (ctrl_req_s, ctrl_req_r) = chan<CtrlReq>("ctrl_req");
         let (ctrl_resp_s, ctrl_resp_r) = chan<CtrlResp>("ctrl_resp");
+        let (ctrl_header_s, ctrl_header_r) = chan<HeaderResp>("ctrl_header");
         let (buf_ctrl_s, buf_ctrl_r) = chan<BufferCtrl>("buf_ctrl");
         let (buf_out_s, buf_out_r) = chan<BufferOut>("buf_out");
 
@@ -1089,7 +1106,7 @@ proc LiteralsDecoder_test {
             lit_header_axi_ar_s, lit_header_axi_r_r,
             raw_lit_axi_ar_s, raw_lit_axi_r_r,
             huffman_lit_axi_ar_s, huffman_lit_axi_r_r,
-            ctrl_req_r, ctrl_resp_s,
+            ctrl_req_r, ctrl_resp_s, ctrl_header_s,
             buf_ctrl_r, buf_out_s,
             ram_rd_req_s[0], ram_rd_req_s[1], ram_rd_req_s[2], ram_rd_req_s[3],
             ram_rd_req_s[4], ram_rd_req_s[5], ram_rd_req_s[6], ram_rd_req_s[7],
@@ -1295,7 +1312,7 @@ proc LiteralsDecoder_test {
 
         (
             terminator,
-            ctrl_req_s, ctrl_resp_r,
+            ctrl_req_s, ctrl_resp_r, ctrl_header_r,
             buf_ctrl_s, buf_out_r,
             print_start_s, print_finish_r,
             ram_wr_req_header_s, ram_wr_resp_header_r,

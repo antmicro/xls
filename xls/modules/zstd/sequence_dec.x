@@ -33,6 +33,9 @@ import xls.modules.zstd.fse_table_creator;
 type SequenceExecutorPacket = common::SequenceExecutorPacket<common::SYMBOL_WIDTH>;
 type SequenceExecutorMessageType = common::SequenceExecutorMessageType;
 
+type BlockSyncData = common::BlockSyncData;
+type CommandConstructorData = common::CommandConstructorData;
+
 enum SequenceDecoderStatus: u3 {
     OK = 0,
     ERROR = 1,
@@ -41,6 +44,7 @@ enum SequenceDecoderStatus: u3 {
 pub struct SequenceDecoderReq<ADDR_W: u32> {
     start_addr: uN[ADDR_W],
     end_addr: uN[ADDR_W],
+    sync: BlockSyncData,
 }
 
 pub struct SequenceDecoderResp {
@@ -62,9 +66,6 @@ struct SequenceDecoderState<ADDR_W: u32> {
     req: SequenceDecoderReq<ADDR_W>,
     conf_resp: sequence_conf_dec::SequenceConfDecoderResp,
 }
-
-type BlockSyncData = common::BlockSyncData;
-type CommandConstructorData = common::CommandConstructorData;
 
 struct FseLookupCtrlReq<AXI_ADDR_W: u32> {
     ll: bool,
@@ -528,10 +529,7 @@ pub proc SequenceDecoderCtrl<
         trace_fmt!("[SequenceDecoderCtrl]: Sent RefillingShiftBufferStart request: {:#x}", fd_rsb_start_req);
 
         let tok_fse_dec = send(tok_demux, fd_ctrl_s, FseDecoderCtrl {
-            sync: BlockSyncData {
-                id: u32:0,
-                last_block: false,
-            },
+            sync: req.sync,
             sequences_count: conf_resp.header.sequence_count as u24,
             ll_acc_log: if (conf_resp.header.literals_mode == CompressionMode::PREDEFINED) { u7:6 } else { flc_resp.ll_accuracy_log as u7},
             of_acc_log: if (conf_resp.header.offset_mode == CompressionMode::PREDEFINED) { u7:5 } else { flc_resp.of_accuracy_log as u7 },
@@ -1312,7 +1310,7 @@ type NumOfBits = u8;
 
 type FseTableRecord = common::FseTableRecord;
 
-const DEFAULT_LL_TABLE = FseTableRecord[64]: [
+pub const DEFAULT_LL_TABLE = FseTableRecord[64]: [
     FseTableRecord { symbol: Symbol:0,  num_of_bits: NumOfBits:4, base: Base:0  },
     FseTableRecord { symbol: Symbol:0,  num_of_bits: NumOfBits:4, base: Base:16 },
     FseTableRecord { symbol: Symbol:1,  num_of_bits: NumOfBits:5, base: Base:32 },
@@ -1379,7 +1377,7 @@ const DEFAULT_LL_TABLE = FseTableRecord[64]: [
     FseTableRecord { symbol: Symbol:32, num_of_bits: NumOfBits:6, base: Base:0  },
 ];
 
-const DEFAULT_ML_TABLE = FseTableRecord[64]: [
+pub const DEFAULT_ML_TABLE = FseTableRecord[64]: [
     FseTableRecord { symbol: Symbol:0,  num_of_bits: NumOfBits:6,  base: Base:0  },
     FseTableRecord { symbol: Symbol:1,  num_of_bits: NumOfBits:4,  base: Base:0  },
     FseTableRecord { symbol: Symbol:2,  num_of_bits: NumOfBits:5,  base: Base:32 },
@@ -1446,7 +1444,7 @@ const DEFAULT_ML_TABLE = FseTableRecord[64]: [
     FseTableRecord { symbol: Symbol:46, num_of_bits: NumOfBits:6,  base: Base:0  },
 ];
 
-const DEFAULT_OF_TABLE = FseTableRecord[32]:[
+pub const DEFAULT_OF_TABLE = FseTableRecord[32]:[
     FseTableRecord { symbol: Symbol:0,  num_of_bits: NumOfBits:5,  base: Base:0  },
     FseTableRecord { symbol: Symbol:6,  num_of_bits: NumOfBits:4,  base: Base:0  },
     FseTableRecord { symbol: Symbol:9,  num_of_bits: NumOfBits:5,  base: Base:0  },
@@ -1930,6 +1928,10 @@ proc SequenceDecoderTest {
 
         // START DECODING
         let tok = send(tok, req_s, Req {
+            sync: BlockSyncData {
+                id: u32:0,
+                last_block: false,
+            },
             start_addr: uN[TEST_AXI_ADDR_W]:0x100,
             end_addr: uN[TEST_AXI_ADDR_W]:0x120,
         });

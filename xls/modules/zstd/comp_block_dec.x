@@ -26,13 +26,15 @@ import xls.modules.zstd.command_constructor;
 import xls.modules.zstd.memory.axi;
 import xls.modules.zstd.memory.mem_reader;
 import xls.modules.zstd.fse_proba_freq_dec;
-
+import xls.modules.zstd.fse_table_creator;
+import xls.modules.zstd.ram_mux;
 
 type SequenceExecutorPacket = common::SequenceExecutorPacket<common::SYMBOL_WIDTH>;
 type ExtendedPacket = common::ExtendedBlockDataPacket;
 type SequenceExecutorMessageType = common::SequenceExecutorMessageType;
 type BlockDataPacket = common::BlockDataPacket;
 type BlockSize = common::BlockSize;
+type BlockSyncData = common::BlockSyncData;
 
 pub enum CompressBlockDecoderStatus: u1 {
     OK = 0,
@@ -136,8 +138,8 @@ pub proc CompressBlockDecoder<
     resp_s: chan<Resp> out;
 
     lit_ctrl_req_s: chan<LiteralsDecReq> out;
-    lit_header_r: chan<LiteralsHeaderDecoderResp> in;
     lit_ctrl_resp_r: chan<LiteralsDecResp> in;
+    lit_ctrl_header_r: chan<LiteralsHeaderDecoderResp> in;
 
     seq_dec_req_s: chan<SequenceDecReq> out;
     seq_dec_resp_r: chan<SequenceDecResp> in;
@@ -271,9 +273,10 @@ pub proc CompressBlockDecoder<
 
         let (lit_ctrl_req_s, lit_ctrl_req_r) = chan<LiteralsDecReq>("lit_ctrl_req");
         let (lit_ctrl_resp_s, lit_ctrl_resp_r) = chan<LiteralsDecResp>("lit_ctrl_resp");
+        let (lit_ctrl_header_s, lit_ctrl_header_r) = chan<LiteralsHeaderDecoderResp>("lit_header");
+
         let (lit_buf_ctrl_s, lit_buf_ctrl_r) = chan<LiteralsBufCtrl>("lit_buf_ctrl");
         let (lit_buf_out_s, lit_buf_out_r) = chan<SequenceExecutorPacket>("lit_buf_out");
-        let (lit_header_s, lit_header_r) = chan<LiteralsHeaderDecoderResp>("lit_header");
 
         spawn literals_decoder::LiteralsDecoder<
             HISTORY_BUFFER_SIZE_KB,
@@ -283,10 +286,8 @@ pub proc CompressBlockDecoder<
             lit_header_axi_ar_s, lit_header_axi_r_r,
             raw_lit_axi_ar_s, raw_lit_axi_r_r,
             huffman_lit_axi_ar_s, huffman_lit_axi_r_r,
-            lit_ctrl_req_r, lit_ctrl_resp_s,
+            lit_ctrl_req_r, lit_ctrl_resp_s, lit_ctrl_header_s,
             lit_buf_ctrl_r, lit_buf_out_s,
-            // TODO: LiteralsHeaderDecoderResp_s channel
-            // lit_header_s
             rd_req_m0_s, rd_req_m1_s, rd_req_m2_s, rd_req_m3_s, rd_req_m4_s, rd_req_m5_s, rd_req_m6_s, rd_req_m7_s,
             rd_resp_m0_r, rd_resp_m1_r, rd_resp_m2_r, rd_resp_m3_r, rd_resp_m4_r, rd_resp_m5_r, rd_resp_m6_r, rd_resp_m7_r,
             wr_req_m0_s, wr_req_m1_s, wr_req_m2_s, wr_req_m3_s, wr_req_m4_s, wr_req_m5_s, wr_req_m6_s, wr_req_m7_s,
@@ -330,7 +331,7 @@ pub proc CompressBlockDecoder<
 
         (
             req_r, resp_s,
-            lit_ctrl_req_s, lit_header_r, lit_ctrl_resp_r,
+            lit_ctrl_req_s, lit_ctrl_resp_r, lit_ctrl_header_r,
             seq_dec_req_s, seq_dec_resp_r,
         )
     }
@@ -339,12 +340,18 @@ pub proc CompressBlockDecoder<
         let tok = join();
 
         let (tok_req, req) = recv(tok, req_r);
-        let tok_lit1 = send(tok_req, lit_ctrl_req_s, LiteralsDecReq {
+        trace_fmt!("[CompressBlockDecoder] Received request: {:#x}", req);
+
+        let lit_ctrl_req = LiteralsDecReq {
             addr: req.addr,
             literals_last: req.last_block,
-        });
-        let (tok_lit2, lit_header) = recv(tok_lit1, lit_header_r);
-        
+        };
+        let tok_lit1 = send(tok_req, lit_ctrl_req_s, lit_ctrl_req);
+        trace_fmt!("[CompressBlockDecoder] Sent lit_ctrl_req: {:#x}", lit_ctrl_req);
+
+        let (tok_lit2, lit_header) = recv(tok_lit1, lit_ctrl_header_r);
+        trace_fmt!("[CompressBlockDecoder] Received lit_header: {:#x}", lit_header);
+
         let seq_section_offset = lit_header.length as AxiAddrW + match (lit_header.header.literal_type) {
             LiteralsBlockType::RAW => lit_header.header.regenerated_size,
             LiteralsBlockType::RLE => u20:1,
@@ -352,14 +359,27 @@ pub proc CompressBlockDecoder<
             LiteralsBlockType::TREELESS | LiteralsBlockType::TREELESS_4 => lit_header.header.compressed_size,
             _ => fail!("comp_block_dec_unreachable", u20:0),
         } as AxiAddrW;
+
         let seq_section_start = req.addr + seq_section_offset;
-         
-        let tok_seq = send(tok_lit2, seq_dec_req_s, SequenceDecReq {
-            addr: seq_section_start
-        });
+        let seq_section_end = req.addr + req.length as AxiAddrW;
 
         let (tok_fin_lit, lit_resp) = recv(tok_lit1, lit_ctrl_resp_r);
+        trace_fmt!("[CompressBlockDecoder] Received lit_ctrl_resp: {:#x}", lit_resp);
+
+        let seq_req = SequenceDecReq {
+            start_addr: seq_section_start,
+            end_addr: seq_section_end,
+            sync:  BlockSyncData {
+                id: req.id,
+                last_block: req.last_block,
+           },
+        };
+
+        trace_fmt!("[CompressBlockDecoder] Sending sequence req: {:#x}", seq_req);
+        let tok_seq = send(tok_fin_lit, seq_dec_req_s, seq_req);
+
         let (tok_fin_seq, seq_resp) = recv(tok_seq, seq_dec_resp_r);
+        trace_fmt!("[CompressBlockDecoder] Received sequence resp: {:#x}", seq_resp);
 
         let tok_finish = join(tok_fin_lit, tok_fin_seq);
         send(tok_finish, resp_s, Resp {
@@ -389,7 +409,7 @@ const TEST_DPD_RAM_WORD_PARTITION_SIZE = TEST_DPD_RAM_DATA_W;
 const TEST_DPD_RAM_NUM_PARTITIONS = ram::num_partitions(
     TEST_DPD_RAM_WORD_PARTITION_SIZE, TEST_DPD_RAM_DATA_W);
 
-const TEST_FSE_RAM_DATA_W = u32:48;
+const TEST_FSE_RAM_DATA_W = u32:32;
 const TEST_FSE_RAM_SIZE = u32:256;
 const TEST_FSE_RAM_ADDR_W = std::clog2(TEST_FSE_RAM_SIZE);
 const TEST_FSE_RAM_WORD_PARTITION_SIZE = TEST_FSE_RAM_DATA_W / u32:3;
@@ -430,7 +450,62 @@ const AXI_CHAN_N = u32:6;
 // - literals and sequences sections as they appear in memory
 // - expected output size
 // - expected output
-const COMP_BLOCK_DEC_TESTCASES: (u32, u64[64], u32, ExtendedPacket[128])[3] = [
+const COMP_BLOCK_DEC_TESTCASES: (u32, u64[64], u32, ExtendedPacket[128])[4] = [
+    (
+        u32:0x1C,
+        u64[64]:[
+            u64:0x0, u64:0x0,        // 0x000
+            u64:0x0, u64:0x0,        // 0x010
+            u64:0x0, u64:0x0,        // 0x020
+            u64:0x0, u64:0x0,        // 0x030
+            u64:0x0, u64:0x0,        // 0x040
+            u64:0x0, u64:0x0,        // 0x050
+            u64:0x0, u64:0x0,        // 0x060
+            u64:0x0, u64:0x0,        // 0x070
+            u64:0x0, u64:0x0,        // 0x080
+            u64:0x0, u64:0x0,        // 0x090
+            u64:0x0, u64:0x0,        // 0x0A0
+            u64:0x0, u64:0x0,        // 0x0B0
+            u64:0x0, u64:0x0,        // 0x0C0
+            u64:0x0, u64:0x0,        // 0x0D0
+            u64:0x0, u64:0x0,        // 0x0E0
+            u64:0x0, u64:0x0,        // 0x0F0
+            u64:0x1fba7f9f15523990,
+            u64:0x43e75b86b1dfe343,
+            u64:0xc0423000200d6c6,
+            u64:0x252c492,
+            u64:0, ...
+        ],
+        u32:5,
+        ExtendedPacket[128]:[
+            ExtendedPacket {
+                msg_type: SequenceExecutorMessageType::LITERAL,
+                packet: BlockDataPacket { last: false, last_block: false, id: u32:1234, data: u64:0x431fba7f9f155239, length: u32:8 }
+            },
+            ExtendedPacket {
+                msg_type: SequenceExecutorMessageType::LITERAL,
+                packet: BlockDataPacket { last: false, last_block: false, id: u32:1234, data: u64:0xe75b86b1dfe3, length: u32:6 }
+            },
+            ExtendedPacket {
+                msg_type: SequenceExecutorMessageType::SEQUENCE,
+                packet: BlockDataPacket { last: false, last_block: false, id: u32:1234, data: u64:0x192, length: u32:8 }
+            },
+            ExtendedPacket {
+                msg_type: SequenceExecutorMessageType::LITERAL,
+                packet: BlockDataPacket { last: false, last_block: false, id: u32:1234, data: u64:0xd6c643, length: u32:3 }
+            },
+            ExtendedPacket {
+                msg_type: SequenceExecutorMessageType::SEQUENCE,
+                packet: BlockDataPacket { last: true, last_block: false, id: u32:1234, data: u64:0x223, length: u32:3 }
+            },
+            ExtendedPacket {
+                msg_type: SequenceExecutorMessageType::LITERAL,
+                packet: BlockDataPacket { last: true, last_block: false, id: u32:1234, data: u64:0x6f980d59cc00, length: u32:8 }
+            },
+            zero!<ExtendedPacket>(), ...
+        ]
+    ),
+
     // testcase #1 - RAW literals with lookups
     (
         u32:0xde,
@@ -843,6 +918,24 @@ proc CompressBlockDecoderTest {
     axi_ram_wr_req_s: chan<TestcaseRamWrReq>[AXI_CHAN_N] out;
     axi_ram_wr_resp_r: chan<TestcaseRamWrResp>[AXI_CHAN_N] in;
 
+    ll_sel_test_s: chan<u1> out;
+    ll_def_test_rd_req_s: chan<FseRamRdReq> out;
+    ll_def_test_rd_resp_r: chan<FseRamRdResp> in;
+    ll_def_test_wr_req_s: chan<FseRamWrReq> out;
+    ll_def_test_wr_resp_r: chan<FseRamWrResp> in;
+
+    ml_sel_test_s: chan<u1> out;
+    ml_def_test_rd_req_s: chan<FseRamRdReq> out;
+    ml_def_test_rd_resp_r: chan<FseRamRdResp> in;
+    ml_def_test_wr_req_s: chan<FseRamWrReq> out;
+    ml_def_test_wr_resp_r: chan<FseRamWrResp> in;
+
+    of_sel_test_s: chan<u1> out;
+    of_def_test_rd_req_s: chan<FseRamRdReq> out;
+    of_def_test_rd_resp_r: chan<FseRamRdResp> in;
+    of_def_test_wr_req_s: chan<FseRamWrReq> out;
+    of_def_test_wr_resp_r: chan<FseRamWrResp> in;
+
     init {}
     config(terminator: chan<bool> out) {
         let (req_s, req_r) = chan<Req>("req");
@@ -935,6 +1028,81 @@ proc CompressBlockDecoderTest {
             );
         }(());
 
+        // Default LL
+
+        let (ll_sel_test_s, ll_sel_test_r) = chan<u1>("ll_sel_test");
+
+        let (ll_def_test_rd_req_s, ll_def_test_rd_req_r) = chan<FseRamRdReq>("ll_def_test_rd_req");
+        let (ll_def_test_rd_resp_s, ll_def_test_rd_resp_r) = chan<FseRamRdResp>("ll_def_test_rd_resp");
+        let (ll_def_test_wr_req_s, ll_def_test_wr_req_r) = chan<FseRamWrReq>("ll_def_test_wr_req");
+        let (ll_def_test_wr_resp_s, ll_def_test_wr_resp_r) = chan<FseRamWrResp>("ll_def_test_wr_resp");
+
+        let (ll_def_fse_rd_req_s, ll_def_fse_rd_req_r) = chan<FseRamRdReq>("ll_def_fse_rd_req");
+        let (ll_def_fse_rd_resp_s, ll_def_fse_rd_resp_r) = chan<FseRamRdResp>("ll_def_fse_rd_resp");
+        let (ll_def_fse_wr_req_s, ll_def_fse_wr_req_r) = chan<FseRamWrReq>("ll_def_fse_wr_req");
+        let (ll_def_fse_wr_resp_s, ll_def_fse_wr_resp_r) = chan<FseRamWrResp>("ll_def_fse_wr_resp");
+
+        spawn ram_mux::RamMux<
+            TEST_FSE_RAM_ADDR_W,
+            TEST_FSE_RAM_DATA_W,
+            TEST_FSE_RAM_NUM_PARTITIONS,
+        >(
+            ll_sel_test_r,
+            ll_def_test_rd_req_r, ll_def_test_rd_resp_s, ll_def_test_wr_req_r, ll_def_test_wr_resp_s,
+            ll_def_fse_rd_req_r, ll_def_fse_rd_resp_s, ll_def_fse_wr_req_r, ll_def_fse_wr_resp_s,
+            fse_rd_req_s[0], fse_rd_resp_r[0], fse_wr_req_s[0], fse_wr_resp_r[0],
+        );
+
+        // Default ML
+
+        let (ml_sel_test_s, ml_sel_test_r) = chan<u1>("ml_sel_test");
+
+        let (ml_def_test_rd_req_s, ml_def_test_rd_req_r) = chan<FseRamRdReq>("ml_def_test_rd_req");
+        let (ml_def_test_rd_resp_s, ml_def_test_rd_resp_r) = chan<FseRamRdResp>("ml_def_test_rd_resp");
+        let (ml_def_test_wr_req_s, ml_def_test_wr_req_r) = chan<FseRamWrReq>("ml_def_test_wr_req");
+        let (ml_def_test_wr_resp_s, ml_def_test_wr_resp_r) = chan<FseRamWrResp>("ml_def_test_wr_resp");
+
+        let (ml_def_fse_rd_req_s, ml_def_fse_rd_req_r) = chan<FseRamRdReq>("ml_def_fse_rd_req");
+        let (ml_def_fse_rd_resp_s, ml_def_fse_rd_resp_r) = chan<FseRamRdResp>("ml_def_fse_rd_resp");
+        let (ml_def_fse_wr_req_s, ml_def_fse_wr_req_r) = chan<FseRamWrReq>("ml_def_fse_wr_req");
+        let (ml_def_fse_wr_resp_s, ml_def_fse_wr_resp_r) = chan<FseRamWrResp>("ml_def_fse_wr_resp");
+
+        spawn ram_mux::RamMux<
+            TEST_FSE_RAM_ADDR_W,
+            TEST_FSE_RAM_DATA_W,
+            TEST_FSE_RAM_NUM_PARTITIONS,
+        >(
+            ml_sel_test_r,
+            ml_def_test_rd_req_r, ml_def_test_rd_resp_s, ml_def_test_wr_req_r, ml_def_test_wr_resp_s,
+            ml_def_fse_rd_req_r, ml_def_fse_rd_resp_s, ml_def_fse_wr_req_r, ml_def_fse_wr_resp_s,
+            fse_rd_req_s[2], fse_rd_resp_r[2], fse_wr_req_s[2], fse_wr_resp_r[2],
+        );
+
+        // Default OF
+
+        let (of_sel_test_s, of_sel_test_r) = chan<u1>("of_sel_test");
+
+        let (of_def_test_rd_req_s, of_def_test_rd_req_r) = chan<FseRamRdReq>("of_def_test_rd_req");
+        let (of_def_test_rd_resp_s, of_def_test_rd_resp_r) = chan<FseRamRdResp>("of_def_test_rd_resp");
+        let (of_def_test_wr_req_s, of_def_test_wr_req_r) = chan<FseRamWrReq>("of_def_test_wr_req");
+        let (of_def_test_wr_resp_s, of_def_test_wr_resp_r) = chan<FseRamWrResp>("of_def_test_wr_resp");
+
+        let (of_def_fse_rd_req_s, of_def_fse_rd_req_r) = chan<FseRamRdReq>("of_def_fse_rd_req");
+        let (of_def_fse_rd_resp_s, of_def_fse_rd_resp_r) = chan<FseRamRdResp>("of_def_fse_rd_resp");
+        let (of_def_fse_wr_req_s, of_def_fse_wr_req_r) = chan<FseRamWrReq>("of_def_fse_wr_req");
+        let (of_def_fse_wr_resp_s, of_def_fse_wr_resp_r) = chan<FseRamWrResp>("of_def_fse_wr_resp");
+
+        spawn ram_mux::RamMux<
+            TEST_FSE_RAM_ADDR_W,
+            TEST_FSE_RAM_DATA_W,
+            TEST_FSE_RAM_NUM_PARTITIONS,
+        >(
+            of_sel_test_r,
+            of_def_test_rd_req_r, of_def_test_rd_resp_s, of_def_test_wr_req_r, of_def_test_wr_resp_s,
+            of_def_fse_rd_req_r, of_def_fse_rd_resp_s, of_def_fse_wr_req_r, of_def_fse_wr_resp_s,
+            fse_rd_req_s[4], fse_rd_resp_r[4], fse_wr_req_s[4], fse_wr_resp_r[4],
+        );
+
         spawn CompressBlockDecoder<
             TEST_AXI_DATA_W, TEST_AXI_ADDR_W, TEST_AXI_ID_W, TEST_AXI_DEST_W,
             // FSE lookup table RAMs
@@ -949,11 +1117,11 @@ proc CompressBlockDecoderTest {
             axi_ram_ar_s[2], axi_ram_r_r[2],
             dpd_rd_req_s, dpd_rd_resp_r, dpd_wr_req_s, dpd_wr_resp_r,
             tmp_rd_req_s, tmp_rd_resp_r, tmp_wr_req_s, tmp_wr_resp_r,
-            fse_rd_req_s[0], fse_rd_resp_r[0], fse_wr_req_s[0], fse_wr_resp_r[0],
+            ll_def_fse_rd_req_s, ll_def_fse_rd_resp_r, ll_def_fse_wr_req_s, ll_def_fse_wr_resp_r,
             fse_rd_req_s[1], fse_rd_resp_r[1], fse_wr_req_s[1], fse_wr_resp_r[1],
-            fse_rd_req_s[2], fse_rd_resp_r[2], fse_wr_req_s[2], fse_wr_resp_r[2],
+            ml_def_fse_rd_req_s, ml_def_fse_rd_resp_r, ml_def_fse_wr_req_s, ml_def_fse_wr_resp_r,
             fse_rd_req_s[3], fse_rd_resp_r[3], fse_wr_req_s[3], fse_wr_resp_r[3],
-            fse_rd_req_s[4], fse_rd_resp_r[4], fse_wr_req_s[4], fse_wr_resp_r[4],
+            of_def_fse_rd_req_s, of_def_fse_rd_resp_r, of_def_fse_wr_req_s, of_def_fse_wr_resp_r,
             fse_rd_req_s[5], fse_rd_resp_r[5], fse_wr_req_s[5], fse_wr_resp_r[5],
             axi_ram_ar_s[3], axi_ram_r_r[3],
             axi_ram_ar_s[4], axi_ram_r_r[4],
@@ -970,14 +1138,73 @@ proc CompressBlockDecoderTest {
             huffman_lit_prescan_mem_rd_req_s, huffman_lit_prescan_mem_rd_resp_r,
             huffman_lit_prescan_mem_wr_req_s, huffman_lit_prescan_mem_wr_resp_r,
         );
-        
-        (terminator, req_s, resp_r, cmd_constr_out_r, axi_ram_wr_req_s, axi_ram_wr_resp_r)
+
+        (
+            terminator,
+            req_s, resp_r,
+            cmd_constr_out_r,
+            axi_ram_wr_req_s, axi_ram_wr_resp_r,
+
+            ll_sel_test_s,
+            ll_def_test_rd_req_s, ll_def_test_rd_resp_r, ll_def_test_wr_req_s, ll_def_test_wr_resp_r,
+
+            ml_sel_test_s,
+            ml_def_test_rd_req_s, ml_def_test_rd_resp_r, ml_def_test_wr_req_s, ml_def_test_wr_resp_r,
+
+            of_sel_test_s,
+            of_def_test_rd_req_s, of_def_test_rd_resp_r, of_def_test_wr_req_s, of_def_test_wr_resp_r,
+        )
     }
 
     next(state: ()) {
         let tok = join();
 
-        let tok = unroll_for!(test_i, tok): (u32, token) in range(u32:0, array_size(COMP_BLOCK_DEC_TESTCASES)) {
+        // FILL THE LL DEFAULT RAM
+        trace_fmt!("Filling LL default FSE table");
+        let tok = send(tok, ll_sel_test_s, u1:0);
+        let tok = unroll_for! (i, tok): (u32, token) in range(u32:0, array_size(sequence_dec::DEFAULT_LL_TABLE)) {
+            let req = FseRamWrReq {
+                addr: i as uN[TEST_FSE_RAM_ADDR_W],
+                data: fse_table_creator::fse_record_to_bits(sequence_dec::DEFAULT_LL_TABLE[i]),
+                mask: !uN[TEST_FSE_RAM_NUM_PARTITIONS]:0,
+            };
+            let tok = send(tok, ll_def_test_wr_req_s, req);
+            let (tok, _) = recv(tok, ll_def_test_wr_resp_r);
+            tok
+        }(tok);
+        let tok = send(tok, ll_sel_test_s, u1:1);
+
+        // FILL THE OF DEFAULT RAM
+        trace_fmt!("Filling OF default FSE table");
+        let tok = send(tok, of_sel_test_s, u1:0);
+        let tok = unroll_for! (i, tok): (u32, token) in range(u32:0, array_size(sequence_dec::DEFAULT_OF_TABLE)) {
+            let req = FseRamWrReq {
+                addr: i as uN[TEST_FSE_RAM_ADDR_W],
+                data: fse_table_creator::fse_record_to_bits(sequence_dec::DEFAULT_OF_TABLE[i]),
+                mask: !uN[TEST_FSE_RAM_NUM_PARTITIONS]:0,
+            };
+            let tok = send(tok, of_def_test_wr_req_s, req);
+            let (tok, _) = recv(tok, of_def_test_wr_resp_r);
+            tok
+        }(tok);
+        let tok = send(tok, of_sel_test_s, u1:1);
+
+        // FILL THE ML DEFAULT RAM
+        trace_fmt!("Filling ML default FSE table");
+        let tok = send(tok, ml_sel_test_s, u1:0);
+        let tok = unroll_for! (i, tok): (u32, token) in range(u32:0, array_size(sequence_dec::DEFAULT_ML_TABLE)) {
+            let req = FseRamWrReq {
+                addr: i as uN[TEST_FSE_RAM_ADDR_W],
+                data: fse_table_creator::fse_record_to_bits(sequence_dec::DEFAULT_ML_TABLE[i]),
+                mask: !uN[TEST_FSE_RAM_NUM_PARTITIONS]:0,
+            };
+            let tok = send(tok, ml_def_test_wr_req_s, req);
+            let (tok, _) = recv(tok, ml_def_test_wr_resp_r);
+            tok
+        }(tok);
+        let tok = send(tok, ml_sel_test_s, u1:1);
+
+        let tok = unroll_for!(test_i, tok): (u32, token) in range(u32:0, u32:1) { //array_size(COMP_BLOCK_DEC_TESTCASES)) {
             let (input_length, input, output_length, output) = COMP_BLOCK_DEC_TESTCASES[test_i];
 
             trace_fmt!("Loading testcase {:x}", test_i);
@@ -985,7 +1212,7 @@ proc CompressBlockDecoderTest {
                 let req = TestcaseRamWrReq {
                     addr: i as uN[TEST_CASE_RAM_ADDR_WIDTH],
                     data: input_data as uN[TEST_CASE_RAM_DATA_WIDTH],
-                    mask: uN[TEST_CASE_RAM_NUM_PARTITIONS]:0xF
+                    mask: !uN[TEST_CASE_RAM_NUM_PARTITIONS]:0
                 };
                 // Write to all RAMs
                 let tok = unroll_for! (j, tok): (u32, token) in range(u32:0, AXI_CHAN_N) {
@@ -998,7 +1225,7 @@ proc CompressBlockDecoderTest {
 
             trace_fmt!("Starting processing testcase {:x}", test_i);
             let tok = send(tok, req_s, Req {
-                addr: uN[TEST_AXI_ADDR_W]:0x0,
+                addr: uN[TEST_AXI_ADDR_W]:0x100,
                 length: input_length as BlockSize,
                 id: u32:1234,
                 last_block: false,

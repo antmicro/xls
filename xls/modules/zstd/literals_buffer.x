@@ -374,11 +374,15 @@ proc LiteralsBufferMux {
             )
         };
 
-        send_if(tok1, out_literals_s, literals_valid, LiteralsData {
+        let out_literals = LiteralsData {
             data: literals_data.data,
             length: literals_data.length,
             last: literals_data.literals_last & literals_data.last,
-        });
+        };
+        send_if(tok1, out_literals_s, literals_valid, out_literals);
+        if literals_valid {
+            trace_fmt!("[LiteralsBufferMux] literals: {:#x}", out_literals);
+        } else {};
 
         let next_state = match (literals_data.last, literals_data.literals_last) {
             (false, false) => state,

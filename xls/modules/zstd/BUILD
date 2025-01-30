@@ -59,6 +59,7 @@ xls_dslx_test(
     name = "math_dslx_test",
     library = ":math_dslx",
     tags = ["manual"],
+    evaluator="ir-interpreter",
 )
 
 xls_dslx_library(
@@ -70,9 +71,9 @@ xls_dslx_library(
 
 xls_dslx_test(
     name = "buffer_dslx_test",
-    dslx_test_args = {"compare": "jit"},
     library = ":buffer_dslx",
     tags = ["manual"],
+    evaluator="ir-interpreter",
 )
 
 xls_dslx_library(
@@ -87,9 +88,9 @@ xls_dslx_library(
 
 xls_dslx_test(
     name = "window_buffer_dslx_test",
-    dslx_test_args = {"compare": "jit"},
     library = ":window_buffer_dslx",
     tags = ["manual"],
+    evaluator="ir-interpreter",
 )
 
 window_buffer_codegen_args = common_codegen_args | {
@@ -167,6 +168,7 @@ xls_dslx_test(
     name = "shift_buffer_dslx_test",
     library = ":shift_buffer_dslx",
     tags = ["manual"],
+    evaluator="ir-interpreter",
 )
 
 xls_dslx_verilog(
@@ -435,6 +437,7 @@ xls_dslx_test(
     name = "frame_header_dec_dslx_test",
     library = ":frame_header_dec_dslx",
     tags = ["manual"],
+    evaluator="ir-interpreter",
 )
 
 frame_header_dec_codegen_args = common_codegen_args | {
@@ -511,9 +514,9 @@ xls_dslx_library(
 
 xls_dslx_test(
     name = "block_header_dslx_test",
-    dslx_test_args = {"compare": "jit"},
     library = ":block_header_dslx",
     tags = ["manual"],
+    evaluator="ir-interpreter",
 )
 
 xls_dslx_library(
@@ -532,6 +535,7 @@ xls_dslx_test(
     name = "block_header_dec_dslx_test",
     library = ":block_header_dec_dslx",
     tags = ["manual"],
+    evaluator="ir-interpreter",
 )
 
 block_header_dec_codegen_args = common_codegen_args | {
@@ -608,9 +612,9 @@ xls_dslx_library(
 
 xls_dslx_test(
     name = "raw_block_dec_dslx_test",
-    dslx_test_args = {"compare": "jit"},
     library = ":raw_block_dec_dslx",
     tags = ["manual"],
+    evaluator="ir-interpreter",
 )
 
 raw_block_dec_codegen_args = common_codegen_args | {
@@ -686,9 +690,9 @@ xls_dslx_library(
 
 xls_dslx_test(
     name = "rle_block_dec_dslx_test",
-    dslx_test_args = {"compare": "jit"},
     library = ":rle_block_dec_dslx",
     tags = ["manual"],
+    evaluator="ir-interpreter",
 )
 
 rle_block_dec_codegen_args = common_codegen_args | {
@@ -764,9 +768,9 @@ xls_dslx_library(
 
 xls_dslx_test(
     name = "dec_mux_dslx_test",
-    dslx_test_args = {"compare": "jit"},
     library = ":dec_mux_dslx",
     tags = ["manual"],
+    evaluator="ir-interpreter",
 )
 
 dec_mux_codegen_args = common_codegen_args | {
@@ -840,9 +844,9 @@ xls_dslx_library(
 
 xls_dslx_test(
     name = "ram_printer_dslx_test",
-    dslx_test_args = {"compare": "jit"},
     library = ":ram_printer_dslx",
     tags = ["manual"],
+    evaluator="ir-interpreter",
 )
 
 xls_dslx_library(
@@ -858,6 +862,7 @@ xls_dslx_test(
     name = "parallel_rams_dslx_test",
     library = ":parallel_rams_dslx",
     tags = ["manual"],
+    evaluator="ir-interpreter",
 )
 
 xls_dslx_library(
@@ -876,11 +881,9 @@ xls_dslx_library(
 
 xls_dslx_test(
     name = "sequence_executor_dslx_test",
-    dslx_test_args = {
-        "compare": "none",
-    },
     library = ":sequence_executor_dslx",
     tags = ["manual"],
+    evaluator="ir-interpreter",
 )
 
 sequence_executor_codegen_args = common_codegen_args | {
@@ -991,6 +994,7 @@ xls_dslx_test(
     name = "axi_csr_accessor_dslx_test",
     library = ":axi_csr_accessor_dslx",
     tags = ["manual"],
+    evaluator="ir-interpreter",
 )
 
 axi_csr_accessor_codegen_args = common_codegen_args | {
@@ -1068,6 +1072,7 @@ xls_dslx_test(
     name = "csr_config_dslx_test",
     library = ":csr_config_dslx",
     tags = ["manual"],
+    evaluator="ir-interpreter",
 )
 
 csr_config_codegen_args = common_codegen_args | {
@@ -1143,6 +1148,7 @@ xls_dslx_test(
     name = "ram_wr_handler_dslx_test",
     library = ":ram_wr_handler_dslx",
     tags = ["manual"],
+    evaluator="ir-interpreter",
 )
 
 xls_dslx_verilog(
@@ -1226,6 +1232,7 @@ xls_dslx_test(
     name = "fse_proba_freq_dec_dslx_test",
     library = ":fse_proba_freq_dec_dslx",
     tags = ["manual"],
+    evaluator="ir-interpreter",
 )
 
 xls_dslx_verilog(
@@ -1329,9 +1336,9 @@ xls_dslx_library(
 
 xls_dslx_test(
     name = "literals_block_header_dec_dslx_test",
-    dslx_test_args = {"compare": "jit"},
     library = ":literals_block_header_dec_dslx",
     tags = ["manual"],
+    evaluator="ir-interpreter",
 )
 
 
@@ -1366,9 +1373,9 @@ xls_dslx_library(
 
 xls_dslx_test(
     name = "sequence_conf_dec_dslx_test",
-    dslx_test_args = {"compare": "jit"},
     library = ":sequence_conf_dec_dslx",
     tags = ["manual"],
+    evaluator="ir-interpreter",
 )
 
 xls_dslx_verilog(
@@ -1401,9 +1408,9 @@ xls_dslx_library(
 
 xls_dslx_test(
     name = "refilling_shift_buffer_dslx_test",
-    dslx_test_args = {"compare": "jit"},
     library = ":refilling_shift_buffer_dslx",
     tags = ["manual"],
+    evaluator="ir-interpreter",
 )
 
 xls_dslx_verilog(
@@ -1488,6 +1495,7 @@ xls_dslx_test(
     library = ":comp_block_dec_dslx",
     size = "enormous",
     tags = ["manual"],
+    evaluator="ir-interpreter",
 )
 
 py_binary(
@@ -1566,6 +1574,7 @@ xls_dslx_test(
     size = "large",
     tags = ["manual"],
     deps = zstd_dec_deps,
+    evaluator="ir-interpreter",
 )
 
 zstd_dec_codegen_args = common_codegen_args | {
@@ -1822,6 +1831,7 @@ xls_dslx_test(
     name = "comp_lookup_dec_dslx_test",
     library = ":comp_lookup_dec_dslx",
     tags = ["manual"],
+    evaluator="ir-interpreter",
 )
 
 xls_dslx_library(
@@ -1841,6 +1851,7 @@ xls_dslx_test(
     name = "rle_lookup_dec_dslx_test",
     library = ":rle_lookup_dec_dslx",
     tags = ["manual"],
+    evaluator="ir-interpreter",
 )
 
 xls_dslx_library(
@@ -1861,6 +1872,7 @@ xls_dslx_test(
     name = "fse_lookup_dec_dslx_test",
     library = ":fse_lookup_dec_dslx",
     tags = ["manual"],
+    evaluator="ir-interpreter",
 )
 
 xls_dslx_library(
@@ -1875,6 +1887,7 @@ xls_dslx_test(
     name = "fse_table_iterator_dslx_test",
     library = ":fse_table_iterator_dslx",
     tags = ["manual"],
+    evaluator="ir-interpreter",
 )
 
 xls_dslx_verilog(
@@ -1954,6 +1967,7 @@ xls_dslx_test(
     name = "fse_table_creator_dslx_test",
     library = ":fse_table_creator_dslx",
     tags = ["manual"],
+    evaluator="ir-interpreter",
 )
 
 xls_dslx_verilog(
@@ -2038,9 +2052,9 @@ xls_dslx_library(
 
 xls_dslx_test(
     name = "command_constructor_dslx_test",
-    dslx_test_args = {"compare": "none"},
     library = ":command_constructor_dslx",
     tags = ["manual"],
+    evaluator="ir-interpreter",
 )
 
 xls_dslx_verilog(
@@ -2121,9 +2135,9 @@ xls_dslx_library(
 
 xls_dslx_test(
     name = "ram_demux_dslx_test",
-    dslx_test_args = {"compare": "none"},
     library = ":ram_demux_dslx",
     tags = ["manual"],
+    evaluator="ir-interpreter",
 )
 
 xls_dslx_verilog(
@@ -2303,6 +2317,7 @@ xls_dslx_test(
     name = "fse_dec_dslx_test",
     library = ":fse_dec_dslx",
     tags = ["manual"],
+    evaluator="ir-interpreter",
 )
 
 xls_dslx_verilog(
@@ -2383,6 +2398,7 @@ xls_dslx_test(
     name = "ram_demux3_dslx_test",
     library = ":ram_demux3_dslx",
     tags = ["manual"],
+    evaluator="ir-interpreter",
 )
 
 xls_dslx_verilog(
@@ -2477,6 +2493,7 @@ xls_dslx_test(
     name = "ram_mux_dslx_test",
     library = ":ram_mux_dslx",
     tags = ["manual"],
+    evaluator="ir-interpreter",
 )
 
 xls_dslx_library(
@@ -2504,6 +2521,7 @@ xls_dslx_test(
     name = "sequence_dec_dslx_test",
     library = ":sequence_dec_dslx",
     tags = ["manual"],
+    evaluator="ir-interpreter",
 )
 
 xls_dslx_verilog(
@@ -2552,6 +2570,7 @@ xls_dslx_test(
     name = "rle_literals_dec_dslx_test",
     library = ":rle_literals_dec_dslx",
     tags = ["manual"],
+    evaluator="ir-interpreter",
 )
 
 xls_dslx_verilog(
@@ -2634,6 +2653,7 @@ xls_dslx_test(
     name = "raw_literals_dec_dslx_test",
     library = ":raw_literals_dec_dslx",
     tags = ["manual"],
+    evaluator="ir-interpreter",
 )
 
 xls_dslx_verilog(
@@ -2725,6 +2745,7 @@ xls_dslx_test(
     name = "literals_buffer_dslx_test",
     library = ":literals_buffer_dslx",
     tags = ["manual"],
+    evaluator="ir-interpreter",
 )
 
 xls_dslx_verilog(
@@ -2835,6 +2856,7 @@ xls_dslx_test(
     name = "literals_decoder_dslx_test",
     library = ":literals_decoder_dslx",
     tags = ["manual"],
+    evaluator="ir-interpreter",
 )
 
 literals_decoder_ctrl_codegen_args = common_codegen_args | {
@@ -3013,6 +3035,7 @@ xls_dslx_test(
     name = "huffman_prescan_dslx_test",
     library = ":huffman_prescan_dslx",
     tags = ["manual"],
+    evaluator="ir-interpreter",
 )
 
 prescan_codegen_args = common_codegen_args | {
@@ -3104,6 +3127,7 @@ xls_dslx_test(
     name = "huffman_code_builder_dslx_test",
     library = ":huffman_code_builder_dslx",
     tags = ["manual"],
+    evaluator="ir-interpreter",
 )
 
 huffman_code_builder_codegen_args = common_codegen_args | {
@@ -3188,6 +3212,7 @@ xls_dslx_test(
     name = "huffman_axi_reader_dslx_test",
     library = ":huffman_axi_reader_dslx",
     tags = ["manual"],
+    evaluator="ir-interpreter",
 )
 
 huffman_axi_reader_codegen_args = common_codegen_args | {
@@ -3270,6 +3295,7 @@ xls_dslx_test(
     name = "huffman_data_preprocessor_dslx_test",
     library = ":huffman_data_preprocessor_dslx",
     tags = ["manual"],
+    evaluator="ir-interpreter",
 )
 
 huffman_data_preprocessor_codegen_args = common_codegen_args | {
@@ -3353,6 +3379,7 @@ xls_dslx_test(
     name = "huffman_decoder_dslx_test",
     library = ":huffman_decoder_dslx",
     tags = ["manual"],
+    evaluator="ir-interpreter",
 )
 
 huffman_decoder_codegen_args = common_codegen_args | {
@@ -3440,6 +3467,7 @@ xls_dslx_test(
     name = "huffman_ctrl_dslx_test",
     library = ":huffman_ctrl_dslx",
     tags = ["manual"],
+    evaluator="ir-interpreter",
 )
 
 huffman_ctrl_codegen_args = common_codegen_args | {
@@ -3529,6 +3557,7 @@ xls_dslx_test(
     library = ":huffman_weights_dec_dslx",
     tags = ["manual"],
     size = "large",
+    evaluator="ir-interpreter",
 )
 
 huffman_weights_dec_codegen_args = common_codegen_args | {
@@ -3617,6 +3646,7 @@ xls_dslx_test(
     name = "huffman_literals_dec_dslx_test",
     library = ":huffman_literals_dec_dslx",
     tags = ["manual"],
+    evaluator="ir-interpreter",
 )
 
 huffman_literals_dec_codegen_args = common_codegen_args | {
@@ -3697,4 +3727,5 @@ xls_dslx_library(
 xls_dslx_test(
     name = "refilling_shift_buffer_mux_dslx_test",
     library = ":refilling_shift_buffer_mux_dslx",
+    evaluator="ir-interpreter",
 )

@@ -1286,3 +1286,26 @@ build_test(
     name = "xls_pipeline_build_test",
     targets = [":xls_pipeline"],
 )
+
+xls_dslx_library(
+    name = "inf_loop_simple_dslx",
+    srcs = ["inf_loop_simple.x"],
+)
+
+xls_dslx_test(
+    name = "inf_loop_simple_dslx_test",
+    size = "small",
+    library = ":inf_loop_simple_dslx",
+    dslx_test_args = {"compare": "jit"},
+)
+xls_dslx_library(
+    name = "inf_loop_io_dslx",
+    srcs = ["inf_loop_io.x"],
+)
+
+xls_dslx_test(
+    name = "inf_loop_io_dslx_test",
+    size = "small",
+    library = ":inf_loop_io_dslx",
+    dslx_test_args = {"compare": "jit"},
+)

@@ -1286,3 +1286,60 @@ build_test(
     name = "xls_pipeline_build_test",
     targets = [":xls_pipeline"],
 )
+
+xls_dslx_library(
+    name = "simple_mux_dslx",
+    srcs = ["simple_mux.x"],
+)
+
+xls_dslx_test(
+    name = "simple_mux_dslx_test",
+    library = ":simple_mux_dslx",
+)
+
+
+xls_dslx_verilog(
+    name = "simple_mux_verilog",
+    codegen_args = {
+        "module_name": "SimpleMux",
+        "clock_period_ps": "750",
+        "pipeline_stages": "8",
+        "worst_case_throughput": "1",
+        "delay_model": "asap7",
+        "reset": "rst",
+        "clock_margin_percent": "20",
+        "multi_proc": "true",
+    },
+    dslx_top = "SimpleMuxInst",
+    library = ":simple_mux_dslx",
+    tags = ["manual"],
+    verilog_file = "simple_mux.sv",
+)
+
+xls_dslx_library(
+    name = "simple_mux2_dslx",
+    srcs = ["simple_mux2.x"],
+)
+
+xls_dslx_test(
+    name = "simple_mux2_dslx_test",
+    library = ":simple_mux2_dslx",
+)
+
+xls_dslx_verilog(
+    name = "simple_mux2_verilog",
+    codegen_args = {
+        "module_name": "SimpleMux2",
+        "clock_period_ps": "750",
+        "pipeline_stages": "8",
+        "worst_case_throughput": "1",
+        "delay_model": "asap7",
+        "reset": "rst",
+        "clock_margin_percent": "20",
+        "multi_proc": "true",
+    },
+    dslx_top = "SimpleMux2Inst",
+    library = ":simple_mux2_dslx",
+    tags = ["manual"],
+    verilog_file = "simple_mux2.sv",
+)

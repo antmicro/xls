@@ -11,9 +11,9 @@ proc derived_parametrics_proc<PARAM_B: u32, PARAM_A: u32> {
 
     init { () }
 
-    next(tok: token, state: ()) {
+    next(state: ()) {
         let init_data = uN[PARAM_A]:1;
-        let (tok, recv_data) = recv(tok, input_r);
+        let (tok, recv_data) = recv(join(), input_r);
         let send_data = init_data + recv_data as uN[PARAM_A];
         let tok = send(tok, output_s, send_data);
     }
@@ -26,9 +26,9 @@ proc test_derived_parametrics_proc {
     data32_r: chan<u32> in;
 
     config(terminator: chan<bool> out) {
-        let (data8_s, data8_r) = chan<u8>;
-        let (data32_s, data32_r) = chan<u32>;
-        // spawn derived_parametrics_proc<u32:8, u32:32>(data8_r, data32_s); // <- This works
+        let (data8_s, data8_r) = chan<u8>("data8");
+        let (data32_s, data32_r) = chan<u32>("data32");
+        //spawn derived_parametrics_proc<u32:8, u32:32>(data8_r, data32_s); // <- This works
         spawn derived_parametrics_proc(data8_r, data32_s);
 // Fails with error message: ~~~~~~~~~~^-----^ XlsTypeError: chan(uN[PARAM_B], dir=in) vs chan(uN[8], dir=in): Mismatch between parameter and argument types (after instantiation).
         (terminator, data8_s, data32_r)
@@ -36,8 +36,8 @@ proc test_derived_parametrics_proc {
 
     init {}
 
-    next(tok: token, state: ()) {
-        let tok = send(tok, data8_s, u8:4);
+    next(state: ()) {
+        let tok = send(join(), data8_s, u8:4);
         let tok = send(tok, data8_s, u8:3);
         let tok = send(tok, data8_s, u8:2);
         let tok = send(tok, data8_s, u8:1);

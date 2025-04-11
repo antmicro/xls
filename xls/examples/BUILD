@@ -817,7 +817,7 @@ py_test(
     name = "passthrough_cocotb_test",
     srcs = ["passthrough_cocotb_test.py"],
     data = [
-        ":passthrough_verilog",
+        ":passthrough.v",
         "@com_icarus_iverilog//:iverilog",
         "@com_icarus_iverilog//:vvp",
     ],

@@ -295,7 +295,7 @@ py_test(
     name = "rle_enc_cocotb_test",
     srcs = ["rle_enc_cocotb_test.py"],
     data = [
-        ":rle_enc_verilog",
+        ":rle_enc.v",
         "@com_icarus_iverilog//:iverilog",
         "@com_icarus_iverilog//:vvp",
     ],

@@ -15,6 +15,7 @@
 
 
 import json
+import re
 import shutil
 import subprocess
 from dataclasses import dataclass, field
@@ -68,8 +69,8 @@ def parse_file(parser: SystemPath, file_to_parse: SystemPath, cwd: Optional[Syst
     raise Exception(f"Error while parsing Bazel log using {parser} script")
 
 
-def get_test_output_path(test_name: str) -> Path:
-  path = test_name.replace("@//", "").replace(":", "/")
+def get_test_output_path(test_name: str) -> str:
+  path = re.sub(r"^@?//", "", test_name).replace(":", "/")
   return Path("bazel-testlogs", path, "test.outputs", "outputs.zip")
 
 

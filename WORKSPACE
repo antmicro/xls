@@ -23,8 +23,8 @@ load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
 # Commit on  2023-07-17, current as of 2023-08-05.
 http_archive(
     name = "com_grail_bazel_toolchain",
-    sha256 = "5fb0a6ae0f5bc72a7d80e6de0edad906c9936729734009f1c01dac4b06f966e0",
-    strip_prefix = "bazel-toolchain-f94335f1f5434256b1793dafbb7dd07773b0e76e",
+    sha256 = "d53a35bede7628332f2dbbffeefbd6928efea28d729e19c8a3413e3ac7731950",
+    strip_prefix = "toolchains_llvm-f94335f1f5434256b1793dafbb7dd07773b0e76e",
     urls = [
         "https://github.com/grailbio/bazel-toolchain/archive/f94335f1f5434256b1793dafbb7dd07773b0e76e.zip",
     ],

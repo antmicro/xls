@@ -51,7 +51,8 @@ class TestData:
 def run_test_and_capture_output(
   test: BazelLabel, log_file: SystemPath, cwd: SystemPath
 ) -> None:
-  cmd = f"bazel build {test} && bazel test {test} --test_output=all > {log_file}"
+  cmd = f"bazel build {test} && bazel test {test} --test_output=all --zip_undeclared_test_outputs=false > {log_file}"
+  print(f"cmd: {cmd}")
   try:
     subprocess.check_call(cmd, shell=True, cwd=cwd)
   except subprocess.CalledProcessError:
@@ -71,11 +72,7 @@ def parse_file(parser: SystemPath, file_to_parse: SystemPath, cwd: Optional[Syst
 
 def get_test_output_path(test_name: str) -> str:
   path = re.sub(r"^@?//", "", test_name).replace(":", "/")
-  return Path("bazel-testlogs", path, "test.outputs", "outputs.zip")
-
-
-def unzip_test_output(test_outputs: SystemPath, target_directory: SystemPath) -> None:
-  shutil.unpack_archive(test_outputs, target_directory, "zip")
+  return Path("bazel-testlogs", path, "test.outputs/")
 
 
 def run_and_parse(
@@ -98,12 +95,8 @@ def run_and_parse(
 
       # Parse files
 
-      if test.file_parsers:
-        output_path = root_dir / get_test_output_path(test.name)
-        unzip_test_output(output_path, tmp_dir)
-
       for file_parser_data in test.file_parsers:
-        filepath = Path(tmp_dir, file_parser_data.file)
+        filepath = Path(root_dir, get_test_output_path(test.name), file_parser_data.file)
         json_fragment = parse_file(
           file_parser_data.parser, filepath, cwd=root_dir
         )

@@ -145,7 +145,12 @@ def generate_compression_block_parameter_optimization(name, optimized_ir, cocotb
 
 def _vizier_optimize_impl(ctx):
     executable = ctx.actions.declare_file("{}_run.sh".format(ctx.attr.name))
-    command = "python {} --root-dir {} --test-label \"{}\" --parser {} --log-file {} --iterations {} --suggestions {} --algorithm {}".format(ctx.executable._run.short_path, "$BUILD_WORKSPACE_DIRECTORY", ctx.attr.test, ctx.executable.parser.path, ctx.attr.log_file, ctx.attr.iterations, ctx.attr.suggestions, ctx.attr.algorithm)
+    # parser_executable_path = ctx.executable.parser.path
+    parser_executable_path = ctx.attr.parser.files.to_list()[0].path
+    # FIXME: `ctx.executable.parser.path` expands to bazel generated py_binary. This would be fine
+    # but on the bazel version we currently use (5.4.0) bazel generates broken py_binaries that
+    # can't find .runfiles directory. As a temporary workaround we use path to input file
+    command = "python {} --root-dir {} --test-label \"{}\" --parser {} --log-file {} --iterations {} --suggestions {} --algorithm {}".format(ctx.executable._run.short_path, "$BUILD_WORKSPACE_DIRECTORY", ctx.attr.test, parser_executable_path, ctx.attr.log_file, ctx.attr.iterations, ctx.attr.suggestions, ctx.attr.algorithm)
 
     ctx.actions.write(output = executable, content = command)
 

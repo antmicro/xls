@@ -1287,3 +1287,14 @@ build_test(
     name = "xls_pipeline_build_test",
     targets = [":xls_pipeline"],
 )
+
+xls_dslx_library(
+    name = "assert_dslx",
+    srcs = ["assert.x"],
+)
+
+xls_dslx_test(
+    name = "assert_dslx_test",
+    size = "small",
+    library = ":assert_dslx",
+)

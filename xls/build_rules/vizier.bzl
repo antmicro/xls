@@ -117,7 +117,7 @@ def generate_compression_block_parameter_optimization(name, optimized_ir, cocotb
         srcs = [cocotb_test],
         main = cocotb_test,
         data = [
-            ":" + name + "_compression_block_verilog",
+            ":" + name + "_compression_block.v",
             "@com_icarus_iverilog//:iverilog",
             "@com_icarus_iverilog//:vvp",
         ],

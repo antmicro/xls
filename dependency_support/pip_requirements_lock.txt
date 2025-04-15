@@ -229,10 +229,6 @@ ghp-import==2.1.0 \
     --hash=sha256:8337dd7b50877f163d4c0289bc1f1c7f127550241988d568c1db512c4324a619 \
     --hash=sha256:9c535c4c61193c2df8871222567d7fd7e5014d835f97dc7b7439069e2413d343
     # via mkdocs
-idna==3.6 \
-    --hash=sha256:9ecdbbd083b06798ae1e86adcbfe8ab1479cf864e4ee30fe4e46a003d12491ca \
-    --hash=sha256:c05567e9c24a6b9faaa835c4821bad0590fbb9d5779e7caa6e1cc4978e7eb24f
-    # via requests
 google-vizier[jax]==0.1.12 \
     --hash=sha256:89a36b798816da2f8062db9aed040a43ddb9f26f9cfc704f27aa254471bf77b1 \
     --hash=sha256:eab221e947e77faa715714120e120b0fb1edc36fa985e7af71fbf87e115fabcd
@@ -419,6 +415,10 @@ grpcio-tools==1.59.0 \
     --hash=sha256:f6263b85261b62471cb97b7505df72d72b8b62e5e22d8184924871a6155b4dbf \
     --hash=sha256:f965707da2b48a33128615bcfebedd215a3a30e346447e885bb3da37a143177a
     # via google-vizier
+idna==3.6 \
+    --hash=sha256:9ecdbbd083b06798ae1e86adcbfe8ab1479cf864e4ee30fe4e46a003d12491ca \
+    --hash=sha256:c05567e9c24a6b9faaa835c4821bad0590fbb9d5779e7caa6e1cc4978e7eb24f
+    # via requests
 importlib-resources==6.1.0 \
     --hash=sha256:9d48dcccc213325e810fd723e7fbb45ccb39f6cf5c31f00cf2b965f5f10f3cb9 \
     --hash=sha256:aa50258bbfa56d4e33fbd8aa3ef48ded10d1735f11532b8df95388cc6bdb7e83
@@ -781,7 +781,9 @@ psutil==5.7.0 \
 pygments==2.17.2 \
     --hash=sha256:b27c2826c47d0f3219f29554824c30c5e8945175d888647acd804ddd04af846c \
     --hash=sha256:da46cec9fd2de5be3a8a784f434e4c4ab670b4ff54d605c4c2717e9d49c4c367
-    # via mkdocs-material
+    # via
+    #   mkdocs-material
+    #   rich
 pymdown-extensions==10.5 \
     --hash=sha256:1b60f1e462adbec5a1ed79dac91f666c9c0d241fa294de1989f29d20096cfd0b \
     --hash=sha256:1f0ca8bb5beff091315f793ee17683bc1390731f6ac4c5eb01e27464b80fe879
@@ -952,6 +954,10 @@ requests==2.31.0 \
     --hash=sha256:58cd2187c01e70e6e26505bca751777aa9f2ee0b7f4300988b709f44e013003f \
     --hash=sha256:942c5a758f98d790eaed1a29cb6eefc7ffb0d1cf7af05c3d2791656dbd6ad1e1
     # via mkdocs-material
+rich==14.0.0 \
+    --hash=sha256:1c9491e1951aac09caffd42f448ee3d04e58923ffe14993f6e83068dc395d7e0 \
+    --hash=sha256:82f1bc23a6a21ebca4ae0c45af9bdbc492ed20231dcb63f297d6d1021a9d5725
+    # via flax
 rpds-py==0.13.2 \
     --hash=sha256:06d218e4464d31301e943b65b2c6919318ea6f69703a351961e1baaf60347276 \
     --hash=sha256:12ecf89bd54734c3c2c79898ae2021dca42750c7bcfb67f8fb3315453738ac8f \
@@ -1140,9 +1146,6 @@ tensorstore==0.1.46 \
 termcolor==1.1.0 \
     --hash=sha256:1d6d69ce66211143803fbc56652b41d73b4a400a2891d7bf7a1cdf4c02de613b
     # via -r dependency_support/pip_requirements.in
-urllib3==2.1.0 \
-    --hash=sha256:55901e917a5896a349ff771be919f8bd99aff50b79fe58fec595eb37bbc56bb3 \
-    --hash=sha256:df7aa8afb0148fa78488e7899b2c59b5f4ffcfa82e6c54ccb9dd37c1d7b52d54
 tfp-nightly[jax]==0.23.0.dev20231023 \
     --hash=sha256:970937c9451fb1c95a1c3752a76d13d16a522dd1227b9558687b47e274562ec9
     # via google-vizier
@@ -1166,6 +1169,10 @@ typing-extensions==4.8.0 \
     #   flax
     #   jaxtyping
     #   orbax-checkpoint
+    #   rich
+urllib3==2.1.0 \
+    --hash=sha256:55901e917a5896a349ff771be919f8bd99aff50b79fe58fec595eb37bbc56bb3 \
+    --hash=sha256:df7aa8afb0148fa78488e7899b2c59b5f4ffcfa82e6c54ccb9dd37c1d7b52d54
     # via requests
 watchdog==3.0.0 \
     --hash=sha256:0e06ab8858a76e1219e68c7573dfeba9dd1c0219476c5a44d5333b01d7e1743a \

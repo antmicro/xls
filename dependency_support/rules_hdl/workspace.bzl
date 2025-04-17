@@ -51,4 +51,5 @@ def repo():
         repo_mapping = {
             "@rules_hdl_cpython": "@python310",
         },
+        patches = ["@com_google_xls//dependency_support/rules_hdl:allow-for-overriding-python-version.patch"],
     )

@@ -20,19 +20,14 @@
 import std;
 import xls.examples.ram;
 
-struct RamMuxState { sel: u1, cnt0: u32, cnt1: u32 }
+struct RamMuxState { active_channel: u1, pending_requests: u32 }
 
-pub proc RamMux<
-    ADDR_WIDTH: u32, DATA_WIDTH: u32, NUM_PARTITIONS: u32,
-    INIT_SEL: u1 = {u1:0}
-> {
+pub proc RamMux<ADDR_WIDTH: u32, DATA_WIDTH: u32, NUM_PARTITIONS: u32, FIRST_CHANNEL: u1 = {u1:0}> {
     type ReadReq = ram::ReadReq<ADDR_WIDTH, NUM_PARTITIONS>;
     type ReadResp = ram::ReadResp<DATA_WIDTH>;
     type WriteReq = ram::WriteReq<ADDR_WIDTH, DATA_WIDTH, NUM_PARTITIONS>;
     type WriteResp = ram::WriteResp;
-
-    sel_r: chan<u1> in;
-
+    active_channel_r: chan<u1> in;
     rd_req0_r: chan<ReadReq> in;
     rd_resp0_s: chan<ReadResp> out;
     wr_req0_r: chan<WriteReq> in;
@@ -46,101 +41,69 @@ pub proc RamMux<
     wr_req_s: chan<WriteReq> out;
     wr_resp_r: chan<WriteResp> in;
 
-    config(
-        sel_r: chan<u1> in,
-        rd_req0_r: chan<ReadReq> in,
-        rd_resp0_s: chan<ReadResp> out,
-        wr_req0_r: chan<WriteReq> in,
-        wr_resp0_s: chan<WriteResp> out,
-        rd_req1_r: chan<ReadReq> in,
-        rd_resp1_s: chan<ReadResp> out,
-        wr_req1_r: chan<WriteReq> in,
-        wr_resp1_s: chan<WriteResp> out,
-        rd_req_s: chan<ReadReq> out,
-        rd_resp_r: chan<ReadResp> in,
-        wr_req_s: chan<WriteReq> out,
-        wr_resp_r: chan<WriteResp> in
-    ) {
+    config(active_channel_r: chan<u1> in, rd_req0_r: chan<ReadReq> in,
+           rd_resp0_s: chan<ReadResp> out, wr_req0_r: chan<WriteReq> in,
+           wr_resp0_s: chan<WriteResp> out, rd_req1_r: chan<ReadReq> in,
+           rd_resp1_s: chan<ReadResp> out, wr_req1_r: chan<WriteReq> in,
+           wr_resp1_s: chan<WriteResp> out, rd_req_s: chan<ReadReq> out,
+           rd_resp_r: chan<ReadResp> in, wr_req_s: chan<WriteReq> out, wr_resp_r: chan<WriteResp> in) {
         (
-            sel_r,
-            rd_req0_r, rd_resp0_s, wr_req0_r, wr_resp0_s,
-            rd_req1_r, rd_resp1_s, wr_req1_r, wr_resp1_s,
-            rd_req_s, rd_resp_r, wr_req_s, wr_resp_r,
+            active_channel_r, rd_req0_r, rd_resp0_s, wr_req0_r, wr_resp0_s, rd_req1_r, rd_resp1_s,
+            wr_req1_r, wr_resp1_s, rd_req_s, rd_resp_r, wr_req_s, wr_resp_r,
         )
     }
 
-    init {
-        RamMuxState {
-            sel: INIT_SEL, ..zero!<RamMuxState>()
-        }
-    }
+    init { RamMuxState { active_channel: FIRST_CHANNEL, ..zero!<RamMuxState>() } }
 
     next(state: RamMuxState) {
-        let tok0 = join();
+        let tok = join();
 
-        let sel = state.sel;
-        let (cnt0, cnt1) = (state.cnt0, state.cnt1);
+        let active_channel = state.active_channel;
+        let pending_requests = state.pending_requests;
 
-        // receive requests from channel 0
-        let (tok1_0, rd_req0, rd_req0_valid) =
-            recv_if_non_blocking(tok0, rd_req0_r, sel == u1:0, zero!<ReadReq>());
-        let cnt0 = if rd_req0_valid { cnt0 + u32:1 } else { cnt0 };
-
-        let (tok1_1, wr_req0, wr_req0_valid) =
-            recv_if_non_blocking(tok0, wr_req0_r, sel == u1:0, zero!<WriteReq>());
-        let cnt0 = if wr_req0_valid { cnt0 + u32:1 } else { cnt0 };
-
-        // receive requests from channel 1
-        let (tok1_2, rd_req1, rd_req1_valid) =
-            recv_if_non_blocking(tok0, rd_req1_r, sel == u1:1, zero!<ReadReq>());
-        let cnt1 = if rd_req1_valid { cnt1 + u32:1 } else { cnt1 };
-
-        let (tok1_3, wr_req1, wr_req1_valid) =
-            recv_if_non_blocking(tok0, wr_req1_r, sel == u1:1, zero!<WriteReq>());
-        let cnt1 = if wr_req1_valid { cnt1 + u32:1 } else { cnt1 };
-
-        // receive responses from output channel
-        let (tok1_4, rd_resp, rd_resp_valid) =
-            recv_non_blocking(tok0, rd_resp_r, zero!<ReadResp>());
-        let (tok1_5, wr_resp, wr_resp_valid) =
-            recv_non_blocking(tok0, wr_resp_r, zero!<WriteResp>());
-
-        let tok1 = join(tok1_0, tok1_1, tok1_2, tok1_3, tok1_4, tok1_5);
-
-        // prepare output values
-        let (rd_req, rd_req_valid, wr_req, wr_req_valid) = if sel == u1:0 {
-            (rd_req0, rd_req0_valid, wr_req0, wr_req0_valid)
+        // Receive any requests from the selected channel.
+        let (tok_rd_req, rd_req, rd_req_valid) = if active_channel == u1:0 {
+            recv_non_blocking(tok, rd_req0_r, zero!<ReadReq>())
         } else {
-            (rd_req1, rd_req1_valid, wr_req1, wr_req1_valid)
+            recv_non_blocking(tok, rd_req1_r, zero!<ReadReq>())
+        };
+        let (tok_wr_req, wr_req, wr_req_valid) = if active_channel == u1:0 {
+            recv_non_blocking(tok, wr_req0_r, zero!<WriteReq>())
+        } else {
+            recv_non_blocking(tok, wr_req1_r, zero!<WriteReq>())
         };
 
-        // send requests to output channel
-        let tok2_0 = send_if(tok1, rd_req_s, rd_req_valid, rd_req);
-        let tok2_1 = send_if(tok1, wr_req_s, wr_req_valid, wr_req);
+        // Record the incoming requests as pending.
+        let pending_requests = pending_requests + (rd_req_valid as u32) + (wr_req_valid as u32);
 
-        // send responses to channel 0
-        let rd_resp0_cond = (sel == u1:0 && rd_resp_valid);
-        let tok2_2 = send_if(tok1, rd_resp0_s, rd_resp0_cond, rd_resp);
-        let cnt0 = if rd_resp0_cond { cnt0 - u32:1 } else { cnt0 };
+        // Receive any responses from the RAM.
+        let (tok_rd_resp, rd_resp, rd_resp_valid) =
+            recv_non_blocking(join(), rd_resp_r, zero!<ReadResp>());
+        let (tok_wr_resp, wr_resp, wr_resp_valid) =
+            recv_non_blocking(join(), wr_resp_r, zero!<WriteResp>());
 
-        let wr_resp0_cond = (sel == u1:0 && wr_resp_valid);
-        let tok2_3 = send_if(tok1, wr_resp0_s, wr_resp0_cond, wr_resp);
-        let cnt0 = if wr_resp0_cond { cnt0 - u32:1 } else { cnt0 };
+        let all_receives = join(tok_rd_req, tok_wr_req, tok_rd_resp, tok_wr_resp);
 
-        // send responses to channel 1
-        let rd_resp1_cond = (sel == u1:1 && rd_resp_valid);
-        let tok2_4 = send_if(tok1, rd_resp1_s, rd_resp1_cond, rd_resp);
-        let cnt1 = if rd_resp1_cond { cnt1 - u32:1 } else { cnt1 };
+        // Send any requests to the RAM.
+        let sent_rd_req = send_if(all_receives, rd_req_s, rd_req_valid, rd_req);
+        let sent_wr_req = send_if(all_receives, wr_req_s, wr_req_valid, wr_req);
 
-        let wr_resp1_cond = (sel == u1:1 && wr_resp_valid);
-        let tok2_5 = send_if(tok1, wr_resp1_s, wr_resp1_cond, wr_resp);
-        let cnt1 = if wr_resp1_cond { cnt1 - u32:1 } else { cnt1 };
+        if active_channel == u1:0 {
+            // send responses to channel 0
+            send_if(all_receives, rd_resp0_s, rd_resp_valid, rd_resp);
+            send_if(all_receives, wr_resp0_s, wr_resp_valid, wr_resp);
+        } else {
+            // send responses to channel 1
+            send_if(all_receives, rd_resp1_s, rd_resp_valid, rd_resp);
+            send_if(all_receives, wr_resp1_s, wr_resp_valid, wr_resp);
+        };
+        let pending_requests = pending_requests - (rd_resp_valid as u32) - (wr_resp_valid as u32);
 
-        // handle select
-        let (tok2_6, sel, sel_valid) =
-            recv_if_non_blocking(tok1, sel_r, cnt0 == u32:0 && cnt1 == u32:0, state.sel);
+        // If there are no outstanding requests, accept any incoming request to switch channels.
+        let (_, active_channel, _) = recv_if_non_blocking(
+            all_receives, active_channel_r, pending_requests == u32:0, state.active_channel);
 
-        RamMuxState { sel, cnt0, cnt1 }
+        RamMuxState { active_channel, pending_requests }
     }
 }
 
@@ -148,32 +111,31 @@ const MUX_TEST_SIZE = u32:32;
 const MUX_TEST_DATA_WIDTH = u32:8;
 const MUX_TEST_ADDR_WIDTH = std::clog2(MUX_TEST_SIZE);
 const MUX_TEST_WORD_PARTITION_SIZE = u32:1;
-const MUX_TEST_NUM_PARTITIONS = ram::num_partitions(MUX_TEST_WORD_PARTITION_SIZE, MUX_TEST_DATA_WIDTH);
+const MUX_TEST_NUM_PARTITIONS = ram::num_partitions(
+    MUX_TEST_WORD_PARTITION_SIZE, MUX_TEST_DATA_WIDTH);
 
 type MuxTestAddr = uN[MUX_TEST_ADDR_WIDTH];
 type MuxTestData = uN[MUX_TEST_DATA_WIDTH];
 
-fn MuxTestWriteWordReq (addr: MuxTestAddr, data: MuxTestData) ->
-    ram::WriteReq<MUX_TEST_ADDR_WIDTH, MUX_TEST_DATA_WIDTH, MUX_TEST_NUM_PARTITIONS> {
+fn MuxTestWriteWordReq
+    (addr: MuxTestAddr, data: MuxTestData)
+    -> ram::WriteReq<MUX_TEST_ADDR_WIDTH, MUX_TEST_DATA_WIDTH, MUX_TEST_NUM_PARTITIONS> {
     ram::WriteWordReq<MUX_TEST_NUM_PARTITIONS>(addr, data)
 }
 
-fn MuxTestReadWordReq(addr: MuxTestAddr) ->
-    ram::ReadReq<MUX_TEST_ADDR_WIDTH, MUX_TEST_NUM_PARTITIONS> {
+fn MuxTestReadWordReq
+    (addr: MuxTestAddr) -> ram::ReadReq<MUX_TEST_ADDR_WIDTH, MUX_TEST_NUM_PARTITIONS> {
     ram::ReadWordReq<MUX_TEST_NUM_PARTITIONS>(addr)
 }
 
 #[test_proc]
 proc RamMuxTest {
     terminator: chan<bool> out;
-    sel_s: chan<u1> out;
-
+    active_channel_s: chan<u1> out;
     type ReadReq = ram::ReadReq<MUX_TEST_ADDR_WIDTH, MUX_TEST_NUM_PARTITIONS>;
     type ReadResp = ram::ReadResp<MUX_TEST_DATA_WIDTH>;
     type WriteReq = ram::WriteReq<MUX_TEST_ADDR_WIDTH, MUX_TEST_DATA_WIDTH, MUX_TEST_NUM_PARTITIONS>;
     type WriteResp = ram::WriteResp;
-
-
     rd_req0_s: chan<ReadReq> out;
     rd_resp0_r: chan<ReadResp> in;
     wr_req0_s: chan<WriteReq> out;
@@ -184,7 +146,7 @@ proc RamMuxTest {
     wr_resp1_r: chan<WriteResp> in;
 
     config(terminator: chan<bool> out) {
-        let (sel_s, sel_r) = chan<u1>("sel");
+        let (active_channel_s, active_channel_r) = chan<u1>("active_channel");
 
         let (rd_req0_s, rd_req0_r) = chan<ReadReq>("rd_req0");
         let (rd_resp0_s, rd_resp0_r) = chan<ReadResp>("rd_resp0");
@@ -202,14 +164,14 @@ proc RamMuxTest {
         let (wr_resp_s, wr_resp_r) = chan<WriteResp>("wr_resp");
 
         spawn RamMux<MUX_TEST_ADDR_WIDTH, MUX_TEST_DATA_WIDTH, MUX_TEST_NUM_PARTITIONS>(
-            sel_r, rd_req0_r, rd_resp0_s, wr_req0_r, wr_resp0_s, rd_req1_r, rd_resp1_s, wr_req1_r,
-            wr_resp1_s, rd_req_s, rd_resp_r, wr_req_s, wr_resp_r);
+            active_channel_r, rd_req0_r, rd_resp0_s, wr_req0_r, wr_resp0_s, rd_req1_r, rd_resp1_s,
+            wr_req1_r, wr_resp1_s, rd_req_s, rd_resp_r, wr_req_s, wr_resp_r);
 
         spawn ram::RamModel<MUX_TEST_DATA_WIDTH, MUX_TEST_SIZE, MUX_TEST_WORD_PARTITION_SIZE>(
             rd_req_r, rd_resp_s, wr_req_r, wr_resp_s);
         (
-            terminator, sel_s, rd_req0_s, rd_resp0_r, wr_req0_s, wr_resp0_r, rd_req1_s, rd_resp1_r,
-            wr_req1_s, wr_resp1_r,
+            terminator, active_channel_s, rd_req0_s, rd_resp0_r, wr_req0_s, wr_resp0_r, rd_req1_s,
+            rd_resp1_r, wr_req1_s, wr_resp1_r,
         )
     }
 
@@ -226,7 +188,7 @@ proc RamMuxTest {
 
         let req = MuxTestWriteWordReq(MuxTestAddr:1, MuxTestData:0xCD);
         let tok = send(tok, wr_req1_s, req);
-        let tok = send(tok, sel_s, u1:1);
+        let tok = send(tok, active_channel_s, u1:1);
         let (tok, _) = recv(tok, wr_resp1_r);
         let tok = send(tok, rd_req1_s, MuxTestReadWordReq(req.addr));
         let (tok, resp) = recv(tok, rd_resp1_r);

@@ -14,7 +14,7 @@
 
 module ram_demux_wrapper #(
     parameter DATA_WIDTH = 64,
-    parameter SIZE = 1024,
+    parameter SIZE = 128,
     parameter ADDR_WIDTH = $clog2(SIZE),
     parameter NUM_PARTITIONS = 64
 ) (

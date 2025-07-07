@@ -2115,10 +2115,31 @@ ram_demux_codegen_args = {
 xls_dslx_verilog(
     name = "ram_demux_verilog",
     codegen_args = ram_demux_codegen_args,
-    dslx_top = "RamDemuxFixedInst",
+    dslx_top = "RamDemuxInst",
     library = ":ram_demux_dslx",
     tags = ["manual"],
     verilog_file = "ram_demux.v",
+)
+
+xls_dslx_verilog(
+    name = "ram_demux_fixed_verilog",
+    codegen_args = ram_demux_codegen_args,
+    dslx_top = "RamDemuxFixedInst",
+    library = ":ram_demux_dslx",
+    tags = ["manual"],
+    verilog_file = "ram_demux_fixed.v",
+)
+
+xls_dslx_verilog(
+    name = "ram_demux_without_rewrite_verilog",
+    codegen_args = ram_demux_codegen_args | {
+        "module_name": "RamDemuxWithoutRewrite",
+        "ram_configurations" : "",
+    },
+    dslx_top = "RamDemuxWithoutRewriteInst",
+    library = ":ram_demux_dslx",
+    tags = ["manual"],
+    verilog_file = "ram_demux_without_rewrite.v",
 )
 
 xls_benchmark_ir(
@@ -2169,6 +2190,9 @@ py_test(
     srcs = ["ram_demux_cocotb_test.py"],
     data = [
         "//xls/modules/zstd:ram_demux.v",
+        "//xls/modules/zstd:ram_demux_fixed.v",
+        "//xls/modules/zstd:ram_demux_without_rewrite.v",
+        "//xls/modules/zstd/rtl:xls_fifo_wrapper.v",
         "//xls/modules/zstd/rtl:ram_1r1w.v",
         "//xls/modules/zstd/rtl:ram_demux_wrapper.v",
         "@com_icarus_iverilog//:iverilog",
@@ -3775,3 +3799,4 @@ py_test(
         "//xls/modules/zstd/cocotb:utils",
     ],
 )
+

@@ -547,7 +547,7 @@ proc RamDemuxFixedTest {
     }
 }
 
-const RAM_SIZE = u32:1024;
+const RAM_SIZE = u32:128;
 const RAM_DATA_WIDTH = u32:64;
 const RAM_ADDR_WIDTH = std::clog2(RAM_SIZE);
 const RAM_WORD_PARTITION_SIZE = u32:1;
@@ -1009,4 +1009,57 @@ pub proc RamDemuxNaiveFixedInst {
 
     init { }
     next(state: ()) { }
+}
+
+
+const RAM_INITIALIZED = true;
+const RAM_SIMULTANEOUS_READ_WRITE_BEHAVIOR = ram::SimultaneousReadWriteBehavior::READ_BEFORE_WRITE;
+
+pub proc RamDemuxWithoutRewriteInst {
+    type ReadReq = ram::ReadReq<RAM_ADDR_WIDTH, RAM_NUM_PARTITIONS>;
+    type ReadResp = ram::ReadResp<RAM_DATA_WIDTH>;
+    type WriteReq = ram::WriteReq<RAM_ADDR_WIDTH, RAM_DATA_WIDTH, RAM_NUM_PARTITIONS>;
+    type WriteResp = ram::WriteResp;
+
+    init {}
+
+    config(
+        sel_req_r: chan<u1> in,
+        sel_resp_s: chan<()> out,
+
+        rd_req_r: chan<ReadReq> in,
+        rd_resp_s: chan<ReadResp> out,
+        wr_req_r: chan<WriteReq> in,
+        wr_resp_s: chan<WriteResp> out,
+
+    ) {
+        let (rd_req0_s, rd_req0_r) = chan<ReadReq, u32:1>("rd_req0");
+        let (rd_resp0_s, rd_resp0_r) = chan<ReadResp, u32:1>("rd_resp0");
+        let (wr_req0_s, wr_req0_r) = chan<WriteReq, u32:1>("wr_req0");
+        let (wr_resp0_s, wr_resp0_r) = chan<WriteResp, u32:1>("wr_resp0");
+
+        let (rd_req1_s, rd_req1_r) = chan<ReadReq, u32:1>("rd_req1");
+        let (rd_resp1_s, rd_resp1_r) = chan<ReadResp, u32:1>("rd_resp1");
+        let (wr_req1_s, wr_req1_r) = chan<WriteReq, u32:1>("wr_req1");
+        let (wr_resp1_s, wr_resp1_r) = chan<WriteResp, u32:1>("wr_resp1");
+
+        spawn RamDemuxFixed<RAM_ADDR_WIDTH, RAM_DATA_WIDTH, RAM_NUM_PARTITIONS>(
+            sel_req_r, sel_resp_s,
+            rd_req_r, rd_resp_s, wr_req_r, wr_resp_s,
+            rd_req0_s, rd_resp0_r, wr_req0_s, wr_resp0_r,
+            rd_req1_s, rd_resp1_r, wr_req1_s, wr_resp1_r
+        );
+
+        spawn ram::RamModel<RAM_DATA_WIDTH, RAM_SIZE, RAM_WORD_PARTITION_SIZE,
+          RAM_SIMULTANEOUS_READ_WRITE_BEHAVIOR, RAM_INITIALIZED>(
+            rd_req0_r, rd_resp0_s, wr_req0_r, wr_resp0_s,
+        );
+
+        spawn ram::RamModel<RAM_DATA_WIDTH, RAM_SIZE, RAM_WORD_PARTITION_SIZE,
+          RAM_SIMULTANEOUS_READ_WRITE_BEHAVIOR, RAM_INITIALIZED>(
+            rd_req1_r, rd_resp1_s, wr_req1_r, wr_resp1_s,
+        );
+    }
+
+    next (state: ()) { }
 }

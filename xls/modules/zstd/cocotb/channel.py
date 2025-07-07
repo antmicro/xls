@@ -118,5 +118,8 @@ class XLSChannelMonitor(BusMonitor):
     while True:
       await RisingEdge(self.clock)
       if self.bus.rdy.value and self.bus.vld.value:
-        vec = self.struct.from_int(self.bus.data.value.integer)
+        if hasattr(self.bus.data, "value"):
+          vec = self.struct.from_int(self.bus.data.value.integer)
+        else:
+          vec = None
         self._recv(vec)

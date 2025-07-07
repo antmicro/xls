@@ -34,12 +34,14 @@ def setup_com_iverilog():
   )
   os.environ["PATH"] += os.pathsep + str(iverilog_path.parent)
   os.environ["PATH"] += os.pathsep + str(vvp_path.parent)
-  build_dir = pathlib.Path(os.environ['BUILD_WORKING_DIRECTORY'], "sim_build")
-  return build_dir
 
-def run_test(toplevel, test_module, verilog_sources):
+def run_test(toplevel, test_module, verilog_sources, build_dir = None):
   """Builds and runs a Cocotb testbench using Icarus Verilog."""
-  build_dir = setup_com_iverilog()
+  setup_com_iverilog()
+
+  if build_dir is None:
+    build_dir = pathlib.Path(os.environ['BUILD_WORKING_DIRECTORY'], "sim_build")
+
   runner = get_runner("icarus")
   runner.build(
     verilog_sources=verilog_sources,

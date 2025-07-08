@@ -14,7 +14,7 @@
 
 # Build rules for XLS ZSTD codec implementation.
 
-load("@rules_hdl//place_and_route:build_defs.bzl", "place_and_route")
+load("@rules_hdl//place_and_route:build_defs.bzl", "place_and_route", "collect_benchmark_reports")
 load("@rules_hdl//synthesis:build_defs.bzl", "benchmark_synth", "synthesize_rtl")
 load("@rules_hdl//verilog:providers.bzl", "verilog_library")
 load("@xls_pip_deps//:requirements.bzl", "requirement")
@@ -849,7 +849,7 @@ sequence_executor_codegen_args = common_codegen_args | {
     "delay_model": "asap7",
     "ram_configurations": ",".join([
         "{ram_name}:1R1W:{rd_req}:{rd_resp}:{wr_req}:{wr_resp}:{latency}".format(
-            latency = 5,
+            latency = 1,
             ram_name = "ram{}".format(num),
             rd_req = "sequence_executor__rd_req_m{}_s".format(num),
             rd_resp = "sequence_executor__rd_resp_m{}_r".format(num),
@@ -1192,7 +1192,7 @@ xls_dslx_verilog(
         "delay_model": "asap7",
         # FIXME: update ram rewrite
         #"ram_configurations": "ram:1R1W:{rd_req}:{rd_resp}:{wr_req}:{wr_resp}:{latency}".format(
-        #    latency = 5,
+        #    latency = 1,
         #    rd_req = "fse_proba_freq_dec__rd_req_s",
         #    rd_resp = "fse_proba_freq_dec__rd_resp_r",
         #    wr_req = "fse_proba_freq_dec__wr_req_s",
@@ -1218,7 +1218,7 @@ xls_benchmark_ir(
         "reset": "rst",
         # FIXME: update ram rewrite
         #"ram_configurations": "ram:1R1W:{rd_req}:{rd_resp}:{wr_req}:{wr_resp}:{latency}".format(
-        #    latency = 5,
+        #    latency = 1,
         #    rd_req = "fse_proba_freq_dec__rd_req_s",
         #    rd_resp = "fse_proba_freq_dec__rd_resp_r",
         #    wr_req = "fse_proba_freq_dec__wr_req_s",
@@ -1360,11 +1360,14 @@ xls_dslx_test(
     tags = ["manual"],
 )
 
+refilling_shift_buffer_codegen_args = common_codegen_args | {
+        "module_name": "RefillingShiftBufferInternalInst",
+        "worst_case_throughput" : "3",
+}
+
 xls_dslx_verilog(
     name = "refilling_shift_buffer_internal_verilog",
-    codegen_args = common_codegen_args | {
-        "module_name": "RefillingShiftBufferInternalInst",
-    },
+    codegen_args = refilling_shift_buffer_codegen_args,
     dslx_top = "RefillingShiftBufferInternalInst",
     library = ":refilling_shift_buffer_dslx",
     tags = ["manual"],
@@ -1377,6 +1380,7 @@ xls_benchmark_ir(
     benchmark_ir_args = {
         "pipeline_stages": "10",
     },
+    codegen_args = refilling_shift_buffer_codegen_args,
     tags = ["manual"],
 )
 
@@ -1502,35 +1506,30 @@ xls_dslx_library(
     deps = zstd_dec_deps,
 )
 
-xls_dslx_test(
-    name = "zstd_dec_dslx_test",
-    size = "large",
-    srcs = [
-        "data/comp_frame.x",
-        "data/comp_frame_fse_comp.x",
-        "data/comp_frame_fse_repeated.x",
-        "data/comp_frame_huffman.x",
-        "data/comp_frame_huffman_fse.x",
-        "zstd_dec.x",
-        "zstd_dec_test.x",
-        "zstd_frame_testcases.x",
-    ],
-    tags = ["manual"],
-    deps = zstd_dec_deps,
-)
+zstd_dec_test_srcs = [
+    "data/comp_frame.x",
+    "data/comp_frame_fse_comp.x",
+    "data/comp_frame_fse_repeated.x",
+    "data/comp_frame_huffman.x",
+    "data/comp_frame_huffman_fse.x",
+    "data/raw_literals_rle_sequences_seed_700216.x",
+    "zstd_dec.x",
+    "zstd_dec_test.x",
+    "zstd_frame_testcases.x",
+]
 
 zstd_dec_codegen_args = common_codegen_args | {
     "module_name": "ZstdDecoder",
     "clock_period_ps": "0",
     "pipeline_stages": "16",
-    "flop_inputs_kind": "skid",
-    "flop_outputs_kind": "skid",
     "worst_case_throughput": "6",
+    # "flop_inputs_kind": "skid",
+    # "flop_outputs_kind": "skid",
     "materialize_internal_fifos": "false",  # TODO: remove once this option works with loopback channels
     "ram_configurations": ",".join([
         ",".join([
             "{ram_name}:1R1W:{rd_req}:{rd_resp}:{wr_req}:{wr_resp}:{latency}".format(
-                latency = 5,
+                latency = 1,
                 ram_name = "history_buffer_ram{}".format(num),
                 rd_req = "zstd_dec__ram_rd_req_{}_s".format(num),
                 rd_resp = "zstd_dec__ram_rd_resp_{}_r".format(num),
@@ -1540,7 +1539,7 @@ zstd_dec_codegen_args = common_codegen_args | {
             for num in range(8)
         ]),
         "{ram_name}:1R1W:{rd_req}:{rd_resp}:{wr_req}:{wr_resp}:{latency}".format(
-            latency = 5,
+            latency = 1,
             ram_name = "dpd_ram",
             rd_req = "zstd_dec__dpd_rd_req_s",
             rd_resp = "zstd_dec__dpd_rd_resp_r",
@@ -1548,7 +1547,7 @@ zstd_dec_codegen_args = common_codegen_args | {
             wr_resp = "zstd_dec__dpd_wr_resp_r",
         ),
         "{ram_name}:1R1W:{rd_req}:{rd_resp}:{wr_req}:{wr_resp}:{latency}".format(
-            latency = 5,
+            latency = 1,
             ram_name = "fse_tmp_ram",
             rd_req = "zstd_dec__tmp_rd_req_s",
             rd_resp = "zstd_dec__tmp_rd_resp_r",
@@ -1556,44 +1555,104 @@ zstd_dec_codegen_args = common_codegen_args | {
             wr_resp = "zstd_dec__tmp_wr_resp_r",
         ),
         "{ram_name}:1R1W:{rd_req}:{rd_resp}:{wr_req}:{wr_resp}:{latency}".format(
-            latency = 5,
+            latency = 1,
             ram_name = "fse_tmp2_ram",
             rd_req = "zstd_dec__tmp2_rd_req_s",
             rd_resp = "zstd_dec__tmp2_rd_resp_r",
             wr_req = "zstd_dec__tmp2_wr_req_s",
             wr_resp = "zstd_dec__tmp2_wr_resp_r",
         ),
-        ",".join([
-            "{ram_name}:1R1W:{rd_req}:{rd_resp}:{wr_req}:{wr_resp}:{latency}".format(
-                latency = 5,
-                ram_name = "fse_lookup_ram{}".format(num),
-                rd_req = "zstd_dec__fse_rd_req_s__{}".format(num),
-                rd_resp = "zstd_dec__fse_rd_resp_r__{}".format(num),
-                wr_req = "zstd_dec__fse_wr_req_s__{}".format(num),
-                wr_resp = "zstd_dec__fse_wr_resp_r__{}".format(num),
-            )
-            for num in range(6)
-        ]),
         "{ram_name}:1R1W:{rd_req}:{rd_resp}:{wr_req}:{wr_resp}:{latency}".format(
-            latency = 5,
+            latency = 1,
+            ram_name = "ll_def_fse_ram",
+            rd_req = "zstd_dec__ll_def_fse_rd_req_s",
+            rd_resp = "zstd_dec__ll_def_fse_rd_resp_r",
+            wr_req = "zstd_dec__ll_def_fse_wr_req_s",
+            wr_resp = "zstd_dec__ll_def_fse_wr_resp_r",
+        ),
+        "{ram_name}:1R1W:{rd_req}:{rd_resp}:{wr_req}:{wr_resp}:{latency}".format(
+            latency = 1,
+            ram_name = "ll_fse_ram",
+            rd_req = "zstd_dec__ll_fse_rd_req_s",
+            rd_resp = "zstd_dec__ll_fse_rd_resp_r",
+            wr_req = "zstd_dec__ll_fse_wr_req_s",
+            wr_resp = "zstd_dec__ll_fse_wr_resp_r",
+        ),
+        "{ram_name}:1R1W:{rd_req}:{rd_resp}:{wr_req}:{wr_resp}:{latency}".format(
+            latency = 1,
+            ram_name = "ml_def_fse_ram",
+            rd_req = "zstd_dec__ml_def_fse_rd_req_s",
+            rd_resp = "zstd_dec__ml_def_fse_rd_resp_r",
+            wr_req = "zstd_dec__ml_def_fse_wr_req_s",
+            wr_resp = "zstd_dec__ml_def_fse_wr_resp_r",
+        ),
+        "{ram_name}:1R1W:{rd_req}:{rd_resp}:{wr_req}:{wr_resp}:{latency}".format(
+            latency = 1,
+            ram_name = "ml_fse_ram",
+            rd_req = "zstd_dec__ml_fse_rd_req_s",
+            rd_resp = "zstd_dec__ml_fse_rd_resp_r",
+            wr_req = "zstd_dec__ml_fse_wr_req_s",
+            wr_resp = "zstd_dec__ml_fse_wr_resp_r",
+        ),
+        "{ram_name}:1R1W:{rd_req}:{rd_resp}:{wr_req}:{wr_resp}:{latency}".format(
+            latency = 1,
+            ram_name = "of_def_fse_ram",
+            rd_req = "zstd_dec__of_def_fse_rd_req_s",
+            rd_resp = "zstd_dec__of_def_fse_rd_resp_r",
+            wr_req = "zstd_dec__of_def_fse_wr_req_s",
+            wr_resp = "zstd_dec__of_def_fse_wr_resp_r",
+        ),
+        "{ram_name}:1R1W:{rd_req}:{rd_resp}:{wr_req}:{wr_resp}:{latency}".format(
+            latency = 1,
+            ram_name = "of_fse_ram",
+            rd_req = "zstd_dec__of_fse_rd_req_s",
+            rd_resp = "zstd_dec__of_fse_rd_resp_r",
+            wr_req = "zstd_dec__of_fse_wr_req_s",
+            wr_resp = "zstd_dec__of_fse_wr_resp_r",
+        ),
+        "{ram_name}:1R1W:{rd_req}:{rd_resp}:{wr_req}:{wr_resp}:{latency}".format(
+            latency = 1,
             ram_name = "huffman_literals_prescan_ram",
             rd_req = "zstd_dec__huffman_lit_prescan_mem_rd_req_s",
             rd_resp = "zstd_dec__huffman_lit_prescan_mem_rd_resp_r",
             wr_req = "zstd_dec__huffman_lit_prescan_mem_wr_req_s",
             wr_resp = "zstd_dec__huffman_lit_prescan_mem_wr_resp_r",
         ),
-        # FIXME: Enable once HuffmanLiteralsDecoder has states independent of data read from RAM
-        #"{ram_name}:1R1W:{rd_req}:{rd_resp}:{wr_req}:{wr_resp}:{latency}".format(
-        #    latency = 5,
-        #    ram_name = "huffman_literals_weights_ram",
-        #    rd_req = "zstd_dec__huffman_lit_weights_mem_rd_req_s",
-        #    rd_resp = "zstd_dec__huffman_lit_weights_mem_rd_resp_r",
-        #    wr_req = "zstd_dec__huffman_lit_weights_mem_wr_req_s",
-        #    wr_resp = "zstd_dec__huffman_lit_weights_mem_wr_resp_r",
-        #),
+        "{ram_name}:1R1W:{rd_req}:{rd_resp}:{wr_req}:{wr_resp}:{latency}".format(
+           latency = 1,
+           ram_name = "huffman_literals_weights_dpd_ram",
+           rd_req = "zstd_dec__huffman_lit_weights_dpd_rd_req_s",
+           rd_resp = "zstd_dec__huffman_lit_weights_dpd_rd_resp_r",
+           wr_req = "zstd_dec__huffman_lit_weights_dpd_wr_req_s",
+           wr_resp = "zstd_dec__huffman_lit_weights_dpd_wr_resp_r",
+        ),
+        "{ram_name}:1R1W:{rd_req}:{rd_resp}:{wr_req}:{wr_resp}:{latency}".format(
+           latency = 1,
+           ram_name = "huffman_literals_weights_tmp_ram",
+           rd_req = "zstd_dec__huffman_lit_weights_tmp_rd_req_s",
+           rd_resp = "zstd_dec__huffman_lit_weights_tmp_rd_resp_r",
+           wr_req = "zstd_dec__huffman_lit_weights_tmp_wr_req_s",
+           wr_resp = "zstd_dec__huffman_lit_weights_tmp_wr_resp_r",
+        ),
+        "{ram_name}:1R1W:{rd_req}:{rd_resp}:{wr_req}:{wr_resp}:{latency}".format(
+           latency = 1,
+           ram_name = "huffman_literals_weights_tmp2_ram",
+           rd_req = "zstd_dec__huffman_lit_weights_tmp2_rd_req_s",
+           rd_resp = "zstd_dec__huffman_lit_weights_tmp2_rd_resp_r",
+           wr_req = "zstd_dec__huffman_lit_weights_tmp2_wr_req_s",
+           wr_resp = "zstd_dec__huffman_lit_weights_tmp2_wr_resp_r",
+        ),
+        "{ram_name}:1R1W:{rd_req}:{rd_resp}:{wr_req}:{wr_resp}:{latency}".format(
+           latency = 1,
+           ram_name = "huffman_literals_weights_fse_ram",
+           rd_req = "zstd_dec__huffman_lit_weights_fse_rd_req_s",
+           rd_resp = "zstd_dec__huffman_lit_weights_fse_rd_resp_r",
+           wr_req = "zstd_dec__huffman_lit_weights_fse_wr_req_s",
+           wr_resp = "zstd_dec__huffman_lit_weights_fse_wr_resp_r",
+        ),
         ",".join([
             "{ram_name}:1R1W:{rd_req}:{rd_resp}:{wr_req}:{wr_resp}:{latency}".format(
-                latency = 5,
+                latency = 1,
                 ram_name = "literals_buffer_ram{}".format(num),
                 rd_req = "zstd_dec__litbuf_rd_req_s__{}".format(num),
                 rd_resp = "zstd_dec__litbuf_rd_resp_r__{}".format(num),
@@ -2019,6 +2078,7 @@ xls_dslx_library(
     srcs = ["ram_demux.x"],
     deps = [
         "//xls/examples:ram_dslx",
+        ":ram_passthrough_dslx",
     ],
 )
 
@@ -2029,29 +2089,33 @@ xls_dslx_test(
     tags = ["manual"],
 )
 
+ram_demux_codegen_args = {
+    "module_name": "RamDemux",
+    "generator": "pipeline",
+    "delay_model": "asap7",
+    "worst_case_throughput": "6",
+    "ram_configurations": ",".join([
+        "{ram_name}:1R1W:{rd_req}:{rd_resp}:{wr_req}:{wr_resp}:{latency}".format(
+            latency = 1,
+            ram_name = "ram{}".format(num),
+            rd_req = "ram_demux__rd_req{}_s".format(num),
+            rd_resp = "ram_demux__rd_resp{}_r".format(num),
+            wr_req = "ram_demux__wr_req{}_s".format(num),
+            wr_resp = "ram_demux__wr_resp{}_r".format(num),
+        )
+        for num in range(2)
+    ]),
+    "clock_period_ps": "750",
+    "reset": "rst",
+    "use_system_verilog": "false",
+    "streaming_channel_data_suffix": "_data",
+    "materialize_internal_fifos": "true",
+}
+
 xls_dslx_verilog(
     name = "ram_demux_verilog",
-    codegen_args = {
-        "module_name": "RamDemux",
-        "generator": "pipeline",
-        "delay_model": "asap7",
-        "ram_configurations": ",".join([
-            "{ram_name}:1R1W:{rd_req}:{rd_resp}:{wr_req}:{wr_resp}:{latency}".format(
-                latency = 5,
-                ram_name = "ram{}".format(num),
-                rd_req = "ram_demux__rd_req{}_s".format(num),
-                rd_resp = "ram_demux__rd_resp{}_r".format(num),
-                wr_req = "ram_demux__wr_req{}_s".format(num),
-                wr_resp = "ram_demux__wr_resp{}_r".format(num),
-            )
-            for num in range(2)
-        ]),
-        "pipeline_stages": "6",
-        "reset": "rst",
-        "use_system_verilog": "false",
-        "materialize_internal_fifos": "true",
-    },
-    dslx_top = "RamDemuxInst",
+    codegen_args = ram_demux_codegen_args,
+    dslx_top = "RamDemuxFixedInst",
     library = ":ram_demux_dslx",
     tags = ["manual"],
     verilog_file = "ram_demux.v",
@@ -2060,12 +2124,7 @@ xls_dslx_verilog(
 xls_benchmark_ir(
     name = "ram_demux_opt_ir_benchmark",
     src = "ram_demux_verilog.opt.ir",
-    benchmark_ir_args = {
-        "top": "__ram_demux__RamDemuxInst__RamDemux_0__5_8_0_0_8_5_next",
-    },
-    codegen_args = {
-        "pipeline_stages": "10",
-    },
+    codegen_args = ram_demux_codegen_args,
     tags = ["manual"],
 )
 
@@ -2105,33 +2164,63 @@ place_and_route(
     target_die_utilization_percentage = "5",
 )
 
+py_test(
+    name = "ram_demux_cocotb_test",
+    srcs = ["ram_demux_cocotb_test.py"],
+    data = [
+        "//xls/modules/zstd:ram_demux.v",
+        "//xls/modules/zstd/rtl:ram_1r1w.v",
+        "//xls/modules/zstd/rtl:ram_demux_wrapper.v",
+        "@com_icarus_iverilog//:iverilog",
+        "@com_icarus_iverilog//:vvp",
+    ],
+    env = {
+        "BUILD_WORKING_DIRECTORY": "sim_build",
+        "PYTHONUNBUFFERED": "1",
+    },
+    imports = ["."],
+    tags = ["manual"],
+    visibility = ["//xls:xls_users"],
+    deps = [
+        requirement("cocotb"),
+        requirement("cocotbext-axi"),
+        requirement("pytest"),
+        requirement("zstandard"),
+        "//xls/common:runfiles",
+        "//xls/modules/zstd/cocotb:channel",
+        "//xls/modules/zstd/cocotb:data_generator",
+        "//xls/modules/zstd/cocotb:memory",
+        "//xls/modules/zstd/cocotb:utils",
+        "//xls/modules/zstd/cocotb:xlsstruct",
+    ],
+)
+
+ram_demux_naive_codegen_args = {
+    "module_name": "RamDemuxNaive",
+    "generator": "pipeline",
+    "delay_model": "asap7",
+    "ram_configurations": ",".join([
+        "{ram_name}:1R1W:{rd_req}:{rd_resp}:{wr_req}:{wr_resp}:{latency}".format(
+            latency = 1,
+            ram_name = "ram{}".format(num),
+            rd_req = "ram_demux__rd_req{}_s".format(num),
+            rd_resp = "ram_demux__rd_resp{}_r".format(num),
+            wr_req = "ram_demux__wr_req{}_s".format(num),
+            wr_resp = "ram_demux__wr_resp{}_r".format(num),
+        )
+        for num in range(2)
+    ]),
+    "pipeline_stages": "6",
+    "reset": "rst",
+    "use_system_verilog": "false",
+    "materialize_internal_fifos": "true",
+}
+
 xls_dslx_verilog(
     name = "ram_demux_naive_verilog",
-    codegen_args = {
-        "module_name": "RamDemuxNaive",
-        "generator": "pipeline",
-        "delay_model": "asap7",
-        "ram_configurations": ",".join([
-            "{ram_name}:1R1W:{rd_req}:{rd_resp}:{wr_req}:{wr_resp}:{latency}".format(
-                latency = 5,
-                ram_name = "ram{}".format(num),
-                rd_req = "ram_demux__rd_req{}_s".format(num),
-                rd_resp = "ram_demux__rd_resp{}_r".format(num),
-                wr_req = "ram_demux__wr_req{}_s".format(num),
-                wr_resp = "ram_demux__wr_resp{}_r".format(num),
-            )
-            for num in range(2)
-        ]),
-        "pipeline_stages": "6",
-        "reset": "rst",
-        "use_system_verilog": "false",
-        "materialize_internal_fifos": "true",
-    },
-    dslx_top = "RamDemuxNaiveInst",
+    codegen_args = ram_demux_naive_codegen_args,
+    dslx_top = "RamDemuxNaiveFixedInst",
     library = ":ram_demux_dslx",
-    opt_ir_args = {
-        "top": "__ram_demux__RamDemuxNaiveInst__RamDemuxNaive_0__5_8_0_8_next",
-    },
     tags = ["manual"],
     verilog_file = "ram_demux_naive.v",
 )
@@ -2139,12 +2228,7 @@ xls_dslx_verilog(
 xls_benchmark_ir(
     name = "ram_demux_naive_opt_ir_benchmark",
     src = "ram_demux_naive_verilog.opt.ir",
-    benchmark_ir_args = {
-        "top": "__ram_demux__RamDemuxNaiveInst__RamDemuxNaive_0__5_8_0_8_next",
-    },
-    codegen_args = {
-        "pipeline_stages": "10",
-    },
+    codegen_args = ram_demux_naive_codegen_args,
     tags = ["manual"],
 )
 
@@ -2182,6 +2266,48 @@ place_and_route(
     synthesized_rtl = ":ram_demux_naive_synth_asap7",
     tags = ["manual"],
     target_die_utilization_percentage = "5",
+)
+
+
+xls_dslx_library(
+    name = "ram_passthrough_dslx",
+    srcs = ["ram_passthrough.x"],
+    deps = [
+        "//xls/examples:ram_dslx",
+    ],
+)
+
+xls_dslx_test(
+    name = "ram_passthrough_dslx_test",
+    dslx_test_args = {"compare": "none"},
+    library = ":ram_passthrough_dslx",
+    tags = ["manual"],
+)
+
+xls_dslx_verilog(
+    name = "ram_passthrough_verilog",
+    codegen_args = {
+        "module_name": "RamPassthrough",
+        "generator": "pipeline",
+        "delay_model": "asap7",
+        "ram_configurations":
+            "{ram_name}:1R1W:{rd_req}:{rd_resp}:{wr_req}:{wr_resp}:{latency}".format(
+                latency = 1,
+                ram_name = "ram",
+                rd_req = "ram_passthrough__rd_req_s",
+                rd_resp = "ram_passthrough__rd_resp_r",
+                wr_req = "ram_passthrough__wr_req_s",
+                wr_resp = "ram_passthrough__wr_resp_r",
+            ),
+        "reset": "rst",
+        "use_system_verilog": "false",
+        "materialize_internal_fifos": "true",
+        "clock_period_ps": "750",
+    },
+    dslx_top = "RamPassthroughInst",
+    library = ":ram_passthrough_dslx",
+    tags = ["manual"],
+    verilog_file = "ram_passthrough.v",
 )
 
 xls_dslx_library(
@@ -2288,10 +2414,11 @@ xls_dslx_verilog(
     codegen_args = {
         "module_name": "RamDemux3",
         "generator": "pipeline",
+        "worst_case_throughput": "6",
         "delay_model": "asap7",
         "ram_configurations": ",".join([
             "{ram_name}:1R1W:{rd_req}:{rd_resp}:{wr_req}:{wr_resp}:{latency}".format(
-                latency = 5,
+                latency = 1,
                 ram_name = "ram{}".format(num),
                 rd_req = "ram_demux3__rd_req{}_s".format(num),
                 rd_resp = "ram_demux3__rd_resp{}_r".format(num),
@@ -2318,6 +2445,7 @@ xls_benchmark_ir(
     benchmark_ir_args = {
         "delay_model": "asap7",
         "pipeline_stages": "3",
+        "worst_case_throughput": "6",
     },
     tags = ["manual"],
 )
@@ -2366,6 +2494,7 @@ xls_dslx_library(
         "ram_mux.x",
     ],
     deps = [
+        ":ram_passthrough_dslx",
         "//xls/examples:ram_dslx",
     ],
 )
@@ -2374,6 +2503,74 @@ xls_dslx_test(
     name = "ram_mux_dslx_test",
     library = ":ram_mux_dslx",
     tags = ["manual"],
+)
+
+ram_mux_codegen_args = common_codegen_args | {
+    "module_name": "RamMux",
+    "worst_case_throughput": "4",
+    "ram_configurations":
+        "{ram_name}:1R1W:{rd_req}:{rd_resp}:{wr_req}:{wr_resp}:{latency}".format(
+            latency = 1,
+            ram_name = "ram",
+            rd_req = "ram_mux__rd_req_s",
+            rd_resp = "ram_mux__rd_resp_r",
+            wr_req = "ram_mux__wr_req_s",
+            wr_resp = "ram_mux__wr_resp_r",
+        )
+}
+
+xls_dslx_verilog(
+    name = "ram_mux_verilog",
+    codegen_args = ram_mux_codegen_args,
+    dslx_top = "RamMuxFixedInst",
+    library = ":ram_mux_dslx",
+    tags = ["manual"],
+    verilog_file = "ram_mux.v",
+)
+
+xls_benchmark_ir(
+    name = "ram_mux_opt_ir_benchmark",
+    src = ":ram_mux_verilog.opt.ir",
+    codegen_args = ram_mux_codegen_args,
+    tags = ["manual"],
+)
+
+verilog_library(
+    name = "ram_mux_verilog_lib",
+    srcs = [
+        ":ram_mux.v",
+    ],
+    tags = ["manual"],
+)
+
+synthesize_rtl(
+    name = "ram_mux_synth_asap7",
+    standard_cells = "@org_theopenroadproject_asap7sc7p5t_28//:asap7-sc7p5t_rev28_rvt",
+    tags = ["manual"],
+    top_module = "RamMux",
+    deps = [
+        ":ram_mux_verilog_lib",
+    ],
+)
+
+benchmark_synth(
+    name = "ram_mux_benchmark_synth",
+    synth_target = ":ram_mux_synth_asap7",
+    tags = ["manual"],
+)
+
+place_and_route(
+    name = "ram_mux_place_and_route",
+    clock_period = "750",
+    core_padding_microns = 2,
+    die_height_microns = 120,
+    die_width_microns = 120,
+    min_pin_distance = "0.5",
+    placement_density = "0.30",
+    stop_after_step = "global_routing",
+    synthesized_rtl = ":ram_mux_synth_asap7",
+    tags = ["manual"],
+    target_die_utilization_percentage = "10",
 )
 
 xls_dslx_library(
@@ -2533,7 +2730,7 @@ xls_dslx_verilog(
     codegen_args = {
         "module_name": "RawLiteralsDecoder",
         "delay_model": "asap7",
-        "pipeline_stages": "1",
+        "pipeline_stages": "2",
         "reset": "rst",
         "use_system_verilog": "false",
         "materialize_internal_fifos": "true",
@@ -2626,7 +2823,7 @@ xls_dslx_verilog(
         "delay_model": "asap7",
         "ram_configurations": ",".join([
             "{ram_name}:1R1W:{rd_req}:{rd_resp}:{wr_req}:{wr_resp}:{latency}".format(
-                latency = 5,
+                latency = 1,
                 ram_name = "ram{}".format(num),
                 rd_req = "literals_buffer__rd_req_m{}_s".format(num),
                 rd_resp = "literals_buffer__rd_resp_m{}_r".format(num),
@@ -2786,28 +2983,30 @@ place_and_route(
     target_die_utilization_percentage = "10",
 )
 
+literals_decoder_codegen_args = {
+    "module_name": "LiteralsDecoder",
+    "delay_model": "asap7",
+    "ram_configurations": ",".join([
+        "{ram_name}:1R1W:{rd_req}:{rd_resp}:{wr_req}:{wr_resp}:{latency}".format(
+            latency = 1,
+            ram_name = "ram{}".format(num),
+            rd_req = "literals_decoder__rd_req_m{}_s".format(num),
+            rd_resp = "literals_decoder__rd_resp_m{}_r".format(num),
+            wr_req = "literals_decoder__wr_req_m{}_s".format(num),
+            wr_resp = "literals_decoder__wr_resp_m{}_r".format(num),
+        )
+        for num in range(7)
+    ]),
+    "pipeline_stages": "8",
+    "reset": "rst",
+    "worst_case_throughput": "3",
+    "use_system_verilog": "false",
+    "materialize_internal_fifos": "false",  # TODO: set to true once this option works with loopback channels
+}
+
 xls_dslx_verilog(
     name = "literals_decoder_verilog",
-    codegen_args = {
-        "module_name": "LiteralsDecoder",
-        "delay_model": "asap7",
-        "ram_configurations": ",".join([
-            "{ram_name}:1R1W:{rd_req}:{rd_resp}:{wr_req}:{wr_resp}:{latency}".format(
-                latency = 5,
-                ram_name = "ram{}".format(num),
-                rd_req = "literals_decoder__rd_req_m{}_s".format(num),
-                rd_resp = "literals_decoder__rd_resp_m{}_r".format(num),
-                wr_req = "literals_decoder__wr_req_m{}_s".format(num),
-                wr_resp = "literals_decoder__wr_resp_m{}_r".format(num),
-            )
-            for num in range(7)
-        ]),
-        "pipeline_stages": "8",
-        "reset": "rst",
-        "worst_case_throughput": "2",
-        "use_system_verilog": "false",
-        "materialize_internal_fifos": "false",  # TODO: set to true once this option works with loopback channels
-    },
+    codegen_args = literals_decoder_codegen_args,
     dslx_top = "LiteralsDecoderInst",
     library = ":literals_decoder_dslx",
     tags = ["manual"],
@@ -2819,9 +3018,8 @@ xls_benchmark_ir(
     src = ":literals_decoder_verilog.opt.ir",
     benchmark_ir_args = {
         "pipeline_stages": "10",
-        "worst_case_throughput": "2",
-        "delay_model": "asap7",
     },
+    codegen_args = literals_decoder_codegen_args,
     tags = ["manual"],
 )
 
@@ -2856,8 +3054,9 @@ benchmark_synth(
     tags = ["manual"],
 )
 
+# TODO: Remove _skip suffix after fixing long P&R time. Used now to skip this target in CI.
 place_and_route(
-    name = "literals_decoder_place_and_route",
+    name = "literals_decoder_place_and_route_skip",
     clock_period = "750",
     core_padding_microns = 2,
     min_pin_distance = "0.5",
@@ -2990,9 +3189,7 @@ huffman_code_builder_codegen_args = common_codegen_args | {
     "module_name": "HuffmanCodeBuilder",
     "pipeline_stages": "8",
     "clock_period_ps": "750",
-    "worst_case_throughput": "1",
-    "io_constraints": "huffman_code_builder__weight_r:recv:" +
-                      "huffman_code_builder__codes_s:send:2:2",
+    "worst_case_throughput": "5",
 }
 
 xls_dslx_verilog(
@@ -3193,8 +3390,9 @@ benchmark_synth(
     tags = ["manual"],
 )
 
+# TODO: Remove _skip suffix after fixing long P&R time. Used now to skip this target in CI.
 place_and_route(
-    name = "huffman_data_preprocessor_place_and_route",
+    name = "huffman_data_preprocessor_place_and_route_skip",
     clock_period = "750",
     core_padding_microns = 2,
     min_pin_distance = "0.5",
@@ -3270,8 +3468,9 @@ benchmark_synth(
     tags = ["manual"],
 )
 
+# TODO: Remove _skip suffix after fixing long P&R time. Used now to skip this target in CI.
 place_and_route(
-    name = "huffman_decoder_place_and_route",
+    name = "huffman_decoder_place_and_route_skip",
     clock_period = "750",
     core_padding_microns = 2,
     min_pin_distance = "0.5",
@@ -3526,8 +3725,9 @@ benchmark_synth(
     tags = ["manual"],
 )
 
+# TODO: Remove _skip suffix after fixing long P&R time. Used now to skip this target in CI.
 place_and_route(
-    name = "huffman_literals_dec_place_and_route",
+    name = "huffman_literals_dec_place_and_route_skip",
     clock_period = CLOCK_PERIOD_PS,
     core_padding_microns = 2,
     min_pin_distance = "0.5",
@@ -3551,4 +3751,27 @@ xls_dslx_library(
 xls_dslx_test(
     name = "refilling_shift_buffer_mux_dslx_test",
     library = ":refilling_shift_buffer_mux_dslx",
+)
+
+py_test(
+    name = "ram_cocotb_test",
+    srcs = ["ram_cocotb_test.py"],
+    data = [
+        "//xls/modules/zstd/rtl:ram_1r1w.v",
+        "//xls/modules/zstd/rtl:ram_1r1w_delayed_wrapper.v",
+        "@com_icarus_iverilog//:iverilog",
+        "@com_icarus_iverilog//:vvp",
+    ],
+    env = {
+        "BUILD_WORKING_DIRECTORY": "sim_build",
+        "PYTHONUNBUFFERED": "1",
+    },
+    imports = ["."],
+    tags = ["manual"],
+    visibility = ["//xls:xls_users"],
+    deps = [
+        requirement("cocotb"),
+        "//xls/common:runfiles",
+        "//xls/modules/zstd/cocotb:utils",
+    ],
 )

@@ -91,6 +91,7 @@ struct SequenceExecutorState<RAM_ADDR_WIDTH: u32> {
     repeat_offsets: Offset[3],
     repeat_req: bool,
     seq_cnt: bool,
+    seq_pending: bool
 }
 
 fn decode_literal_packet<ADDR_W: u32, DATA_W: u32>(packet: SequenceExecutorPacket) -> mem_writer::MemWriterDataPacket<DATA_W, ADDR_W> {
@@ -284,7 +285,8 @@ pub proc SequenceExecutor<HISTORY_BUFFER_SIZE_KB: u32,
             hb_len: INIT_HB_LENGTH as uN[RAM_ADDR_WIDTH + RAM_NUM_CLOG2],
             repeat_offsets: Offset[3]:[Offset:1, Offset:4, Offset:8],
             repeat_req: false,
-            seq_cnt: false
+            seq_cnt: false,
+            seq_pending: false
         }
     }
 
@@ -328,7 +330,7 @@ pub proc SequenceExecutor<HISTORY_BUFFER_SIZE_KB: u32,
         let (tok1_2, wr_resp, wr_resp_valid) =
             recv_non_blocking(tok0, ram_comp_output_r, zero!<RamWrRespHandlerResp>());
         if wr_resp_valid {
-            trace_fmt!("SequenceExecutor:: Received completion update");
+            trace_fmt!("[SequenceExecutor] Received completion update");
         } else { };
 
         let real_ptr = if wr_resp_valid { wr_resp.ptr } else { state.real_ptr };
@@ -345,7 +347,7 @@ pub proc SequenceExecutor<HISTORY_BUFFER_SIZE_KB: u32,
             (state.packet, state.packet_valid)
         };
         if packet_valid {
-            trace_fmt!("Handling packet {:#x} in {}", packet, state.status);
+            trace_fmt!("[SequenceExecutor] Handling packet {:#x} in {}", packet, state.status);
         } else {};
 
         // if we are in the IDLE state and have a valid packet stored in the state,
@@ -364,7 +366,7 @@ pub proc SequenceExecutor<HISTORY_BUFFER_SIZE_KB: u32,
         ) {
             // Handling LITERAL_WRITE
             (Status::LITERAL_WRITE, true, MsgType::LITERAL) => {
-                trace_fmt!("SequenceExecutor:: Handling LITERAL packet in LITERAL_WRITE step");
+                trace_fmt!("[SequenceExecutor] Handling LITERAL packet in LITERAL_WRITE step");
                 let (write_reqs, new_hyp_ptr) =
                     parallel_rams::literal_packet_to_write_reqs<HISTORY_BUFFER_SIZE_KB>(state.hyp_ptr, packet);
                 let new_repeat_req = packet.length == CopyOrMatchLength:0;
@@ -382,7 +384,8 @@ pub proc SequenceExecutor<HISTORY_BUFFER_SIZE_KB: u32,
                         repeat_offsets: state.repeat_offsets,
                         repeat_req: new_repeat_req,
                         hb_len: new_hb_len,
-                        seq_cnt: false
+                        seq_cnt: false,
+                        seq_pending: false
                     },
                 )
             },
@@ -418,7 +421,8 @@ pub proc SequenceExecutor<HISTORY_BUFFER_SIZE_KB: u32,
                         repeat_offsets: new_repeat_offsets,
                         repeat_req: false,
                         hb_len: state.hb_len,
-                        seq_cnt: packet_valid
+                        seq_cnt: packet_valid,
+                        seq_pending: true
                     },
                 )
             },
@@ -445,12 +449,15 @@ pub proc SequenceExecutor<HISTORY_BUFFER_SIZE_KB: u32,
                         repeat_offsets: state.repeat_offsets,
                         repeat_req: state.repeat_req,
                         hb_len: new_hb_len,
-                        seq_cnt: state.seq_cnt
+                        seq_cnt: state.seq_cnt,
+                        seq_pending: false
                     },
                 )
             },
             (Status::SEQUENCE_WRITE, _, _) => {
-                let status = if real_ptr == state.hyp_ptr {
+                let status = if state.seq_pending {
+                    Status::SEQUENCE_WRITE
+                } else if real_ptr == state.hyp_ptr {
                     Status::IDLE
                 } else if state.seq_cnt {
                     Status::SEQUENCE_READ
@@ -484,14 +491,14 @@ pub proc SequenceExecutor<HISTORY_BUFFER_SIZE_KB: u32,
         // Write to output ask for completion
         let (do_write, wr_resp_handler_data) = parallel_rams::create_ram_wr_data(write_reqs, new_state.hyp_ptr);
         if do_write {
-            trace_fmt!("Sending request to RamWrRespHandler: {:#x}", wr_resp_handler_data);
+            trace_fmt!("[SequenceExecutor] Sending request to RamWrRespHandler: {:#x}", wr_resp_handler_data);
         } else { };
         let tok2_9 = send_if(tok1, ram_comp_input_s, do_write, wr_resp_handler_data);
 
         let do_write_output = do_write || (packet.last && packet.msg_type == SequenceExecutorMessageType::LITERAL);
         let output_mem_wr_data_in = decode_literal_packet<AXI_ADDR_W, AXI_DATA_W>(packet);
         if do_write_output {
-            trace_fmt!("*** Sending output MemWriter data: {:#x}", output_mem_wr_data_in);
+            trace_fmt!("[SequenceExecutor] Sending output MemWriter data: {:#x}", output_mem_wr_data_in);
         } else { };
         let tok2_10_1 = send_if(tok1, output_mem_wr_data_in_s, do_write_output, output_mem_wr_data_in);
 
@@ -509,7 +516,7 @@ pub proc SequenceExecutor<HISTORY_BUFFER_SIZE_KB: u32,
             parallel_rams::create_ram_rd_data<RAM_ADDR_WIDTH, RAM_DATA_WIDTH, RAM_NUM_PARTITIONS>
             (read_reqs, read_start, read_len, packet.last, new_state.packet_valid);
         if do_read {
-            trace_fmt!("Sending request to RamRdRespHandler: {:#x}", rd_resp_handler_data);
+            trace_fmt!("[SequenceExecutor] Sending request to RamRdRespHandler: {:#x}", rd_resp_handler_data);
         } else { };
         let tok2_19 = send_if(tok1, ram_resp_input_s, do_read, rd_resp_handler_data);
 

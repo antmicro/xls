@@ -104,11 +104,11 @@ pub proc WeightCodeBuilder
         let (_, prescan_data, prescan_data_valid) = recv_if_non_blocking(tok, weight_r, recv_prescan, zero!<PreScanData>());
 
         if start_valid {
-            trace_fmt!("Received start {:#x}", start);
+            trace_fmt!("[WeightCodeBuilder] Received start {:#x}", start);
         } else {};
 
         if prescan_data_valid {
-            trace_fmt!("Received prescan {:#x}", prescan_data);
+            trace_fmt!("[WeightCodeBuilder] Received prescan {:#x}", prescan_data);
         } else {};
 
         let (advance_state, send_lookahead, send_codes) = match state.fsm {
@@ -127,19 +127,19 @@ pub proc WeightCodeBuilder
 
         let next_fsm_state = match(state.fsm, advance_state) {
             (FSM::IDLE, true) => {
-                trace_fmt!("IDLE -> GATHER_WEIGHTS_RUN");
+                trace_fmt!("[WeightCodeBuilder] IDLE -> GATHER_WEIGHTS_RUN");
                 FSM::GATHER_WEIGHTS_RUN
             },
             (FSM::GATHER_WEIGHTS_RUN, true) => {
-                trace_fmt!("GATHER_WEIGHTS_RUN -> COMPUTE_MAX_LENGTH");
+                trace_fmt!("[WeightCodeBuilder] GATHER_WEIGHTS_RUN -> COMPUTE_MAX_LENGTH");
                 FSM::COMPUTE_MAX_LENGTH
             },
             (FSM::COMPUTE_MAX_LENGTH, true) => {
-                trace_fmt!("COMPUTE_MAX_LENGTH -> GENERATE_CODES_RUN");
+                trace_fmt!("[WeightCodeBuilder] COMPUTE_MAX_LENGTH -> GENERATE_CODES_RUN");
                 FSM::GENERATE_CODES_RUN
             },
             (FSM::GENERATE_CODES_RUN, true) => {
-                trace_fmt!("GENERATE_CODES_RUN -> IDLE");
+                trace_fmt!("[WeightCodeBuilder] GENERATE_CODES_RUN -> IDLE");
                 FSM::IDLE
             },
             (_, false) => state.fsm,
@@ -171,7 +171,7 @@ pub proc WeightCodeBuilder
             uN[MAX_WEIGHT + u32:2]:0
         };
 
-        send_if(tok, weights_pow_sum_loopback_s, do_send_loopback, sum_of_weights_powers);
+        let tok = send_if(tok, weights_pow_sum_loopback_s, do_send_loopback, sum_of_weights_powers);
 
         // receive sum of weights powers from loopback
         let (_, sum_of_weights_powers, sum_of_weights_powers_valid) = recv_non_blocking(
@@ -179,7 +179,7 @@ pub proc WeightCodeBuilder
         );
         let sum_of_weights_powers = state.sum_of_weights_powers + sum_of_weights_powers;
         let loopback_counter = if sum_of_weights_powers_valid {
-            trace_fmt!("Sum of weights powers: {}", sum_of_weights_powers);
+            trace_fmt!("[WeightCodeBuilder] Sum of weights powers: {}", sum_of_weights_powers);
             state.loopback_counter + uN[RECV_COUNT_W]:1
         } else {
             state.loopback_counter
@@ -261,7 +261,7 @@ pub proc WeightCodeBuilder
             max_code_length: state.max_number_of_bits,
             valid_weights: seen_weights,
         };
-        send_if(tok, lookahead_config_s, send_lookahead, lookahead_packet);
+        let tok = send_if(tok, lookahead_config_s, send_lookahead, lookahead_packet);
 
         // set symbol valid if weight is nonzero
         let symbols_valid = for (i, symbol_valid) in range(u32:0, PARALLEL_ACCESS_WIDTH) {
@@ -293,9 +293,9 @@ pub proc WeightCodeBuilder
             code_length: codes_length,
             code: codes
         };
-        send_if(tok, codes_s, send_codes, code_packet);
+        let tok = send_if(tok, codes_s, send_codes, code_packet);
         if send_codes {
-            trace_fmt!("Sent codes: \nsymbols_valid: {}\ncodes_length: {}\ncodes: {:#b}\nstate.huffman_codes: {:#b}", symbols_valid, codes_length, codes, state.huffman_codes);
+            trace_fmt!("[WeightCodeBuilder] Sent codes: \nsymbols_valid: {}\ncodes_length: {}\ncodes: {:#b}\nstate.huffman_codes: {:#b}", symbols_valid, codes_length, codes, state.huffman_codes);
         } else {};
 
 

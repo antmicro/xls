@@ -145,8 +145,8 @@ proc HuffmanRawWeightsDecoder<
         let do_recv_data = state.fsm == FSM::DECODING && buffer_len < (WEIGHTS_RAM_DATA_W as uN[BUFF_LEN_LOG2]);
         let (tok, mem_rd_resp, mem_rd_resp_valid) = recv_if_non_blocking(tok, mem_rd_resp_r, do_recv_data, zero!<MemReaderResp>());
         if do_recv_data && mem_rd_resp_valid {
-            trace_fmt!("[RAW] Received MemReader response {:#x}", mem_rd_resp);
-            trace_fmt!("[RAW] Data {:#x}", mem_rd_resp.data);
+            trace_fmt!("Received MemReader response {:#x}", mem_rd_resp);
+            trace_fmt!("Data {:#x}", mem_rd_resp.data);
         } else {};
 
         const MAX_WEIGHTS_IN_PACKET = AXI_DATA_W >> u32:2;
@@ -386,7 +386,7 @@ struct HuffmanFseDecoderState<WEIGHTS_RAM_DATA_W: u32> {
     padding: u4,                 // how much padding have we consumed (used for checking stream validity)
     current_iteration: u8,       // which iteration of the FSE-encoded-weights decoding loop are we in:
                                  // https://github.com/facebook/zstd/blob/fe34776c207f3f879f386ed4158a38d927ff6d10/doc/educational_decoder/zstd_decompress.c#L2081
-    stream_len: u8,              // how long is the FSE-encoded-weights stream, in bytes
+    stream_len: u16,             // how long is the FSE-encoded-weights stream, in bits
     stream_empty: bool,          // did we ask for more bits than available in the stream (i.e. caused stream underflow)?
                                  // analogous to 'offset < 0' check from educational ZSTD decoder:
                                  // https://github.com/facebook/zstd/blob/fe34776c207f3f879f386ed4158a38d927ff6d10/doc/educational_decoder/zstd_decompress.c#L2089
@@ -465,16 +465,16 @@ pub proc HuffmanFseDecoder<
 
         // receive ctrl
         let (_, ctrl, ctrl_valid) = recv_if_non_blocking(tok, ctrl_r, state.fsm == FSM::RECV_CTRL, zero!<Ctrl>());
-        if ctrl_valid {
-            trace_fmt!("ctrl: {:#x}", ctrl);
-        } else {};
         let state = if ctrl_valid {
+            trace_fmt!("[HuffmanFseDecoder] ctrl: {:#x}", ctrl);
             HuffmanFseDecoderState {
                 ctrl: ctrl,
-                stream_len: ctrl.length * u8:8,
+                stream_len: (ctrl.length as u16) * u16:8,
                 ..state
             }
-        } else { state };
+        } else {
+            state
+        };
 
         // receive ram read response
         let do_recv_table_rd_resp = state.fsm == FSM::RECV_RAM_EVEN_RD_RESP || state.fsm == FSM::RECV_RAM_ODD_RD_RESP;
@@ -510,9 +510,9 @@ pub proc HuffmanFseDecoder<
             state.fsm == FSM::UPDATE_EVEN_STATE ||
             state.fsm == FSM::UPDATE_ODD_STATE
         );
-        let do_send_buf_ctrl = do_read_bits && !state.sent_buf_ctrl && state.stream_len > u8:0;
+        let do_send_buf_ctrl = do_read_bits && !state.sent_buf_ctrl && state.stream_len > u16:0;
 
-        let read_length = if state.read_bits_needed as u8 > state.stream_len {
+        let read_length = if state.read_bits_needed as u16 > state.stream_len {
             state.stream_len as u7
         } else {
             state.read_bits_needed
@@ -520,7 +520,7 @@ pub proc HuffmanFseDecoder<
 
         let state = if state.read_bits_needed > u7:0 {
             HuffmanFseDecoderState {
-                stream_empty: state.read_bits_needed as u8 > state.stream_len,
+                stream_empty: state.read_bits_needed as u16 > state.stream_len,
                 ..state
             }
         } else { state };
@@ -547,7 +547,7 @@ pub proc HuffmanFseDecoder<
             HuffmanFseDecoderState {
                 sent_buf_ctrl: false,
                 shift_buffer_error: state.shift_buffer_error | buf_data.error,
-                stream_len: state.stream_len - buf_data.length as u8,
+                stream_len: state.stream_len - buf_data.length as u16,
                 ..state
             }
         } else { state };
@@ -733,7 +733,7 @@ pub proc HuffmanFseDecoder<
                         last_weight: u1:0,
                         ..state
                     }
-                } else if buf_data_valid || state.stream_len == u8:0 {
+                } else if buf_data_valid || state.stream_len == u16:0 {
                     trace_fmt!("[FseDecoder] Moving to UPDATE_ODD_STATE");
                     State {
                         fsm: FSM::UPDATE_ODD_STATE,
@@ -753,7 +753,7 @@ pub proc HuffmanFseDecoder<
                         last_weight: u1:1,
                         ..state
                     }
-                } else if buf_data_valid || state.stream_len == u8:0 {
+                } else if buf_data_valid || state.stream_len == u16:0 {
                     trace_fmt!("[FseDecoder] Moving to SEND_WEIGHT");
                     State {
                         fsm: FSM::SEND_WEIGHT,
@@ -1184,7 +1184,8 @@ pub proc HuffmanWeightsDecoder<
     header_mem_rd_resp_r: chan<MemReaderResp> in;
 
     // Select for RamMux
-    decoded_weights_sel_s: chan<u1> out;
+    decoded_weights_sel_req_s: chan<u1> out;
+    decoded_weights_sel_resp_r: chan<()> in;
 
     // Raw Huffman Tree Description Decoder control
     raw_weights_req_s: chan<RawWeightsReq> out;
@@ -1251,7 +1252,8 @@ pub proc HuffmanWeightsDecoder<
         fse_wr_resp_r: chan<FseRamWrResp> in,
     ) {
         // Decoded Weights select for RamMux
-        let (decoded_weights_sel_s, decoded_weights_sel_r) = chan<u1, u32:1>("decoded_weights_sel");
+        let (decoded_weights_sel_req_s, decoded_weights_sel_req_r) = chan<u1, u32:1>("decoded_weights_sel_req");
+        let (decoded_weights_sel_resp_s, decoded_weights_sel_resp_r) = chan<(), u32:1>("decoded_weights_sel_resp");
 
         // Raw Huffman Tree Description control
         let (raw_weights_req_s, raw_weights_req_r) = chan<RawWeightsReq, u32:1>("raw_weights_req");
@@ -1307,7 +1309,7 @@ pub proc HuffmanWeightsDecoder<
         );
 
         spawn ram_mux::RamMux<WEIGHTS_RAM_ADDR_W, WEIGHTS_RAM_DATA_W, WEIGHTS_RAM_NUM_PARTITIONS>(
-            decoded_weights_sel_r,
+            decoded_weights_sel_req_r, decoded_weights_sel_resp_s,
             raw_weights_ram_rd_req_r, raw_weights_ram_rd_resp_s, // We don't care about read side
             raw_weights_ram_wr_req_r, raw_weights_ram_wr_resp_s,
             fse_weights_ram_rd_req_r, fse_weights_ram_rd_resp_s, // We don't care about read side
@@ -1319,7 +1321,7 @@ pub proc HuffmanWeightsDecoder<
         (
             req_r, resp_s,
             header_mem_rd_req_s, header_mem_rd_resp_r,
-            decoded_weights_sel_s,
+            decoded_weights_sel_req_s, decoded_weights_sel_resp_r,
             raw_weights_req_s, raw_weights_resp_r,
             fse_weights_req_s, fse_weights_resp_r,
             raw_weights_ram_rd_req_s, raw_weights_ram_rd_resp_r, // We don't care about read side
@@ -1332,7 +1334,7 @@ pub proc HuffmanWeightsDecoder<
         let tok = join();
 
         let (tok, req) = recv(tok, req_r);
-        trace_fmt!("Received Huffman weights decoding request {:#x}", req);
+        trace_fmt!("[HuffmanFseWeightsDecoder] Received Huffman weights decoding request {:#x}", req);
         // Fetch Huffman Tree Header
         let header_mem_rd_req = MemReaderReq {
             addr: req.addr,
@@ -1348,7 +1350,7 @@ pub proc HuffmanWeightsDecoder<
         // Receive response from HuffmanRawWeightsDecoder or HuffmanFseWeightsDecoder
 
         let header_byte = header_mem_rd_resp.data as u8;
-        trace_fmt!("Huffman weights header: {:#x}", header_byte);
+        trace_fmt!("[HuffmanFseWeightsDecoder] Huffman weights header: {:#x}", header_byte);
 
         let weights_type = if header_byte < u8:128 {
             WeightsType::FSE
@@ -1356,11 +1358,12 @@ pub proc HuffmanWeightsDecoder<
             WeightsType::RAW
         };
 
-        let tok = send(tok, decoded_weights_sel_s, weights_type == WeightsType::FSE);
+        let tok = send(tok, decoded_weights_sel_req_s, weights_type == WeightsType::FSE);
+        let (tok, _) = recv(tok, decoded_weights_sel_resp_r);
 
         // FSE
         if weights_type == WeightsType::FSE {
-            trace_fmt!("Decoding FSE Huffman weights");
+            trace_fmt!("[HuffmanFseWeightsDecoder] Decoding FSE Huffman weights");
         } else {};
         let fse_weights_req = FseWeightsReq {
             addr: req.addr,
@@ -1377,7 +1380,7 @@ pub proc HuffmanWeightsDecoder<
 
         // RAW
         if weights_type == WeightsType::RAW {
-            trace_fmt!("Decoding RAW Huffman weights");
+            trace_fmt!("[HuffmanFseWeightsDecoder] Decoding RAW Huffman weights");
         } else {};
         let raw_weights_req = RawWeightsReq {
             addr: req.addr,

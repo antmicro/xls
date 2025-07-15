@@ -791,8 +791,13 @@ xls_dslx_library(
 
 xls_dslx_test(
     name = "ram_test",
-    dslx_test_args = {"compare": "jit"},
     library = ":ram_dslx",
+)
+
+xls_dslx_test(
+    name = "ram_jit_test",
+    library = ":ram_dslx",
+    evaluator = "ir-jit",
 )
 
 xls_dslx_library(

@@ -254,6 +254,10 @@ dslx_lang_test(
 )
 
 dslx_lang_test(
+    name = "const_fn",
+)
+
+dslx_lang_test(
     name = "constexpr_attrs",
     convert_to_ir = False,
     dslx_deps = [":constexpr_dslx"],

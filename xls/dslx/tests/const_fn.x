@@ -1,0 +1,29 @@
+// Copyright 2020 The XLS Authors
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+const CONST_1 = u32:666;
+const CONST_2 = CONST_1;
+
+pub const fn const_adder() -> u32 { CONST_1 + CONST_2 }
+const fn const_param_adder<A:u32, B:u32>() -> u32 { A + B }
+
+#[test]
+fn can_add_const() {
+	assert_eq(const_adder(), u32:1332);
+}
+
+#[test]
+fn can_add_param_test() {
+    assert_eq(const_param_adder<CONST_1, CONST_2>(), u32:1332);
+}

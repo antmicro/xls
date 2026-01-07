@@ -122,7 +122,7 @@ class Parser : public TokenParser {
   FileTable& file_table() { return scanner().file_table(); }
 
   absl::StatusOr<Function*> ParseFunction(
-      const Pos& start_pos, bool is_public, Bindings& bindings,
+      const Pos& start_pos, bool is_public, bool is_const, Bindings& bindings,
       absl::flat_hash_map<std::string, Function*>* name_to_fn = nullptr);
 
   absl::StatusOr<Function*> ParseImplFunction(const Pos& start_pos,
@@ -604,7 +604,7 @@ class Parser : public TokenParser {
 
   // Parses a function out of the token stream.
   absl::StatusOr<Function*> ParseFunctionInternal(const Pos& start_pos,
-                                                  bool is_public,
+                                                  bool is_public, bool is_const,
                                                   Bindings& outer_bindings);
 
   // Parses an import statement into an `Import` AST node.

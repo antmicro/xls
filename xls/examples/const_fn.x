@@ -15,12 +15,15 @@
 const CONST_1 = u32:666;
 const CONST_2 = CONST_1;
 
-pub const fn const_adder() -> u32 { CONST_1 + CONST_2 }
+const fn const_get() -> u32 { CONST_2 }
+const fn const_adder() -> u32 { CONST_1 + CONST_2 }
 const fn const_param_adder<A:u32, B:u32>() -> u32 { A + B }
+
+fn main() -> u32 { const_adder() + const_get() + const_param_adder<CONST_1, CONST_2>() }
 
 #[test]
 fn can_add_const() {
-	assert_eq(const_adder(), u32:1332);
+    assert_eq(const_adder(), u32:1332);
 }
 
 #[test]

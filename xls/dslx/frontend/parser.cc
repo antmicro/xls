@@ -291,7 +291,7 @@ absl::StatusOr<Lambda*> Parser::ParseLambda(Bindings& bindings) {
   Function* fn = module_->Make<Function>(
       sp, fn_name_def, std::vector<ParametricBinding*>(), params, return_type,
       body, FunctionTag::kLambda,
-      /*is_public=*/false, /*is_stub=*/false);
+      /*is_public=*/false, /*is_const=*/false, /*is_stub=*/false);
   return module_->Make<Lambda>(sp, fn);
 }
 

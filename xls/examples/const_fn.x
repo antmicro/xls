@@ -1,4 +1,4 @@
-// Copyright 2020 The XLS Authors
+// Copyright 2026 The XLS Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -19,8 +19,11 @@ const fn const_get() -> u32 { CONST_2 }
 const fn const_adder() -> u32 { CONST_1 + CONST_2 }
 const fn const_param_adder<A:u32, B:u32>() -> u32 { A + B }
 
-fn main() -> u32 { const_adder() + const_get() }//+ const_param_adder<CONST_1, CONST_2>() + u32::MAX }
-// fn main() -> u32 { const_adder() + const_get() + const_param_adder<CONST_1, CONST_2>() }
+fn main() -> u32 {
+    let first = const_adder() + const_get();
+    let second = const_param_adder<CONST_1, CONST_2>() + u32::MAX;
+    first + second
+}
 
 #[test]
 fn can_add_const() {

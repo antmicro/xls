@@ -569,6 +569,7 @@ class Visitor : public AstNodeVisitorWithDefault {
   }
 
   absl::Status HandleFunction(const Function* function) override {
+    std::cout << "Collecting " << function->identifier() << std::endl;
     if ((function->tag() == FunctionTag::kProcInit) || (function->is_const())) {
       XLS_RETURN_IF_ERROR(EvaluateAndNoteExpr(function->body()));
     }

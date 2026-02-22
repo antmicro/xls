@@ -29,14 +29,14 @@ namespace xls::noc {
 
 RouterConfigProtoBuilder& RouterConfigProtoBuilder::WithName(
     std::string_view name) {
-  proto_->set_name(xls::ToProtoString(name));
+  proto_->set_name(name);
   return *this;
 }
 
 PortConfigProtoBuilder RouterConfigProtoBuilder::WithInputPort(
     std::string_view name) {
   PortConfigProto* port = proto_->add_ports();
-  port->set_name(xls::ToProtoString(name));
+  port->set_name(name);
   port->set_direction(PortConfigProto::INPUT);
   if (virtual_channels_for_input_.has_value()) {
     for (const std::string& virtual_channel :
@@ -50,7 +50,7 @@ PortConfigProtoBuilder RouterConfigProtoBuilder::WithInputPort(
 PortConfigProtoBuilder RouterConfigProtoBuilder::WithOutputPort(
     std::string_view name) {
   PortConfigProto* port = proto_->add_ports();
-  port->set_name(xls::ToProtoString(name));
+  port->set_name(name);
   port->set_direction(PortConfigProto::OUTPUT);
   if (virtual_channels_for_output_.has_value()) {
     for (const std::string& virtual_channel :

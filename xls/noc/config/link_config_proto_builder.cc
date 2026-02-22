@@ -23,19 +23,19 @@ namespace xls::noc {
 
 LinkConfigProtoBuilder& LinkConfigProtoBuilder::WithName(
     std::string_view name) {
-  proto_->set_name(xls::ToProtoString(name));
+  proto_->set_name(name);
   return *this;
 }
 
 LinkConfigProtoBuilder& LinkConfigProtoBuilder::WithSourcePort(
     std::string_view port_name) {
-  proto_->set_source_port_name(xls::ToProtoString(port_name));
+  proto_->set_source_port_name(port_name);
   return *this;
 }
 
 LinkConfigProtoBuilder& LinkConfigProtoBuilder::WithSinkPort(
     std::string_view port_name) {
-  proto_->set_sink_port_name(xls::ToProtoString(port_name));
+  proto_->set_sink_port_name(port_name);
   return *this;
 }
 

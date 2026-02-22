@@ -23,7 +23,7 @@ namespace xls::noc {
 
 PortConfigProtoBuilder& PortConfigProtoBuilder::WithName(
     std::string_view name) {
-  proto_->set_name(xls::ToProtoString(name));
+  proto_->set_name(name);
   return *this;
 }
 
@@ -39,7 +39,7 @@ PortConfigProtoBuilder& PortConfigProtoBuilder::AsOutputDirection() {
 
 PortConfigProtoBuilder& PortConfigProtoBuilder::WithVirtualChannel(
     std::string_view virtual_channel_name) {
-  proto_->add_virtual_channels(xls::ToProtoString(virtual_channel_name));
+  proto_->add_virtual_channels(virtual_channel_name);
   return *this;
 }
 

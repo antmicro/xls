@@ -1091,15 +1091,14 @@ absl::StatusOr<std::unique_ptr<Message>> ConstructProtoViaText(
   XLS_RET_CHECK(factory != nullptr);
 
   const Descriptor* descriptor =
-      descriptor_pool->FindMessageTypeByName(ToProtoString(message_name));
+      descriptor_pool->FindMessageTypeByName(message_name);
   XLS_RET_CHECK_NE(descriptor, nullptr);
 
   const Message* message = factory->GetPrototype(descriptor);
   XLS_RET_CHECK(message != nullptr);
   std::unique_ptr<Message> new_message(message->New());
 
-  google::protobuf::TextFormat::ParseFromString(ToProtoString(text_proto),
-                                      new_message.get());
+  google::protobuf::TextFormat::ParseFromString(text_proto, new_message.get());
 
   return new_message;
 }

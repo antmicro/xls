@@ -28,6 +28,7 @@
 
 #include "absl/algorithm/container.h"
 #include "absl/base/no_destructor.h"
+#include "absl/base/optimization.h"
 #include "absl/container/btree_set.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/log/check.h"
@@ -178,6 +179,23 @@ class FunctionBase {
     kProc,
     kBlock,
   };
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink, const Kind& k) {
+    switch (k) {
+      case Kind::kFunction:
+        absl::Format(&sink, "function");
+        return;
+      case Kind::kProc:
+        absl::Format(&sink, "proc");
+        return;
+      case Kind::kBlock:
+        absl::Format(&sink, "block");
+        return;
+    }
+    ABSL_UNREACHABLE();
+    absl::Format(&sink, "(unknown kind)");
+  }
+
   FunctionBase(std::string_view name, Package* package)
       : name_(name), package_(package) {}
   FunctionBase(const FunctionBase& other) = delete;

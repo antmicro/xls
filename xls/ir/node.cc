@@ -451,6 +451,44 @@ struct DfsStackFrame {
   decltype(std::declval<Node>().operands())::const_iterator operand_it;
 };
 
+namespace {
+absl::Status AnalyzeCycle(absl::Span<Node* const> cycle) {
+  std::vector<std::string> cycle_names;
+  cycle_names.reserve(cycle.size());
+  for (const Node* node : cycle) {
+    cycle_names.push_back(node->GetName());
+  }
+  std::string cycle_str = absl::StrJoin(cycle_names, " -> ");
+
+  if (cycle.empty()) {
+    return absl::InternalError("Empty cycle detected");
+  }
+
+  FunctionBase* fb = cycle.front()->function_base();
+  std::string message = absl::StrFormat("Cycle detected in %v `%s`: [%s]",
+                                        fb->kind(), fb->name(), cycle_str);
+
+  if (fb->IsBlock()) {
+    absl::StrAppend(
+        &message,
+        "\n\nIf this dependency cycle is intentional, you must insert a "
+        "register in the path to prevent combinational paths. Otherwise, if "
+        "this IR was generated (e.g., by XLS codegen), it is likely a bug in "
+        "the toolchain; please file a bug report.");
+  } else {
+    // Function or Proc
+    absl::StrAppend(
+        &message,
+        "\n\nIf this IR was generated (e.g., by the DSLX compiler or an "
+        "optimization pass), it is likely a bug in the toolchain; please file "
+        "a bug report. If you are constructing XLS IR directly, check for "
+        "circular references.");
+  }
+
+  return absl::InvalidArgumentError(message);
+}
+}  // namespace
+
 absl::Status Node::Accept(DfsVisitor* visitor) {
   if (visitor->IsVisited(this)) {
     return absl::OkStatus();
@@ -469,7 +507,7 @@ absl::Status Node::Accept(DfsVisitor* visitor) {
       }
       if (visitor->IsTraversing(operand)) {
         // Found a cycle, make a useful error message.
-        std::vector<std::string> cycle_names = {operand->GetName()};
+        std::vector<Node*> cycle_nodes = {operand};
         Node* node = operand;
         do {
           bool broke = false;
@@ -481,10 +519,12 @@ absl::Status Node::Accept(DfsVisitor* visitor) {
             }
           }
           CHECK(broke);
-          cycle_names.push_back(node->GetName());
+          cycle_nodes.push_back(node);
         } while (node != operand);
-        return absl::InternalError(absl::StrFormat(
-            "Cycle detected: [%s]", absl::StrJoin(cycle_names, " -> ")));
+        // The cycle is constructed backwards (target -> source), reverse it to
+        // be source -> target.
+        std::reverse(cycle_nodes.begin(), cycle_nodes.end());
+        return AnalyzeCycle(cycle_nodes);
       }
       saw_unvisited_operand = true;
       stack.push_back(DfsStackFrame{.node = operand,

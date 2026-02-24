@@ -405,6 +405,7 @@ TEST_F(FunctionTest, GraphWithCycle) {
 fn graph(p: bits[42], q: bits[42]) -> bits[42] {
   a: bits[42] = and(p, q)
   b: bits[42] = add(a, q)
+  d: bits[42] = add(b, q)
   ret c: bits[42] = sub(a, b)
 }
 )";
@@ -417,8 +418,26 @@ fn graph(p: bits[42], q: bits[42]) -> bits[42] {
         FindNode("a", f)->ReplaceOperand(FindNode("p", f), FindNode("b", f)));
     TestVisitor v;
     EXPECT_THAT(std::string(f->Accept(&v).message()),
-                HasSubstr(std::string("Cycle detected: [a -> b -> a]")));
-    EXPECT_DEATH(TopoSort(f), HasSubstr("Cycle detected: [a -> b -> a]"));
+                HasSubstr(std::string(
+                    "Cycle detected in function `graph`: [b -> a -> b]")));
+    EXPECT_DEATH(
+        TopoSort(f),
+        HasSubstr("Cycle detected in function `graph`: [b -> a -> b]"));
+  }
+  {
+    auto p = std::make_unique<Package>(TestName());
+    XLS_ASSERT_OK_AND_ASSIGN(Function * f, ParseFunction(input, p.get()));
+
+    // Introduce a cycle in the graph through three nodes.
+    ASSERT_TRUE(
+        FindNode("a", f)->ReplaceOperand(FindNode("p", f), FindNode("d", f)));
+    TestVisitor v;
+    EXPECT_THAT(std::string(f->Accept(&v).message()),
+                HasSubstr(std::string(
+                    "Cycle detected in function `graph`: [a -> b -> d -> a]")));
+    EXPECT_DEATH(
+        TopoSort(f),
+        HasSubstr("Cycle detected in function `graph`: [a -> b -> d -> a]"));
   }
 
   {
@@ -428,9 +447,11 @@ fn graph(p: bits[42], q: bits[42]) -> bits[42] {
     // Introduce a cycle in the graph through one node.
     XLS_ASSERT_OK(FindNode("a", f)->ReplaceOperandNumber(0, FindNode("a", f)));
     TestVisitor v;
-    EXPECT_THAT(std::string(f->Accept(&v).message()),
-                HasSubstr(std::string("Cycle detected: [a -> a]")));
-    EXPECT_DEATH(TopoSort(f), HasSubstr("Cycle detected: [a -> a]"));
+    EXPECT_THAT(
+        std::string(f->Accept(&v).message()),
+        HasSubstr(std::string("Cycle detected in function `graph`: [a -> a]")));
+    EXPECT_DEATH(TopoSort(f),
+                 HasSubstr("Cycle detected in function `graph`: [a -> a]"));
   }
 
   {
@@ -441,8 +462,11 @@ fn graph(p: bits[42], q: bits[42]) -> bits[42] {
     XLS_ASSERT_OK(FindNode("a", f)->ReplaceOperandNumber(1, FindNode("c", f)));
     TestVisitor v;
     EXPECT_THAT(std::string(f->Accept(&v).message()),
-                HasSubstr(std::string("Cycle detected: [a -> c -> a]")));
-    EXPECT_DEATH(TopoSort(f), HasSubstr("Cycle detected: [a -> c -> a]"));
+                HasSubstr(std::string(
+                    "Cycle detected in function `graph`: [a -> c -> a]")));
+    EXPECT_DEATH(
+        TopoSort(f),
+        HasSubstr("Cycle detected in function `graph`: [a -> c -> a]"));
   }
 }
 

@@ -657,6 +657,8 @@ std::string AttributeKindToString(AttributeKind kind) {
       return "test_proc";
     case AttributeKind::kQuickcheck:
       return "quickcheck";
+    case AttributeKind::kChannelStrictness:
+      return "channel_strictness";
   }
 }
 

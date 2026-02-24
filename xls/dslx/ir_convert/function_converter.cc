@@ -3745,6 +3745,7 @@ absl::Status FunctionConverter::HandleProcNextFunction(
               param->ToString()));
         }
       }
+
       XLS_ASSIGN_OR_RETURN(channel_or_array,
                            channel_scope_->DefineBoundaryChannelOrArray(
                                param, current_type_info_));
@@ -3790,6 +3791,29 @@ absl::Status FunctionConverter::HandleProcNextFunction(
           ChannelOrArrayToProcConfigValue(channel_or_array);
       XLS_RETURN_IF_ERROR(channel_scope_->AssociateWithExistingChannelOrArray(
           *proc_id_, member->name_def(), channel_or_array));
+
+      if (member->strictness().has_value()) {
+        // We'd normally inline the visitor, but done this way, we can call the
+        // visitor "recursively" to handle the elements of a channel array.
+        struct SetStrictnessVisitor {
+          ChannelStrictness strictness;
+          void operator()(Channel* chan) {
+            if (auto* streaming_chan = dynamic_cast<StreamingChannel*>(chan)) {
+              streaming_chan->SetStrictness(strictness);
+            }
+          }
+          void operator()(ChannelInterface* ci) {
+            ci->SetStrictness(strictness);
+          }
+          void operator()(ChannelArray* ca) {
+            for (ChannelRef ref : ca->channels()) {
+              absl::visit(*this, ref);
+            }
+          }
+        };
+        absl::visit(SetStrictnessVisitor{*member->strictness()},
+                    channel_or_array);
+      }
     }
   }
 

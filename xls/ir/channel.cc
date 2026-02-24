@@ -300,7 +300,7 @@ absl::StatusOr<ChannelStrictness> ChannelStrictnessFromString(
     return ChannelStrictness::kArbitraryStaticOrder;
   }
   return absl::InvalidArgumentError(
-      absl::StrFormat("Invalid strictness %s.", text));
+      absl::StrFormat("Invalid strictness: `%s`", text));
 }
 
 std::string ChannelStrictnessToString(ChannelStrictness in) {

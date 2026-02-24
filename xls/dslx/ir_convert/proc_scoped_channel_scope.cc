@@ -36,14 +36,10 @@ absl::StatusOr<ChannelRef> ProcScopedChannelScope::CreateChannel(
 
     xls::Proc* ir_proc = proc_builder_->proc();
 
-    // TOOD: davidplass - figure out how to get strictness, flow control,
-    // kind instead of defaults.
-    // ChannelStrictness seems to be only set from non-DSLX-generated IR.
-    std::optional<ChannelStrictness> strictness = kDefaultChannelStrictness;
-    // FlowControl never seems to be set to anything other than ready valid.
-    FlowControl flow_control = FlowControl::kReadyValid;
     // ChannelKind is never set to anything but streaming by the FE.
     ChannelKind kind = ChannelKind::kStreaming;
+    FlowControl flow_control = FlowControl::kReadyValid;
+    std::optional<ChannelStrictness> strictness = kDefaultChannelStrictness;
 
     if (ops == ChannelOps::kReceiveOnly) {
       return ir_proc->AddInputChannel(name, type, kind, flow_control,

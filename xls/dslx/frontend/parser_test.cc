@@ -44,6 +44,7 @@
 #include "xls/dslx/frontend/pos.h"
 #include "xls/dslx/frontend/scanner.h"
 #include "xls/dslx/virtualizable_file_system.h"
+#include "xls/ir/channel.h"
 
 namespace xls::dslx {
 
@@ -4259,6 +4260,87 @@ TEST_F(ParserTest, CannotSpecifyParametricsForNumber) {
   EXPECT_THAT(
       parser.ParseModule().status(),
       IsPosError("ParseError", "Cannot specify parametrics for a number."));
+}
+
+TEST_F(ParserTest, ChannelStrictnessAttribute) {
+  constexpr std::string_view kProgram = R"(
+#![feature(channel_attributes)]
+proc p {
+  #[channel_strictness("runtime_ordered")]
+  c: chan<u32> in;
+  config(c: chan<u32> in) { (c,) }
+  init { () }
+  next(tok: token) { tok }
+})";
+  std::unique_ptr<Module> module = ExpectParsesSuccessfully(kProgram);
+  ASSERT_NE(module, nullptr);
+  ModuleMember* member = module->FindMemberWithName("p").value();
+  Proc* p = std::get<Proc*>(*member);
+  ASSERT_EQ(p->members().size(), 1);
+  ProcMember* pm = p->members()[0];
+  EXPECT_TRUE(pm->strictness().has_value());
+  EXPECT_EQ(*pm->strictness(), ChannelStrictness::kRuntimeOrdered);
+}
+
+TEST_F(ParserTest, ChannelStrictnessAttributeMissingFeature) {
+  constexpr std::string_view kProgram = R"(
+proc p {
+  #[channel_strictness("runtime_ordered")]
+  c: chan<u32> in;
+  config() { (c,) }
+  init { () }
+  next(tok: token) { tok }
+})";
+  EXPECT_THAT(Parse(kProgram),
+              StatusIs(absl::StatusCode::kInvalidArgument,
+                       HasSubstr("syntax is not enabled for this module")));
+}
+
+TEST_F(ParserTest, ChannelStrictnessInvalidValue) {
+  constexpr std::string_view kProgram = R"(#![feature(channel_attributes)]
+proc p {
+  #[channel_strictness("invalid_value")]
+  c: chan<u32> in;
+  config() { (c,) }
+  init { () }
+  next(tok: token) { tok }
+})";
+  EXPECT_THAT(Parse(kProgram),
+              StatusIs(absl::StatusCode::kInvalidArgument,
+                       HasSubstr("Invalid strictness: `invalid_value`")));
+}
+
+TEST_F(ParserTest, ChannelStrictnessOnTypeAlias) {
+  constexpr std::string_view kProgram = R"(#![feature(channel_attributes)]
+proc p {
+  #[channel_strictness("runtime_ordered")]
+  type MyType = u32;
+  config() { () }
+  init { () }
+  next(tok: token) { tok }
+})";
+  EXPECT_THAT(Parse(kProgram),
+              StatusIs(absl::StatusCode::kInvalidArgument,
+                       HasSubstr("Attribute not supported on type alias")));
+}
+
+TEST_F(ParserTest, StrictnessInChannelAttribute) {
+  constexpr std::string_view kProgram = R"(#![feature(channel_attributes)]
+proc p {
+  c: chan<u32> in;
+  config() {
+    let (c, ch) = chan<u32>("ch");
+    let c = #[channel(strictness="arbitrary")] c;
+    (c,)
+  }
+  init { () }
+  next(tok: token) { tok }
+})";
+  EXPECT_THAT(
+      Parse(kProgram),
+      StatusIs(
+          absl::StatusCode::kInvalidArgument,
+          HasSubstr("must be specified via `#[channel_strictness(...)]`")));
 }
 
 }  // namespace xls::dslx

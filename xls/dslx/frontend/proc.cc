@@ -14,6 +14,7 @@
 
 #include "xls/dslx/frontend/proc.h"
 
+#include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -29,6 +30,7 @@
 #include "xls/dslx/frontend/ast.h"
 #include "xls/dslx/frontend/ast_node.h"
 #include "xls/dslx/frontend/pos.h"
+#include "xls/ir/channel.h"
 
 namespace xls::dslx {
 
@@ -168,10 +170,12 @@ std::string TestProc::ToString() const {
 // -- class ProcMember
 
 ProcMember::ProcMember(Module* owner, NameDef* name_def,
-                       TypeAnnotation* type_annotation)
+                       TypeAnnotation* type_annotation,
+                       std::optional<ChannelStrictness> strictness)
     : AstNode(owner),
       name_def_(name_def),
       type_annotation_(type_annotation),
+      strictness_(strictness),
       span_(name_def_->span().start(), type_annotation_->span().limit()) {}
 
 ProcMember::~ProcMember() = default;

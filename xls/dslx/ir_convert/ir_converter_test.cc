@@ -7910,5 +7910,93 @@ proc Array {
   ExpectIr(conv.DumpIr());
 }
 
+TEST_F(IrConverterTest, ChannelStrictnessAttributeProcScoped) {
+  constexpr std::string_view kProgram = R"(
+#![feature(channel_attributes)]
+proc p {
+  #[channel_strictness("runtime_ordered")]
+  c: chan<u32> in;
+  config(c: chan<u32> in) { (c,) }
+  init { () }
+  next(state: ()) {
+    let (tok, _) = recv(join(), c);
+    ()
+  }
+}
+)";
+  XLS_ASSERT_OK_AND_ASSIGN(std::string converted,
+                           ConvertModuleForTest(kProgram));
+  EXPECT_THAT(converted, HasSubstr("strictness=runtime_ordered"));
+}
+
+TEST_F(IrConverterTest, ChannelStrictnessAttributeGlobalChannels) {
+  constexpr std::string_view kProgram = R"(
+#![feature(channel_attributes)]
+proc p {
+  #[channel_strictness("runtime_ordered")]
+  c: chan<u32> in;
+  config(c: chan<u32> in) { (c,) }
+  init { () }
+  next(state: ()) {
+    let (tok, _) = recv(join(), c);
+    ()
+  }
+}
+)";
+  XLS_ASSERT_OK_AND_ASSIGN(
+      std::string converted,
+      ConvertModuleForTest(
+          kProgram, ConvertOptions{.emit_positions = false,
+                                   .lower_to_proc_scoped_channels = false}));
+  EXPECT_THAT(converted, HasSubstr("strictness=runtime_ordered"));
+}
+
+TEST_F(IrConverterTest, ChannelStrictnessAttributeWithChannelArray) {
+  constexpr std::string_view kProgram = R"(
+#![feature(channel_attributes)]
+proc p {
+  #[channel_strictness("runtime_ordered")]
+  c: chan<u32>[2] in;
+  config(c: chan<u32>[2] in) { (c,) }
+  init { () }
+  next(state: ()) {
+    let (tok, _) = recv(join(), c[0]);
+    let (tok, _) = recv(tok, c[1]);
+    ()
+  }
+}
+)";
+  XLS_ASSERT_OK_AND_ASSIGN(std::string converted,
+                           ConvertModuleForTest(kProgram));
+  EXPECT_THAT(converted, HasSubstr("strictness=runtime_ordered"));
+  EXPECT_THAT(converted,
+              Not(HasSubstr("strictness=proven_mutually_exclusive")));
+}
+
+TEST_F(IrConverterTest, ChannelStrictnessAttributeWithGlobalChannelArray) {
+  constexpr std::string_view kProgram = R"(
+#![feature(channel_attributes)]
+proc p {
+  #[channel_strictness("runtime_ordered")]
+  c: chan<u32>[2] in;
+  config(c: chan<u32>[2] in) { (c,) }
+  init { () }
+  next(state: ()) {
+    let (tok, _) = recv(join(), c[0]);
+    let (tok, _) = recv(tok, c[1]);
+    ()
+  }
+}
+)";
+  XLS_ASSERT_OK_AND_ASSIGN(
+      std::string converted,
+      ConvertModuleForTest(
+          kProgram, ConvertOptions{.emit_positions = false,
+                                   .lower_to_proc_scoped_channels = false}));
+  EXPECT_THAT(converted, HasSubstr("strictness=runtime_ordered"));
+  EXPECT_THAT(converted,
+              Not(HasSubstr("strictness=proven_mutually_exclusive")));
+}
+
 }  // namespace
 }  // namespace xls::dslx

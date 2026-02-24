@@ -327,7 +327,8 @@ enum class AttributeKind : uint8_t {
   kSvType,
   kTest,
   kTestProc,
-  kQuickcheck
+  kQuickcheck,
+  kChannelStrictness
 };
 
 std::string AttributeKindToString(AttributeKind kind);

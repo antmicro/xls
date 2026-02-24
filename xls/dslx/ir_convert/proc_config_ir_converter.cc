@@ -94,6 +94,27 @@ absl::Status ProcConfigIrConverter::Finalize() {
     if (channel_or_array.has_value()) {
       XLS_RETURN_IF_ERROR(channel_scope_->AssociateWithExistingChannelOrArray(
           proc_id_, member->name_def(), *channel_or_array));
+
+      if (member->strictness().has_value()) {
+        struct SetStrictnessVisitor {
+          ChannelStrictness strictness;
+          void operator()(Channel* chan) {
+            if (auto* streaming_chan = dynamic_cast<StreamingChannel*>(chan)) {
+              streaming_chan->SetStrictness(strictness);
+            }
+          }
+          void operator()(ChannelInterface* ci) {
+            ci->SetStrictness(strictness);
+          }
+          void operator()(ChannelArray* ca) {
+            for (ChannelRef ref : ca->channels()) {
+              absl::visit(*this, ref);
+            }
+          }
+        };
+        absl::visit(SetStrictnessVisitor{*member->strictness()},
+                    *channel_or_array);
+      }
     }
   }
 

@@ -154,7 +154,8 @@ absl::StatusOr<ChannelOrArray> ChannelScope::DefineChannelOrArrayInternal(
 }
 
 absl::StatusOr<ChannelOrArray> ChannelScope::DefineBoundaryChannelOrArray(
-    const Param* param, TypeInfo* type_info) {
+    const Param* param, TypeInfo* type_info,
+    std::optional<ChannelConfig> channel_config) {
   XLS_RET_CHECK(function_context_.has_value());
   VLOG(4) << "ChannelScope::DefineBoundaryChannelOrArray: "
           << param->ToString();
@@ -172,8 +173,7 @@ absl::StatusOr<ChannelOrArray> ChannelScope::DefineBoundaryChannelOrArray(
   XLS_ASSIGN_OR_RETURN(
       ChannelOrArray channel_or_array,
       DefineChannelOrArrayInternal(param->identifier(), op, ir_type,
-                                   /*channel_config=*/std::nullopt,
-                                   type_annot->dims(), true));
+                                   channel_config, type_annot->dims(), true));
   XLS_RETURN_IF_ERROR(DefineProtoChannelOrArray(channel_or_array, type_annot,
                                                 ir_type, type_info));
   return channel_or_array;

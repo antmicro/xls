@@ -29,6 +29,7 @@
 #include "absl/types/span.h"
 #include "xls/dslx/frontend/ast.h"
 #include "xls/dslx/frontend/pos.h"
+#include "xls/ir/channel.h"
 
 namespace xls::dslx {
 
@@ -40,7 +41,8 @@ namespace xls::dslx {
 // functions".
 class ProcMember : public AstNode {
  public:
-  ProcMember(Module* owner, NameDef* name_def, TypeAnnotation* type);
+  ProcMember(Module* owner, NameDef* name_def, TypeAnnotation* type,
+             std::optional<ChannelStrictness> strictness = std::nullopt);
 
   ~ProcMember() override;
 
@@ -66,9 +68,14 @@ class ProcMember : public AstNode {
   const std::string& identifier() const { return name_def_->identifier(); }
   std::optional<Span> GetSpan() const override { return span_; }
 
+  const std::optional<ChannelStrictness>& strictness() const {
+    return strictness_;
+  }
+
  private:
   NameDef* name_def_;
   TypeAnnotation* type_annotation_;
+  std::optional<ChannelStrictness> strictness_;
   Span span_;
 };
 

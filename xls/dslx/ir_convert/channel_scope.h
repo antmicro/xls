@@ -137,7 +137,8 @@ class ChannelScope {
   // given parameter at the overall DSLX->IR conversion boundary. Channels at
   // the boundary have only a send or receive side.
   absl::StatusOr<ChannelOrArray> DefineBoundaryChannelOrArray(
-      const Param* param, TypeInfo* type_info);
+      const Param* param, TypeInfo* type_info,
+      std::optional<ChannelConfig> channel_config = std::nullopt);
 
   // Associates `name_def` as an alias of the channel or array defined by the
   // given `decl` that was previously passed to `DefineChannelOrArray`. This

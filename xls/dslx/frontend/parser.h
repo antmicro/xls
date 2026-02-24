@@ -515,8 +515,9 @@ class Parser : public TokenParser {
       const AnnotationGeneratorFn& missing_annotation_generator = nullptr);
 
   // Parses a member declaration in the body of a `proc` definition.
-  absl::StatusOr<ProcMember*> ParseProcMember(Bindings& bindings,
-                                              const Token& identifier_tok);
+  absl::StatusOr<ProcMember*> ParseProcMember(
+      Bindings& bindings, const Token& identifier_tok,
+      std::optional<ChannelStrictness> strictness = std::nullopt);
 
   // Parses a sequence of parameters, starting with cursor over '(', returns
   // after ')' is consumed.

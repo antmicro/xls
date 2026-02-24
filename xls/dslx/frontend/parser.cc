@@ -220,7 +220,8 @@ absl::StatusOr<AttributeKind> ParseAttributeKind(Token token,
       {"sv_type", AttributeKind::kSvType},
       {"test", AttributeKind::kTest},
       {"test_proc", AttributeKind::kTestProc},
-      {"quickcheck", AttributeKind::kQuickcheck}};
+      {"quickcheck", AttributeKind::kQuickcheck},
+      {"channel_strictness", AttributeKind::kChannelStrictness}};
 
   const auto it = map->find(token.GetStringValue());
   if (it == map->end()) {
@@ -676,6 +677,11 @@ absl::StatusOr<ChannelConfig> Parser::ParseExprAttribute(Bindings& bindings,
       PopTokenOrError(TokenKind::kIdentifier, /*start=*/nullptr,
                       "Expected attribute identifier"));
   const std::string& attribute_name = attribute_tok.GetStringValue();
+  if (attribute_name == "channel_strictness") {
+    return ParseErrorStatus(attribute_tok.span(),
+                            "#[channel_strictness(...)] does not apply to "
+                            "expressions; apply it to the proc member instead");
+  }
   if (attribute_name == "channel") {
     // TODO: google/xls#1023 - consider moving or allowing the channel attribute
     // to the outside of the let binding, e.g.
@@ -778,6 +784,11 @@ absl::StatusOr<ChannelConfig> Parser::ParseExprAttribute(Bindings& bindings,
                               flop_kind.status().message(), value));
         }
         output_flop_kind.emplace(*flop_kind);
+      } else if (key == "strictness") {
+        return ParseErrorStatus(key_tok.span(),
+                                "Channel strictness must be specified via "
+                                "`#[channel_strictness(...)]` "
+                                "attribute on the proc member");
       } else {
         return ParseErrorStatus(
             key_tok.span(),
@@ -3400,17 +3411,61 @@ absl::StatusOr<ModuleMember> Parser::ParseProcLike(const Pos& start_pos,
   std::optional<const Token*> first_semi_separator;
   std::optional<const Token*> first_comma_separator;
   while (peek->kind() != TokenKind::kCBrace) {
+    std::optional<ChannelStrictness> strictness;
+    if (peek->kind() == TokenKind::kHash) {
+      Pos hash_pos = GetPos();
+      XLS_RETURN_IF_ERROR(DropTokenOrError(TokenKind::kHash));
+      XLS_ASSIGN_OR_RETURN(Attribute * attr, ParseAttribute(hash_pos));
+      if (attr->attribute_kind() != AttributeKind::kChannelStrictness) {
+        return ParseErrorStatus(
+            *attr->GetSpan(),
+            "Only `channel_strictness` attribute is supported on proc members");
+      }
+      if (!module_->attributes().contains(
+              ModuleAttribute::kChannelAttributes)) {
+        return ParseErrorStatus(
+            *attr->GetSpan(),
+            "#[channel_strictness(...)] syntax is not enabled for this module; "
+            "enable with `#![feature(channel_attributes)]` at module scope");
+      }
+      if (attr->args().size() != 1 ||
+          !std::holds_alternative<Attribute::StringLiteralArgument>(
+              attr->args()[0])) {
+        return ParseErrorStatus(
+            *attr->GetSpan(),
+            "#[channel_strictness(...)] attribute requires a single string "
+            "literal argument");
+      }
+      std::string strictness_str =
+          std::get<Attribute::StringLiteralArgument>(attr->args()[0]).text;
+      XLS_ASSIGN_OR_RETURN(strictness,
+                           ChannelStrictnessFromString(strictness_str));
+      XLS_ASSIGN_OR_RETURN(peek, PeekToken());
+    }
+
     if (peek->IsKeyword(Keyword::kType)) {
+      if (strictness.has_value()) {
+        return ParseErrorStatus(peek->span(),
+                                "Attribute not supported on type alias");
+      }
       XLS_ASSIGN_OR_RETURN(
           TypeAlias * type_alias,
           ParseTypeAlias(GetPos(), /*is_public=*/false, proc_bindings));
       proc_like_body.stmts.push_back(type_alias);
     } else if (peek->IsKeyword(Keyword::kConst)) {
+      if (strictness.has_value()) {
+        return ParseErrorStatus(peek->span(),
+                                "Attribute not supported on constant def");
+      }
       XLS_ASSIGN_OR_RETURN(
           ConstantDef * constant,
           ParseConstantDef(GetPos(), /*is_public=*/false, proc_bindings));
       proc_like_body.stmts.push_back(constant);
     } else if (peek->IsIdentifier("config")) {
+      if (strictness.has_value()) {
+        return ParseErrorStatus(peek->span(),
+                                "Attribute not supported on config function");
+      }
       XLS_RETURN_IF_ERROR(check_not_yet_specified(proc_like_body.config, peek));
 
       // We make a more specific/helpful error message when you try to refer to
@@ -3453,6 +3508,10 @@ absl::StatusOr<ModuleMember> Parser::ParseProcLike(const Pos& start_pos,
       XLS_RETURN_IF_ERROR(module_->AddTop(config, make_collision_error));
       proc_like_body.stmts.push_back(config);
     } else if (peek->IsIdentifier("next")) {
+      if (strictness.has_value()) {
+        return ParseErrorStatus(peek->span(),
+                                "Attribute not supported on next function");
+      }
       XLS_RETURN_IF_ERROR(check_not_yet_specified(proc_like_body.next, peek));
 
       // Note: parsing of the `next()` function does have access to members,
@@ -3470,6 +3529,10 @@ absl::StatusOr<ModuleMember> Parser::ParseProcLike(const Pos& start_pos,
       outer_bindings.Add(next->name_def()->identifier(), next->name_def());
       proc_like_body.stmts.push_back(next);
     } else if (peek->IsIdentifier("init")) {
+      if (strictness.has_value()) {
+        return ParseErrorStatus(peek->span(),
+                                "Attribute not supported on init function");
+      }
       XLS_RETURN_IF_ERROR(check_not_yet_specified(proc_like_body.init, peek));
 
       XLS_ASSIGN_OR_RETURN(Function * init,
@@ -3492,8 +3555,9 @@ absl::StatusOr<ModuleMember> Parser::ParseProcLike(const Pos& start_pos,
         // Note: to parse a member, we use the memberless bindings (e.g. to
         // capture type aliases and similar) and them collapse the new member
         // binding into the proc-level bindings.
-        XLS_ASSIGN_OR_RETURN(ProcMember * member,
-                             ParseProcMember(member_bindings, identifier_tok));
+        XLS_ASSIGN_OR_RETURN(
+            ProcMember * member,
+            ParseProcMember(member_bindings, identifier_tok, strictness));
         XLS_ASSIGN_OR_RETURN(const Token* separator, PeekToken());
         if (!separator->IsKindIn(
                 {TokenKind::kSemi, TokenKind::kComma, TokenKind::kCBrace})) {
@@ -4007,12 +4071,13 @@ absl::StatusOr<Param*> Parser::ParseParam(
 }
 
 absl::StatusOr<ProcMember*> Parser::ParseProcMember(
-    Bindings& bindings, const Token& identifier_tok) {
+    Bindings& bindings, const Token& identifier_tok,
+    std::optional<ChannelStrictness> strictness) {
   XLS_ASSIGN_OR_RETURN(NameDef * name, TokenToNameDef(identifier_tok));
   XLS_RETURN_IF_ERROR(DropTokenOrError(TokenKind::kColon, /*start=*/nullptr,
                                        "Expect type annotation on parameters"));
   XLS_ASSIGN_OR_RETURN(TypeAnnotation * type, ParseTypeAnnotation(bindings));
-  auto* member = module_->Make<ProcMember>(name, type);
+  auto* member = module_->Make<ProcMember>(name, type, strictness);
   name->set_definer(member);
   bindings.Add(name->identifier(), name);
   return member;

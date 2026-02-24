@@ -199,6 +199,22 @@ control the scheduler.
     node order and other metadata which can be used to minimize the differences
     between generated Verilog from different invocations of codegen.
 
+-   `--scheduling_strategy` controls what scheduling algorithm will be used for
+    the design.
+
+    -   `sdc`: The default constraint solver scheduler which minimizes register
+        use while respecting clock period.
+
+    -   `asap`: Fast scheduler which places nodes as early as possible. Does not
+        respect io constraints. This scheduler is meant for use during
+        development to quickly approximate the cycle accurate behavior of the
+        pipeline.
+
+    -   `min_cut`: Approximates the minimum number of registers using a min-cut
+        based algorithm. Does not respect io_constraints.
+
+    -   `random`: Internal testing algorithm that selects stages randomly.
+
 # Feedback-driven Optimization (FDO) Options
 
 The following flags control the feedback-driven optimizations in XLS. For now,

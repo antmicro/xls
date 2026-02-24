@@ -243,6 +243,14 @@ SCHEDULING_FIELDS = {
                              "is inverted.",
     "assertion_macro_names": "Names of the Verilog macros used to guard assertions. If prefixed " +
                              "with `!` the polarity of the guard is inverted.",
+    "scheduling_strategy": "The scheduler algorithm to use. Either 'SDC', 'min-cut', 'asap' or " +
+                           "'random'. The SDC scheduler is the default and is constraint based " +
+                           "to minimize registers. The others are all testing/development " +
+                           "focused schedulers. 'asap' is a fast scheduler which places each " +
+                           "node as early as possible. 'min_cut' is a scheduler which uses " +
+                           "min-cut approximate the minimum number of registers but does not " +
+                           "respect io_constraints. 'random' is a scheduler which randomly " +
+                           "schedules nodes and is only for internal testing.",
 }
 
 _VERILOG_FIELDS = {

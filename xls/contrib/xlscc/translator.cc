@@ -766,7 +766,7 @@ absl::Status Translator::GenerateThisLValues(
                           /*disable_type_check=*/false, lval);
 
     {
-      UnmaskAndIgnoreSideEffectsGuard unmask_guard(*this);
+      UnmaskAssignmentsAndSideEffectsGuard unmask_guard(*this);
       XLS_RETURN_IF_ERROR(
           AssignMember(this_decl, field_decl, new_field_cval, loc));
     }
@@ -5443,8 +5443,7 @@ absl::StatusOr<CValue> Translator::CreateInitListValue(
                   loc);
 
       {
-        UnmaskAndIgnoreSideEffectsGuard unmask_guard(*this);
-
+        UnmaskAssignmentsAndSideEffectsGuard unmask_guard(*this);
         XLS_RETURN_IF_ERROR(AssignMember(this_decl, field_name, value, loc));
       }
     }

@@ -2652,6 +2652,50 @@ TEST_F(TranslatorLogicTest, StructInitList) {
   Run({{"a", 11}, {"b", 50}}, 66, content);
 }
 
+TEST_F(TranslatorLogicTest, StructInitListFieldNames1) {
+  std::string_view content = R"(
+       struct Test {
+         long long x;
+         long long y;
+         long long z;
+       };
+       long long my_package(long long a, long long b) {
+         Test ret = {.x = a, .y = 5,.z = b};
+         return ret.x+ret.y+ret.z;
+       })";
+  Run({{"a", 11}, {"b", 50}}, 66, content);
+}
+
+TEST_F(TranslatorLogicTest, StructInitListFieldNames2) {
+  std::string_view content = R"(
+       struct Test {
+         long long x;
+         long long y;
+         long long z;
+       };
+       long long my_package(long long a, long long b) {
+         Test ret;
+         ret = {.x = a, .y = 5,.z = b};
+         return ret.x+ret.y+ret.z;
+       })";
+  Run({{"a", 11}, {"b", 50}}, 66, content);
+}
+
+TEST_F(TranslatorLogicTest, StructInitListFieldNames3) {
+  std::string_view content = R"(
+       struct Test {
+         long long x;
+         long long y;
+         long long z;
+       };
+       long long my_package(long long a, long long b) {
+         Test ret;
+         ret = Test{.x = a, .y = 5,.z = b};
+         return ret.x+ret.y+ret.z;
+       })";
+  Run({{"a", 11}, {"b", 50}}, 66, content);
+}
+
 TEST_F(TranslatorLogicTest, StructConditionalAssign) {
   std::string_view content = R"(
        struct Test {

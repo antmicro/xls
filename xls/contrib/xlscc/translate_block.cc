@@ -2023,7 +2023,7 @@ absl::StatusOr<CValue> Translator::GenerateTopClassInitValue(
     CHECK(*field_val.type() == *field_type);
 
     {
-      UnmaskAndIgnoreSideEffectsGuard unmask_guard(*this);
+      UnmaskAssignmentsAndSideEffectsGuard unmask_guard(*this);
       XLS_RETURN_IF_ERROR(
           AssignMember(this_decl, field_decl, field_val, field_decl_loc));
     }

@@ -494,14 +494,15 @@ class Translator final : public GeneratorBase,
     bool prev_val;
   };
 
-  struct UnmaskAndIgnoreSideEffectsGuard {
-    explicit UnmaskAndIgnoreSideEffectsGuard(Translator& translator)
+  struct UnmaskAssignmentsAndSideEffectsGuard {
+    explicit UnmaskAssignmentsAndSideEffectsGuard(Translator& translator)
         : translator(translator),
           prev_val(translator.context().mask_side_effects),
           prev_requested(translator.context().any_side_effects_requested) {
       translator.context().mask_side_effects = false;
+      translator.context().mask_assignments = false;
     }
-    ~UnmaskAndIgnoreSideEffectsGuard() {
+    ~UnmaskAssignmentsAndSideEffectsGuard() {
       translator.context().mask_side_effects = prev_val;
       translator.context().any_side_effects_requested = prev_requested;
     }

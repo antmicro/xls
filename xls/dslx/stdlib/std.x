@@ -18,76 +18,78 @@ pub fn sizeof<S: bool, N: u32>(x: xN[S][N]) -> u32 { N }
 
 #[test]
 fn sizeof_signed_test() {
-    assert_eq(u32:0, sizeof(sN[0]:0));
-    assert_eq(u32:1, sizeof(sN[1]:0));
-    assert_eq(u32:2, sizeof(sN[2]:0));
+    assert_eq(0, sizeof(sN[0]:0));
+    assert_eq(1, sizeof(sN[1]:0));
+    assert_eq(2, sizeof(sN[2]:0));
 
-    //TODO(tedhong): 2023-03-15 - update frontend to support below.
-    //assert_eq(u32:0xffffffff, sizeof(uN[0xffffffff]:0));
+    // TODO: https://github.com/google/xls/issues/3886 - Enable this to work without requiring
+    // importers of this file to waste time or memory generating this constant in type inference.
+    // assert_eq(0xffffffff, sizeof(uN[0xffffffff]:0));
 }
 
 #[test]
 fn sizeof_unsigned_test() {
-    assert_eq(u32:0, sizeof(uN[0]:0));
-    assert_eq(u32:1, sizeof(uN[1]:0));
-    assert_eq(u32:2, sizeof(uN[2]:0));
+    assert_eq(0, sizeof(uN[0]:0));
+    assert_eq(1, sizeof(uN[1]:0));
+    assert_eq(2, sizeof(uN[2]:0));
 
-    //TODO(tedhong): 2023-03-15 - update frontend to support below.
-    //assert_eq(u32:0xffffffff, sizeof(uN[0xffffffff]:0));
+    // TODO: https://github.com/google/xls/issues/3886 - Enable this to work without requiring
+    // importers of this file to waste time or memory generating this constant in type inference.
+    // assert_eq(0xffffffff, sizeof(uN[0xffffffff]:0));
 }
 
 #[test]
 fn use_sizeof_test() {
     let x = uN[32]:0xffffffff;
-    let y: uN[sizeof(x) + u32:2] = x as uN[sizeof(x) + u32:2];
+    let y = x as uN[sizeof(x) + 2];
     assert_eq(y, uN[34]:0xffffffff);
 }
 
 // Returns the maximum signed value contained in N bits.
-pub fn signed_max_value<N: u32, N_MINUS_ONE: u32 = {N - u32:1}>() -> sN[N] {
-    ((sN[N]:1 << N_MINUS_ONE) - sN[N]:1) as sN[N]
+pub fn signed_max_value<N: u32, N_MINUS_ONE: u32 = {N - 1}>() -> sN[N] {
+    ((sN[N]:1 << N_MINUS_ONE) - 1) as sN[N]
 }
 
 #[test]
 fn signed_max_value_test() {
-    assert_eq(s8:0x7f, signed_max_value<u32:8>());
-    assert_eq(s16:0x7fff, signed_max_value<u32:16>());
-    assert_eq(s17:0xffff, signed_max_value<u32:17>());
-    assert_eq(s32:0x7fffffff, signed_max_value<u32:32>());
+    assert_eq(s8:0x7f, signed_max_value<8>());
+    assert_eq(s16:0x7fff, signed_max_value<16>());
+    assert_eq(s17:0xffff, signed_max_value<17>());
+    assert_eq(s32:0x7fffffff, signed_max_value<32>());
 }
 
 // Returns the minimum signed value contained in N bits.
-pub fn signed_min_value<N: u32, N_MINUS_ONE: u32 = {N - u32:1}>() -> sN[N] {
+pub fn signed_min_value<N: u32, N_MINUS_ONE: u32 = {N - 1}>() -> sN[N] {
     (uN[N]:1 << N_MINUS_ONE) as sN[N]
 }
 
 #[test]
 fn signed_min_value_test() {
-    assert_eq(s8:-128, signed_min_value<u32:8>());
-    assert_eq(s16:-32768, signed_min_value<u32:16>());
-    assert_eq(s17:-65536, signed_min_value<u32:17>());
+    assert_eq(s8:-128, signed_min_value<8>());
+    assert_eq(s16:-32768, signed_min_value<16>());
+    assert_eq(s17:-65536, signed_min_value<17>());
 }
 
 pub fn unsigned_min_value<N: u32>() -> uN[N] { zero!<uN[N]>() }
 
 #[test]
 fn unsigned_min_value_test() {
-    assert_eq(u8:0, unsigned_min_value<u32:8>());
-    assert_eq(u16:0, unsigned_min_value<u32:16>());
-    assert_eq(u17:0, unsigned_min_value<u32:17>());
+    assert_eq(u8:0, unsigned_min_value<8>());
+    assert_eq(u16:0, unsigned_min_value<16>());
+    assert_eq(u17:0, unsigned_min_value<17>());
 }
 
 // Returns the maximum unsigned value contained in N bits.
-pub fn unsigned_max_value<N: u32, N_PLUS_ONE: u32 = {N + u32:1}>() -> uN[N] {
-    ((uN[N_PLUS_ONE]:1 << N) - uN[N_PLUS_ONE]:1) as uN[N]
+pub fn unsigned_max_value<N: u32, N_PLUS_ONE: u32 = {N + 1}>() -> uN[N] {
+    ((uN[N_PLUS_ONE]:1 << N) - 1) as uN[N]
 }
 
 #[test]
 fn unsigned_max_value_test() {
-    assert_eq(u8:0xff, unsigned_max_value<u32:8>());
-    assert_eq(u16:0xffff, unsigned_max_value<u32:16>());
-    assert_eq(u17:0x1ffff, unsigned_max_value<u32:17>());
-    assert_eq(u32:0xffffffff, unsigned_max_value<u32:32>());
+    assert_eq(u8:0xff, unsigned_max_value<8>());
+    assert_eq(u16:0xffff, unsigned_max_value<16>());
+    assert_eq(u17:0x1ffff, unsigned_max_value<17>());
+    assert_eq(u32:0xffffffff, unsigned_max_value<32>());
 }
 
 // Returns the maximum of two (signed or unsigned) integers.
@@ -146,12 +148,12 @@ fn min_test_signed() {
 }
 
 // Returns unsigned add of x (N bits) and y (M bits) as a max(N,M)+1 bit value.
-pub fn uadd<N: u32, M: u32, R: u32 = {max(N, M) + u32:1}>(x: uN[N], y: uN[M]) -> uN[R] {
+pub fn uadd<N: u32, M: u32, R: u32 = {max(N, M) + 1}>(x: uN[N], y: uN[M]) -> uN[R] {
     (x as uN[R]) + (y as uN[R])
 }
 
 // Returns signed add of x (N bits) and y (M bits) as a max(N,M)+1 bit value.
-pub fn sadd<N: u32, M: u32, R: u32 = {max(N, M) + u32:1}>(x: sN[N], y: sN[M]) -> sN[R] {
+pub fn sadd<N: u32, M: u32, R: u32 = {max(N, M) + 1}>(x: sN[N], y: sN[M]) -> sN[R] {
     (x as sN[R]) + (y as sN[R])
 }
 
@@ -250,19 +252,19 @@ fn smul_test() {
 // slow critical path when using combinational codegen.
 pub fn iterative_div_mod<N: u32, M: u32>(n: uN[N], d: uN[M]) -> (uN[N], uN[M]) {
     // Zero extend divisor by 1 bit.
-    let divisor = d as uN[M + u32:1];
+    let divisor = d as uN[M + 1];
 
-    for (i, (q, r)): (u32, (uN[N], uN[M])) in u32:0..N {
+    for (i, (q, r)) in 0..N {
         // Shift the next bit of n into r.
-        let r = r ++ n[(N - u32:1 - i)+:u1];
+        let r = r ++ n[(N - 1 - i)+:u1];
         let (q, r) = if r >= divisor {
-            (q as uN[N - u32:1] ++ u1:1, r - divisor)
+            (q as uN[N - 1] ++ u1:1, r - divisor)
         } else {
-            (q as uN[N - u32:1] ++ u1:0, r)
+            (q as uN[N - 1] ++ u1:0, r)
         };
         // Remove the MSB of r; guaranteed to be 0 because r < d.
         (q, r[0:M as s32])
-    }((uN[N]:0, uN[M]:0))
+    }((0, 0))
 }
 
 // Returns unsigned division of `n` (N bits) and `d` (M bits) as quotient (N bits).
@@ -520,9 +522,9 @@ pub fn abs<BITS: u32>(x: sN[BITS]) -> sN[BITS] { if x < sN[BITS]:0 { -x } else {
 // The bool at index 0 in the array because the MSb (most significant bit) in
 // the result.
 pub fn convert_to_bits_msb0<N: u32>(x: bool[N]) -> uN[N] {
-    for (i, accum): (u32, uN[N]) in u32:0..N {
-        accum | (x[i] as uN[N]) << ((N - i - u32:1) as uN[N])
-    }(uN[N]:0)
+    for (i, accum) in 0..N {
+        accum | (x[i] as uN[N]) << ((N - i - 1) as uN[N])
+    }(0)
 }
 
 #[test]
@@ -541,9 +543,9 @@ fn convert_to_bits_msb0_test() {
 // This variant puts the LSb (least significant bit) of the word at index 0 in
 // the resulting array.
 pub fn convert_to_bools_lsb0<N: u32>(x: uN[N]) -> bool[N] {
-    for (idx, partial): (u32, bool[N]) in u32:0..N {
+    for (idx, partial): (u32, bool[N]) in 0..N {
         update(partial, idx, x[idx+:bool])
-    }(bool[N]:[false, ...])
+    }([false, ...])
 }
 
 #[test]
@@ -574,14 +576,14 @@ fn convert_to_from_bools(x: u4) -> bool {
 // ultimately discarded from the unselected match arm.
 pub fn find_index<BITS: u32, ELEMS: u32>(array: uN[BITS][ELEMS], x: uN[BITS]) -> (bool, u32) {
     // Compute all the positions that are equal to our target.
-    let bools: bool[ELEMS] = for (i, accum): (u32, bool[ELEMS]) in u32:0..ELEMS {
+    let bools: bool[ELEMS] = for (i, accum) in 0..ELEMS {
         update(accum, i, array[i] == x)
-    }((bool[ELEMS]:[false, ...]));
+    }([false, ...]);
 
     let x: uN[ELEMS] = convert_to_bits_msb0(bools);
     let index = clz(x);
     let found: bool = or_reduce(x);
-    (found, if found { index as u32 } else { u32:0 })
+    (found, if found { index as u32 } else { 0 })
 }
 
 #[test]
@@ -603,8 +605,8 @@ fn concat3_test() { assert_eq(u12:0b111000110010, concat3(u6:0b111000, u4:0b1100
 
 // Returns the ceiling of (x divided by y).
 pub fn ceil_div<N: u32>(x: uN[N], y: uN[N]) -> uN[N] {
-    let usual = (x - uN[N]:1) / y + uN[N]:1;
-    if x > uN[N]:0 { usual } else { uN[N]:0 }
+    let usual = (x - 1) / y + 1;
+    if x > 0 { usual } else { 0 }
 }
 
 #[test]
@@ -637,9 +639,7 @@ fn round_up_to_nearest_test() {
 
 // Returns `x` rounded up to the nearest multiple of `y`, where `y` is a known positive power of 2.
 // This functionality is the same as `round_up_to_nearest` but optimized when `y` is a power of 2.
-pub fn round_up_to_nearest_pow2_unsigned<N: u32>(x: uN[N], y: uN[N]) -> uN[N] {
-    (x + y - uN[N]:1) & -y
-}
+pub fn round_up_to_nearest_pow2_unsigned<N: u32>(x: uN[N], y: uN[N]) -> uN[N] { (x + y - 1) & -y }
 
 #[test]
 fn test_round_up_to_nearest_pow2_unsigned() {
@@ -655,7 +655,7 @@ fn test_round_up_to_nearest_pow2_unsigned() {
 // Returns `x` rounded up to the nearest multiple of `y`, where `y` is a known positive power of 2.
 // This functionality is the same as `round_up_to_nearest` but optimized when `y` is a power of 2.
 pub fn round_up_to_nearest_pow2_signed<N: u32>(x: sN[N], y: uN[N]) -> sN[N] {
-    (x + y as sN[N] - sN[N]:1) & -(y as sN[N])
+    (x + y as sN[N] - 1) & -(y as sN[N])
 }
 
 #[test]
@@ -684,9 +684,7 @@ fn test_round_up_to_pow2_signed() {
 // represent an unsigned integer `n` to define flog2(0) = 0.
 //
 // Example: flog2(7) = 2, flog2(8) = 3.
-pub fn flog2<N: u32>(x: bits[N]) -> bits[N] {
-    if x >= bits[N]:1 { (N as bits[N]) - clz(x) - bits[N]:1 } else { bits[N]:0 }
-}
+pub fn flog2<N: u32>(x: bits[N]) -> bits[N] { if x >= 1 { (N as bits[N]) - clz(x) - 1 } else { 0 } }
 
 #[test]
 fn flog2_test() {
@@ -713,9 +711,7 @@ fn flog2_test() {
 // to define clog2(0) = 0.
 //
 // Example: clog2(7) = 3
-pub fn clog2<N: u32>(x: bits[N]) -> bits[N] {
-    if x >= bits[N]:1 { (N as bits[N]) - clz(x - bits[N]:1) } else { bits[N]:0 }
-}
+pub fn clog2<N: u32>(x: bits[N]) -> bits[N] { if x >= 1 { (N as bits[N]) - clz(x - 1) } else { 0 } }
 
 #[test]
 fn clog2_test() {
@@ -732,7 +728,7 @@ fn clog2_test() {
 }
 
 // Returns true when x is a non-zero power-of-two.
-pub fn is_pow2<N: u32>(x: uN[N]) -> bool { x > uN[N]:0 && (x & (x - uN[N]:1) == uN[N]:0) }
+pub fn is_pow2<N: u32>(x: uN[N]) -> bool { x > 0 && (x & (x - 1) == 0) }
 
 #[test]
 fn is_pow2_test() {
@@ -759,7 +755,7 @@ fn is_pow2_test() {
 }
 
 // Returns true when `x` is an even integer.
-pub fn is_even<S: bool, N: u32>(x: xN[S][N]) -> bool { lsb(x as uN[N]) == u1:0 }
+pub fn is_even<S: bool, N: u32>(x: xN[S][N]) -> bool { lsb(x as uN[N]) == 0 }
 
 #[test]
 fn is_even_test() {
@@ -792,8 +788,8 @@ fn is_even_test() {
 #[quickcheck(exhaustive)]
 fn prop_is_even_adjacent_diff_unsigned(x: u4) -> bool {
     let even_x = is_even(x);
-    let even_xp1 = is_even(x + u4:1);
-    let even_xm1 = is_even(x - u4:1);
+    let even_xp1 = is_even(x + 1);
+    let even_xm1 = is_even(x - 1);
     even_x != even_xp1 && even_x != even_xm1
 }
 
@@ -801,15 +797,15 @@ fn prop_is_even_adjacent_diff_unsigned(x: u4) -> bool {
 #[quickcheck(exhaustive)]
 fn prop_is_even_adjacent_diff_signed(x: s4) -> bool {
     let even_x = is_even(x);
-    let even_xp1 = is_even(x + s4:1);
-    let even_xm1 = is_even(x - s4:1);
+    let even_xp1 = is_even(x + 1);
+    let even_xm1 = is_even(x - 1);
     even_x != even_xp1 && even_x != even_xm1
 }
 
 // Returns x % y where y must be a non-zero power-of-two.
 pub fn mod_pow2<N: u32>(x: bits[N], y: bits[N]) -> bits[N] {
     // TODO(leary): 2020-06-11 Add assertion y is a power of two and non-zero.
-    x & (y - bits[N]:1)
+    x & (y - 1)
 }
 
 #[test]
@@ -837,8 +833,8 @@ pub fn mask_bits<X: u32>() -> bits[X] { !bits[X]:0 }
 
 #[test]
 fn mask_bits_test() {
-    assert_eq(u8:0xff, mask_bits<u32:8>());
-    assert_eq(u13:0x1fff, mask_bits<u32:13>());
+    assert_eq(u8:0xff, mask_bits<8>());
+    assert_eq(u13:0x1fff, mask_bits<13>());
 }
 
 // The result of comparing two values.
@@ -850,11 +846,11 @@ pub enum Ordering : s2 {
 
 fn compare_unsigned<N: u32>(lhs: uN[N], rhs: uN[N]) -> Ordering {
     // Zero-extend both to N+1 bits so that subtraction underflow sets the MSB to '1'
-    let lhs_ext = lhs as uN[N + u32:1];
-    let rhs_ext = rhs as uN[N + u32:1];
+    let lhs_ext = lhs as uN[N + 1];
+    let rhs_ext = rhs as uN[N + 1];
 
     // Subtract in N+1 bits; the top bit is 1 exactly when lhs<rhs
-    let diff_ext: uN[N + u32:1] = lhs_ext - rhs_ext;
+    let diff_ext: uN[N + 1] = lhs_ext - rhs_ext;
     let less = msb(diff_ext);
 
     let not_equal: u1 = lhs != rhs;
@@ -870,11 +866,11 @@ fn compare_unsigned<N: u32>(lhs: uN[N], rhs: uN[N]) -> Ordering {
 
 fn compare_signed<N: u32>(lhs: sN[N], rhs: sN[N]) -> Ordering {
     // Sign-extend both to N+1 bits so that subtraction overflow never occurs
-    let lhs_sext = lhs as sN[N + u32:1];
-    let rhs_sext = rhs as sN[N + u32:1];
+    let lhs_sext = lhs as sN[N + 1];
+    let rhs_sext = rhs as sN[N + 1];
 
     // Subtract in N+1 bits; the top bit is 1 exactly when lhs<rhs
-    let diff_ext: sN[N + u32:1] = lhs_sext - rhs_sext;
+    let diff_ext: sN[N + 1] = lhs_sext - rhs_sext;
     let less: u1 = msb(diff_ext);
 
     let not_equal: u1 = lhs != rhs;
@@ -1002,10 +998,9 @@ fn test_pow() {
 
 // Count the number of bits that are 1.
 pub fn popcount<N: u32>(x: bits[N]) -> bits[N] {
-    let acc = for (i, acc): (u32, bits[N]) in u32:0..N {
+    for (i, acc) in 0..N {
         acc + (x[i+:u1] as bits[N])
-    }(bits[N]:0);
-    acc
+    }(0)
 }
 
 #[test]
@@ -1032,7 +1027,7 @@ fn test_rotr() {
 #[test]
 fn test_rotr_zero_shift() {
     let x = u8:0xaa;
-    let result = rotr(x, u8:0);
+    let result = rotr(x, 0);
     assert_eq(result, x);  // Should be unchanged
 }
 
@@ -1053,14 +1048,14 @@ fn rotl_then_rotr_is_original(x: u8, y: u8) -> bool { x == rotr(rotl(x, y), y) }
 
 #[test]
 fn test_rotl() {
-    assert_eq(bits[3]:0b110, rotl(bits[3]:0b011, bits[3]:1));
-    assert_eq(bits[3]:0b101, rotl(bits[3]:0b110, bits[3]:1));
+    assert_eq(bits[3]:0b110, rotl(bits[3]:0b011, 1));
+    assert_eq(bits[3]:0b101, rotl(bits[3]:0b110, 1));
 }
 
 #[test]
 fn test_rotl_zero_shift() {
     let x = u8:0xaa;
-    let result = rotl(x, u8:0);
+    let result = rotl(x, 0);
     assert_eq(result, x);  // Should be unchanged
 }
 
@@ -1108,16 +1103,16 @@ fn test_to_unsigned() {
 // occurs if the result does not fit within a uN[V].
 //
 // Example usage:
-//  let result : (bool, u16) = uadd_with_overflow<u32:16>(x, y);
+//  let result : (bool, u16) = uadd_with_overflow<16>(x, y);
 //
 pub fn uadd_with_overflow
     <V: u32, N: u32, M: u32, MAX_N_M: u32 = {max(N, M)}, MAX_N_M_V: u32 = {max(MAX_N_M, V)}>
     (x: uN[N], y: uN[M]) -> (bool, uN[V]) {
 
-    let x_extended = widening_cast<uN[MAX_N_M_V + u32:1]>(x);
-    let y_extended = widening_cast<uN[MAX_N_M_V + u32:1]>(y);
+    let x_extended = widening_cast<uN[MAX_N_M_V + 1]>(x);
+    let y_extended = widening_cast<uN[MAX_N_M_V + 1]>(y);
 
-    let full_result: uN[MAX_N_M_V + u32:1] = x_extended + y_extended;
+    let full_result: uN[MAX_N_M_V + 1] = x_extended + y_extended;
     let narrowed_result = full_result as uN[V];
     let overflow_detected = or_reduce(full_result[V as s32:]);
 
@@ -1126,16 +1121,16 @@ pub fn uadd_with_overflow
 
 #[test]
 fn test_uadd_with_overflow() {
-    assert_eq(uadd_with_overflow<u32:1>(u4:0, u5:0), (false, u1:0));
-    assert_eq(uadd_with_overflow<u32:1>(u4:1, u5:0), (false, u1:1));
-    assert_eq(uadd_with_overflow<u32:1>(u4:1, u5:1), (true, u1:0));
-    assert_eq(uadd_with_overflow<u32:1>(u4:2, u5:1), (true, u1:1));
+    assert_eq(uadd_with_overflow<1>(u4:0, u5:0), (false, u1:0));
+    assert_eq(uadd_with_overflow<1>(u4:1, u5:0), (false, u1:1));
+    assert_eq(uadd_with_overflow<1>(u4:1, u5:1), (true, u1:0));
+    assert_eq(uadd_with_overflow<1>(u4:2, u5:1), (true, u1:1));
 
-    assert_eq(uadd_with_overflow<u32:4>(u4:15, u3:0), (false, u4:15));
-    assert_eq(uadd_with_overflow<u32:4>(u4:8, u3:7), (false, u4:15));
-    assert_eq(uadd_with_overflow<u32:4>(u4:9, u3:7), (true, u4:0));
-    assert_eq(uadd_with_overflow<u32:4>(u4:10, u3:6), (true, u4:0));
-    assert_eq(uadd_with_overflow<u32:4>(u4:11, u3:6), (true, u4:1));
+    assert_eq(uadd_with_overflow<4>(u4:15, u3:0), (false, u4:15));
+    assert_eq(uadd_with_overflow<4>(u4:8, u3:7), (false, u4:15));
+    assert_eq(uadd_with_overflow<4>(u4:9, u3:7), (true, u4:0));
+    assert_eq(uadd_with_overflow<4>(u4:10, u3:6), (true, u4:0));
+    assert_eq(uadd_with_overflow<4>(u4:11, u3:6), (true, u4:1));
 }
 
 // Extract bits given a fixed-point integer with a constant offset.
@@ -1162,8 +1157,8 @@ pub fn extract_bits
         // Based on the input of N bits and a fixed shift, there are an effective
         // count of N + fixed_shift known bits.  All bits of index >
         // N + fixed_shift - 1 are zero's.
-        const UPPER_BIT_COUNT = checked_cast<u32>(
-            max(s32:0, N as s32 + FIXED_SHIFT as s32 - TO_EXCLUSIVE as s32 - s32:1));
+        const UPPER_BIT_COUNT =
+            checked_cast<u32>(max(0, N as s32 + FIXED_SHIFT as s32 - TO_EXCLUSIVE as s32 - 1));
         const UPPER_BITS = uN[UPPER_BIT_COUNT]:0;
 
         if FIXED_SHIFT < FROM_INCLUSIVE {
@@ -1180,78 +1175,78 @@ pub fn extract_bits
 
             (UPPER_BITS ++ middle_bits ++ lower_bits) as uN[EXTRACT_WIDTH]
         } else {
-            uN[EXTRACT_WIDTH]:0
+            0
         }
     }
 }
 
 #[test]
 fn test_extract_bits() {
-    assert_eq(extract_bits<u32:4, u32:4, u32:0>(u4:0x9), uN[0]:0);
-    assert_eq(extract_bits<u32:0, u32:4, u32:0>(u4:0x9), u4:0x9);  // 0b[1001]
+    assert_eq(extract_bits<4, 4, 0>(u4:0x9), uN[0]:0);
+    assert_eq(extract_bits<0, 4, 0>(u4:0x9), u4:0x9);  // 0b[1001]
 
-    assert_eq(extract_bits<u32:0, u32:5, u32:0>(u4:0xf), u5:0xf);  // 0b[01111]
-    assert_eq(extract_bits<u32:0, u32:5, u32:1>(u4:0xf), u5:0x1e);  // 0b0[11110]
-    assert_eq(extract_bits<u32:0, u32:5, u32:2>(u4:0xf), u5:0x1c);  // 0b1[11100]
-    assert_eq(extract_bits<u32:0, u32:5, u32:3>(u4:0xf), u5:0x18);  // 0b11[11000]
-    assert_eq(extract_bits<u32:0, u32:5, u32:4>(u4:0xf), u5:0x10);  // 0b111[10000]
-    assert_eq(extract_bits<u32:0, u32:5, u32:5>(u4:0xf), u5:0x0);  // 0b1111[00000]
+    assert_eq(extract_bits<0, 5, 0>(u4:0xf), u5:0xf);  // 0b[01111]
+    assert_eq(extract_bits<0, 5, 1>(u4:0xf), u5:0x1e);  // 0b0[11110]
+    assert_eq(extract_bits<0, 5, 2>(u4:0xf), u5:0x1c);  // 0b1[11100]
+    assert_eq(extract_bits<0, 5, 3>(u4:0xf), u5:0x18);  // 0b11[11000]
+    assert_eq(extract_bits<0, 5, 4>(u4:0xf), u5:0x10);  // 0b111[10000]
+    assert_eq(extract_bits<0, 5, 5>(u4:0xf), u5:0x0);  // 0b1111[00000]
 
-    assert_eq(extract_bits<u32:2, u32:5, u32:0>(u4:0xf), u3:0x3);  // 0b[011]11
-    assert_eq(extract_bits<u32:2, u32:5, u32:1>(u4:0xf), u3:0x7);  // 0b[111]10
-    assert_eq(extract_bits<u32:2, u32:5, u32:2>(u4:0xf), u3:0x7);  // 0b1[111]00
-    assert_eq(extract_bits<u32:2, u32:5, u32:3>(u4:0xf), u3:0x6);  // 0b11[110]00
-    assert_eq(extract_bits<u32:2, u32:5, u32:4>(u4:0xf), u3:0x4);  // 0b111[100]00
-    assert_eq(extract_bits<u32:2, u32:5, u32:5>(u4:0xf), u3:0x0);  // 0b1111[000]00
+    assert_eq(extract_bits<2, 5, 0>(u4:0xf), u3:0x3);  // 0b[011]11
+    assert_eq(extract_bits<2, 5, 1>(u4:0xf), u3:0x7);  // 0b[111]10
+    assert_eq(extract_bits<2, 5, 2>(u4:0xf), u3:0x7);  // 0b1[111]00
+    assert_eq(extract_bits<2, 5, 3>(u4:0xf), u3:0x6);  // 0b11[110]00
+    assert_eq(extract_bits<2, 5, 4>(u4:0xf), u3:0x4);  // 0b111[100]00
+    assert_eq(extract_bits<2, 5, 5>(u4:0xf), u3:0x0);  // 0b1111[000]00
 
-    assert_eq(extract_bits<u32:0, u32:4, u32:0>(u4:0xf), u4:0xf);  // 0b[1111]
-    assert_eq(extract_bits<u32:0, u32:4, u32:1>(u4:0xf), u4:0xe);  // 0b1[1110]
-    assert_eq(extract_bits<u32:0, u32:4, u32:2>(u4:0xf), u4:0xc);  // 0b11[1100]
-    assert_eq(extract_bits<u32:0, u32:4, u32:3>(u4:0xf), u4:0x8);  // 0b111[1000]
-    assert_eq(extract_bits<u32:0, u32:4, u32:4>(u4:0xf), u4:0x0);  // 0b1111[0000]
-    assert_eq(extract_bits<u32:0, u32:4, u32:5>(u4:0xf), u4:0x0);  // 0b11110[0000]
+    assert_eq(extract_bits<0, 4, 0>(u4:0xf), u4:0xf);  // 0b[1111]
+    assert_eq(extract_bits<0, 4, 1>(u4:0xf), u4:0xe);  // 0b1[1110]
+    assert_eq(extract_bits<0, 4, 2>(u4:0xf), u4:0xc);  // 0b11[1100]
+    assert_eq(extract_bits<0, 4, 3>(u4:0xf), u4:0x8);  // 0b111[1000]
+    assert_eq(extract_bits<0, 4, 4>(u4:0xf), u4:0x0);  // 0b1111[0000]
+    assert_eq(extract_bits<0, 4, 5>(u4:0xf), u4:0x0);  // 0b11110[0000]
 
-    assert_eq(extract_bits<u32:1, u32:4, u32:0>(u4:0xf), u3:0x7);  // 0b[111]1
-    assert_eq(extract_bits<u32:1, u32:4, u32:1>(u4:0xf), u3:0x7);  // 0b1[111]0
-    assert_eq(extract_bits<u32:1, u32:4, u32:2>(u4:0xf), u3:0x6);  // 0b11[110]0
-    assert_eq(extract_bits<u32:1, u32:4, u32:3>(u4:0xf), u3:0x4);  // 0b111[100]0
-    assert_eq(extract_bits<u32:1, u32:4, u32:4>(u4:0xf), u3:0x0);  // 0b1111[000]0
-    assert_eq(extract_bits<u32:1, u32:4, u32:5>(u4:0xf), u3:0x0);  // 0b11110[000]0
+    assert_eq(extract_bits<1, 4, 0>(u4:0xf), u3:0x7);  // 0b[111]1
+    assert_eq(extract_bits<1, 4, 1>(u4:0xf), u3:0x7);  // 0b1[111]0
+    assert_eq(extract_bits<1, 4, 2>(u4:0xf), u3:0x6);  // 0b11[110]0
+    assert_eq(extract_bits<1, 4, 3>(u4:0xf), u3:0x4);  // 0b111[100]0
+    assert_eq(extract_bits<1, 4, 4>(u4:0xf), u3:0x0);  // 0b1111[000]0
+    assert_eq(extract_bits<1, 4, 5>(u4:0xf), u3:0x0);  // 0b11110[000]0
 
-    assert_eq(extract_bits<u32:2, u32:4, u32:0>(u4:0xf), u2:0x3);  // 0b[11]11
-    assert_eq(extract_bits<u32:2, u32:4, u32:1>(u4:0xf), u2:0x3);  // 0b1[11]10
-    assert_eq(extract_bits<u32:2, u32:4, u32:2>(u4:0xf), u2:0x3);  // 0b11[11]00
-    assert_eq(extract_bits<u32:2, u32:4, u32:3>(u4:0xf), u2:0x2);  // 0b111[10]00
-    assert_eq(extract_bits<u32:2, u32:4, u32:4>(u4:0xf), u2:0x0);  // 0b1111[00]00
-    assert_eq(extract_bits<u32:2, u32:4, u32:5>(u4:0xf), u2:0x0);  // 0b11110[00]00
+    assert_eq(extract_bits<2, 4, 0>(u4:0xf), u2:0x3);  // 0b[11]11
+    assert_eq(extract_bits<2, 4, 1>(u4:0xf), u2:0x3);  // 0b1[11]10
+    assert_eq(extract_bits<2, 4, 2>(u4:0xf), u2:0x3);  // 0b11[11]00
+    assert_eq(extract_bits<2, 4, 3>(u4:0xf), u2:0x2);  // 0b111[10]00
+    assert_eq(extract_bits<2, 4, 4>(u4:0xf), u2:0x0);  // 0b1111[00]00
+    assert_eq(extract_bits<2, 4, 5>(u4:0xf), u2:0x0);  // 0b11110[00]00
 
-    assert_eq(extract_bits<u32:3, u32:4, u32:0>(u4:0xf), u1:0x1);  // 0b[1]111
-    assert_eq(extract_bits<u32:3, u32:4, u32:1>(u4:0xf), u1:0x1);  // 0b1[1]110
-    assert_eq(extract_bits<u32:3, u32:4, u32:2>(u4:0xf), u1:0x1);  // 0b11[1]100
-    assert_eq(extract_bits<u32:3, u32:4, u32:3>(u4:0xf), u1:0x1);  // 0b111[1]000
-    assert_eq(extract_bits<u32:3, u32:4, u32:4>(u4:0xf), u1:0x0);  // 0b1111[0]000
-    assert_eq(extract_bits<u32:3, u32:4, u32:5>(u4:0xf), u1:0x0);  // 0b11110[0]000
+    assert_eq(extract_bits<3, 4, 0>(u4:0xf), u1:0x1);  // 0b[1]111
+    assert_eq(extract_bits<3, 4, 1>(u4:0xf), u1:0x1);  // 0b1[1]110
+    assert_eq(extract_bits<3, 4, 2>(u4:0xf), u1:0x1);  // 0b11[1]100
+    assert_eq(extract_bits<3, 4, 3>(u4:0xf), u1:0x1);  // 0b111[1]000
+    assert_eq(extract_bits<3, 4, 4>(u4:0xf), u1:0x0);  // 0b1111[0]000
+    assert_eq(extract_bits<3, 4, 5>(u4:0xf), u1:0x0);  // 0b11110[0]000
 
-    assert_eq(extract_bits<u32:0, u32:3, u32:0>(u4:0xf), u3:0x7);  // 0b1[111]
-    assert_eq(extract_bits<u32:0, u32:3, u32:1>(u4:0xf), u3:0x6);  // 0b11[110]
-    assert_eq(extract_bits<u32:0, u32:3, u32:2>(u4:0xf), u3:0x4);  // 0b111[100]
-    assert_eq(extract_bits<u32:0, u32:3, u32:3>(u4:0xf), u3:0x0);  // 0b1111[000]
-    assert_eq(extract_bits<u32:0, u32:3, u32:4>(u4:0xf), u3:0x0);  // 0b11110[000]
-    assert_eq(extract_bits<u32:0, u32:3, u32:5>(u4:0xf), u3:0x0);  // 0b111100[000]
+    assert_eq(extract_bits<0, 3, 0>(u4:0xf), u3:0x7);  // 0b1[111]
+    assert_eq(extract_bits<0, 3, 1>(u4:0xf), u3:0x6);  // 0b11[110]
+    assert_eq(extract_bits<0, 3, 2>(u4:0xf), u3:0x4);  // 0b111[100]
+    assert_eq(extract_bits<0, 3, 3>(u4:0xf), u3:0x0);  // 0b1111[000]
+    assert_eq(extract_bits<0, 3, 4>(u4:0xf), u3:0x0);  // 0b11110[000]
+    assert_eq(extract_bits<0, 3, 5>(u4:0xf), u3:0x0);  // 0b111100[000]
 
-    assert_eq(extract_bits<u32:1, u32:3, u32:0>(u4:0xf), u2:0x3);  // 0b1[11]1
-    assert_eq(extract_bits<u32:1, u32:3, u32:1>(u4:0xf), u2:0x3);  // 0b11[11]0
-    assert_eq(extract_bits<u32:1, u32:3, u32:2>(u4:0xf), u2:0x2);  // 0b111[10]0
-    assert_eq(extract_bits<u32:1, u32:3, u32:3>(u4:0xf), u2:0x0);  // 0b1111[00]0
-    assert_eq(extract_bits<u32:1, u32:3, u32:4>(u4:0xf), u2:0x0);  // 0b11110[00]0
-    assert_eq(extract_bits<u32:1, u32:3, u32:5>(u4:0xf), u2:0x0);  // 0b111100[00]0
+    assert_eq(extract_bits<1, 3, 0>(u4:0xf), u2:0x3);  // 0b1[11]1
+    assert_eq(extract_bits<1, 3, 1>(u4:0xf), u2:0x3);  // 0b11[11]0
+    assert_eq(extract_bits<1, 3, 2>(u4:0xf), u2:0x2);  // 0b111[10]0
+    assert_eq(extract_bits<1, 3, 3>(u4:0xf), u2:0x0);  // 0b1111[00]0
+    assert_eq(extract_bits<1, 3, 4>(u4:0xf), u2:0x0);  // 0b11110[00]0
+    assert_eq(extract_bits<1, 3, 5>(u4:0xf), u2:0x0);  // 0b111100[00]0
 
-    assert_eq(extract_bits<u32:2, u32:3, u32:0>(u4:0xf), u1:0x1);  // 0b1[1]11
-    assert_eq(extract_bits<u32:2, u32:3, u32:1>(u4:0xf), u1:0x1);  // 0b11[1]10
-    assert_eq(extract_bits<u32:2, u32:3, u32:2>(u4:0xf), u1:0x1);  // 0b111[1]00
-    assert_eq(extract_bits<u32:2, u32:3, u32:3>(u4:0xf), u1:0x0);  // 0b1111[0]00
-    assert_eq(extract_bits<u32:2, u32:3, u32:4>(u4:0xf), u1:0x0);  // 0b11110[0]00
-    assert_eq(extract_bits<u32:2, u32:3, u32:5>(u4:0xf), u1:0x0);  // 0b111100[0]00
+    assert_eq(extract_bits<2, 3, 0>(u4:0xf), u1:0x1);  // 0b1[1]11
+    assert_eq(extract_bits<2, 3, 1>(u4:0xf), u1:0x1);  // 0b11[1]10
+    assert_eq(extract_bits<2, 3, 2>(u4:0xf), u1:0x1);  // 0b111[1]00
+    assert_eq(extract_bits<2, 3, 3>(u4:0xf), u1:0x0);  // 0b1111[0]00
+    assert_eq(extract_bits<2, 3, 4>(u4:0xf), u1:0x0);  // 0b11110[0]00
+    assert_eq(extract_bits<2, 3, 5>(u4:0xf), u1:0x0);  // 0b111100[0]00
 }
 
 // Multiplies two numbers and detects for overflow.
@@ -1261,22 +1256,21 @@ fn test_extract_bits() {
 // occurs if the result does not fit within a uN[V].
 //
 // Example usage:
-//  let result : (bool, u16) = umul_with_overflow<u32:16>(x, y);
+//  let result : (bool, u16) = umul_with_overflow<16>(x, y);
 //
 pub fn umul_with_overflow
-    <V: u32, N: u32, M: u32, N_lower_bits: u32 = {N >> u32:1},
-     N_upper_bits: u32 = {N - N_lower_bits}, M_lower_bits: u32 = {M >> u32:1},
-     M_upper_bits: u32 = {M - M_lower_bits},
+    <V: u32, N: u32, M: u32, N_lower_bits: u32 = {N >> 1}, N_upper_bits: u32 = {N - N_lower_bits},
+     M_lower_bits: u32 = {M >> 1}, M_upper_bits: u32 = {M - M_lower_bits},
      Min_N_M_lower_bits: u32 = {min(N_lower_bits, M_lower_bits)}, N_Plus_M: u32 = {N + M}>
     (x: uN[N], y: uN[M]) -> (bool, uN[V]) {
     // Break x and y into two halves.
     // x = x1 ++ x0,
     // y = y1 ++ x1,
     let x1 = x[N_lower_bits as s32:];
-    let x0 = x[s32:0:N_lower_bits as s32];
+    let x0 = x[0:N_lower_bits as s32];
 
     let y1 = y[M_lower_bits as s32:];
-    let y0 = y[s32:0:M_lower_bits as s32];
+    let y0 = y[0:M_lower_bits as s32];
 
     // Bits [0 : N_lower_bits+M_lower_bits]]
     let x0y0: uN[N_lower_bits + M_lower_bits] = umul(x0, y0);
@@ -1294,9 +1288,9 @@ pub fn umul_with_overflow
     //  [0: min(N_lower_bits, M_lower_bits)] --> only from x0y0
     //  [min(N_lower_bits, M_lower_bits : V] --> need to add together
     //  [V : N+M] --> need to or_reduce
-    let x0y0_a = extract_bits<u32:0, Min_N_M_lower_bits, u32:0>(x0y0);
-    let x0y0_b = extract_bits<Min_N_M_lower_bits, V, u32:0>(x0y0);
-    let x0y0_c = extract_bits<V, N_Plus_M, u32:0>(x0y0);
+    let x0y0_a = extract_bits<0, Min_N_M_lower_bits, 0>(x0y0);
+    let x0y0_b = extract_bits<Min_N_M_lower_bits, V, 0>(x0y0);
+    let x0y0_c = extract_bits<V, N_Plus_M, 0>(x0y0);
 
     // x1 has a shift of N_lower_bits
     let x1y0_b = extract_bits<Min_N_M_lower_bits, V, N_lower_bits>(x1y0);
@@ -1312,10 +1306,10 @@ pub fn umul_with_overflow
 
     // Add partial shifts to obtain the narrowed results, keeping 2 bits for overflow.
     // (x0y0_b + x1y0_b + x1y1_b + x1y1_b) ++ x0y0a
-    let x0y0_b_extended = widening_cast<uN[V - Min_N_M_lower_bits + u32:2]>(x0y0_b);
-    let x0y1_b_extended = widening_cast<uN[V - Min_N_M_lower_bits + u32:2]>(x0y1_b);
-    let x1y0_b_extended = widening_cast<uN[V - Min_N_M_lower_bits + u32:2]>(x1y0_b);
-    let x1y1_b_extended = widening_cast<uN[V - Min_N_M_lower_bits + u32:2]>(x1y1_b);
+    let x0y0_b_extended = widening_cast<uN[V - Min_N_M_lower_bits + 2]>(x0y0_b);
+    let x0y1_b_extended = widening_cast<uN[V - Min_N_M_lower_bits + 2]>(x0y1_b);
+    let x1y0_b_extended = widening_cast<uN[V - Min_N_M_lower_bits + 2]>(x1y0_b);
+    let x1y1_b_extended = widening_cast<uN[V - Min_N_M_lower_bits + 2]>(x1y1_b);
     let narrowed_result_upper =
         x0y0_b_extended + x1y0_b_extended + x0y1_b_extended + x1y1_b_extended;
     let overflow_narrowed_result_upper_sum =
@@ -1336,26 +1330,26 @@ pub fn umul_with_overflow
 // certain bitwith combinations.
 #[test]
 fn test_umul_with_overflow() {
-    assert_eq(umul_with_overflow<u32:1>(u4:0, u4:0), (false, u1:0));
-    assert_eq(umul_with_overflow<u32:1>(u4:15, u4:0), (false, u1:0));
-    assert_eq(umul_with_overflow<u32:1>(u4:1, u4:1), (false, u1:1));
-    assert_eq(umul_with_overflow<u32:1>(u4:2, u4:1), (true, u1:0));
-    assert_eq(umul_with_overflow<u32:1>(u4:8, u4:8), (true, u1:0));
-    assert_eq(umul_with_overflow<u32:1>(u4:15, u4:15), (true, u1:1));
+    assert_eq(umul_with_overflow<1>(u4:0, u4:0), (false, u1:0));
+    assert_eq(umul_with_overflow<1>(u4:15, u4:0), (false, u1:0));
+    assert_eq(umul_with_overflow<1>(u4:1, u4:1), (false, u1:1));
+    assert_eq(umul_with_overflow<1>(u4:2, u4:1), (true, u1:0));
+    assert_eq(umul_with_overflow<1>(u4:8, u4:8), (true, u1:0));
+    assert_eq(umul_with_overflow<1>(u4:15, u4:15), (true, u1:1));
 
-    assert_eq(umul_with_overflow<u32:4>(u4:0, u3:0), (false, u4:0));
-    assert_eq(umul_with_overflow<u32:4>(u4:2, u3:7), (false, u4:14));
-    assert_eq(umul_with_overflow<u32:4>(u4:5, u3:3), (false, u4:15));
-    assert_eq(umul_with_overflow<u32:4>(u4:4, u3:4), (true, u4:0));
-    assert_eq(umul_with_overflow<u32:4>(u4:9, u3:2), (true, u4:2));
-    assert_eq(umul_with_overflow<u32:4>(u4:15, u3:7), (true, u4:9));
+    assert_eq(umul_with_overflow<4>(u4:0, u3:0), (false, u4:0));
+    assert_eq(umul_with_overflow<4>(u4:2, u3:7), (false, u4:14));
+    assert_eq(umul_with_overflow<4>(u4:5, u3:3), (false, u4:15));
+    assert_eq(umul_with_overflow<4>(u4:4, u3:4), (true, u4:0));
+    assert_eq(umul_with_overflow<4>(u4:9, u3:2), (true, u4:2));
+    assert_eq(umul_with_overflow<4>(u4:15, u3:7), (true, u4:9));
 
-    for (i, ()): (u32, ()) in u32:0..u32:7 {
-        for (j, ()): (u32, ()) in u32:0..u32:15 {
+    for (i, ()) in u32:0..7 {
+        for (j, ()) in u32:0..15 {
             let result = i * j;
-            let overflow = result > u32:15;
+            let overflow = result > 15;
 
-            assert_eq(umul_with_overflow<u32:4>(i as u3, j as u4), (overflow, result as u4))
+            assert_eq(umul_with_overflow<4>(i as u3, j as u4), (overflow, result as u4))
         }(())
     }(());
 }
@@ -1381,8 +1375,7 @@ fn is_unsigned_msb_set_test() {
 //
 // This is given for help in porting code from Verilog to DSLX, e.g. if a user
 // wants a more direct transcription.
-pub fn vslice<MSB: u32, LSB: u32, IN: u32, OUT: u32 = {MSB - LSB + u32:1}>
-    (x: bits[IN]) -> bits[OUT] {
+pub fn vslice<MSB: u32, LSB: u32, IN: u32, OUT: u32 = {MSB - LSB + 1}>(x: bits[IN]) -> bits[OUT] {
     // This will help flag if the MSB and LSB are given out of order
     const_assert!(MSB >= LSB);
     x[LSB+:bits[OUT]]
@@ -1390,10 +1383,10 @@ pub fn vslice<MSB: u32, LSB: u32, IN: u32, OUT: u32 = {MSB - LSB + u32:1}>
 
 #[test]
 fn test_vslice() {
-    assert_eq(vslice<u32:7, u32:0>(u8:0xab), u8:0xab);
-    assert_eq(vslice<u32:3, u32:0>(u8:0xab), u4:0xb);
-    assert_eq(vslice<u32:7, u32:4>(u8:0xab), u4:0xa);
-    assert_eq(vslice<u32:0, u32:0>(u8:0xab), u1:1);
+    assert_eq(vslice<7, 0>(u8:0xab), u8:0xab);
+    assert_eq(vslice<3, 0>(u8:0xab), u4:0xb);
+    assert_eq(vslice<7, 4>(u8:0xab), u4:0xa);
+    assert_eq(vslice<0, 0>(u8:0xab), u1:1);
 }
 
 // Deprecated functions, to be removed in favor of sizeof() which is
@@ -1535,7 +1528,7 @@ pub fn or_reduce_lsb<WIDTH: u32, N_WIDTH: u32>(value: uN[WIDTH], n: uN[N_WIDTH])
 // larger than a leading one followed by zeros. This means that adding will
 // either never carry or in the trivial 'carry'-case number just double.
 // Thus, this whole operation can be lowered to muxing.
-fn combine_clzt_halfs<N: u32>(left: uN[N], right: uN[N]) -> uN[N + u32:1] {
+fn combine_clzt_halfs<N: u32>(left: uN[N], right: uN[N]) -> uN[N + 1] {
     match (left[-1:], right[-1:]) {
         (u1:1, u1:1) => left ++ u1:0,  // Both at maximum: add them, i.e. mult by 2
         (u1:1, u1:0) => u2:0b01 ++ right[:-1],  // right side less than max zero bits
@@ -1568,9 +1561,9 @@ fn combine_clzt_halfs_test() {
 
 // Count leading zeroes using a tree of gates. Input is required to be a power of 2 bits.
 // Use clzt() for general-purpose function allowing arbitrary bits.
-// fn clzt_pow2<N: u32, RESULT_BITS: u32 = {clog2(N + u32:1)}>(value: bits[N]) -> uN[RESULT_BITS] {
+// fn clzt_pow2<N: u32, RESULT_BITS: u32 = {clog2(N + 1)}>(value: bits[N]) -> uN[RESULT_BITS] {
 //     const_assert!(is_pow2(N));
-//     if N == u32:1 {
+//     if N == 1 {
 //         !value  // Trivial case
 //     } else {
 //         const N_HALF = (N >> 1) as s32;
@@ -1633,20 +1626,20 @@ fn clzt_pow2_512(value: bits[512]) -> uN[10] {
 
 // Count leading zeroes for power of 2 numbers.
 // Since we can't have recursion, manually expand this here up to 64 bits
-pub fn clzt_pow2<N: u32, RESULT_BITS: u32 = {clog2(N + u32:1)}>(value: bits[N]) -> uN[RESULT_BITS] {
+pub fn clzt_pow2<N: u32, RESULT_BITS: u32 = {clog2(N + 1)}>(value: bits[N]) -> uN[RESULT_BITS] {
     const_assert!(is_pow2(N));
     match N {
         // These casts for the arguments and return types should not be needed.
-        u32:512 => clzt_pow2_512(value as uN[512]) as uN[RESULT_BITS],
-        u32:256 => clzt_pow2_256(value as uN[256]) as uN[RESULT_BITS],
-        u32:128 => clzt_pow2_128(value as uN[128]) as uN[RESULT_BITS],
-        u32:64 => clzt_pow2_64(value as uN[64]) as uN[RESULT_BITS],
-        u32:32 => clzt_pow2_32(value as uN[32]) as uN[RESULT_BITS],
-        u32:16 => clzt_pow2_16(value as uN[16]) as uN[RESULT_BITS],
-        u32:8 => clzt_pow2_8(value as uN[8]) as uN[RESULT_BITS],
-        u32:4 => clzt_pow2_4(value as uN[4]) as uN[RESULT_BITS],
-        u32:2 => clzt_pow2_2(value as uN[2]) as uN[RESULT_BITS],
-        u32:1 => clzt_pow2_1(value as uN[1]) as uN[RESULT_BITS],
+        512 => clzt_pow2_512(value as uN[512]) as uN[RESULT_BITS],
+        256 => clzt_pow2_256(value as uN[256]) as uN[RESULT_BITS],
+        128 => clzt_pow2_128(value as uN[128]) as uN[RESULT_BITS],
+        64 => clzt_pow2_64(value as uN[64]) as uN[RESULT_BITS],
+        32 => clzt_pow2_32(value as uN[32]) as uN[RESULT_BITS],
+        16 => clzt_pow2_16(value as uN[16]) as uN[RESULT_BITS],
+        8 => clzt_pow2_8(value as uN[8]) as uN[RESULT_BITS],
+        4 => clzt_pow2_4(value as uN[4]) as uN[RESULT_BITS],
+        2 => clzt_pow2_2(value as uN[2]) as uN[RESULT_BITS],
+        1 => clzt_pow2_1(value as uN[1]) as uN[RESULT_BITS],
         _ => clz(value) as uN[RESULT_BITS],  // More bits ? Fall back to builtin for now.
     }
 }
@@ -1702,7 +1695,7 @@ fn test_next_pow2() {
 
 // General purpose clzt() number that works on any number, though most efficient for powers of two.
 // Named std::clzt() with 't'-suffix for 'tree' and to disambiguate from builtin-clz()
-pub fn clzt<N: u32, RESULT_BITS: u32 = {clog2(N + u32:1)}>(value: bits[N]) -> uN[RESULT_BITS] {
+pub fn clzt<N: u32, RESULT_BITS: u32 = {clog2(N + 1)}>(value: bits[N]) -> uN[RESULT_BITS] {
     const BITS_MISSING_UNTIL_POWER_TWO = next_pow2(N) - N;
     // To get a proper power of 2 number, pad the trailing end with non-zeroes.
     clzt_pow2(value ++ mask_bits<BITS_MISSING_UNTIL_POWER_TWO>()) as uN[RESULT_BITS]
@@ -1723,7 +1716,7 @@ fn clzt_test() {
     assert_eq(clzt(uN[717]:1 << 710), u10:6);
 
     const TEST_UP_TO = u32:555;  // Test a bit beyond implemented 512
-    for (N, _): (u32, ()) in 0..TEST_UP_TO {
+    for (N, _) in 0..TEST_UP_TO {
         let number = uN[TEST_UP_TO + 1]:1 << N;
         let expectd_leading_zeres = (TEST_UP_TO - N) as u10;
         assert_eq(clzt(number), expectd_leading_zeres);
@@ -1737,8 +1730,8 @@ fn prop_clzt_same_as_clz(x: u64) -> bool { clz(x) == clzt(x) as u64 }
 /// items) after the `valid` mask is applied.
 pub fn distinct<COUNT: u32, N: u32, S: bool>(items: xN[S][N][COUNT], valid: bool[COUNT]) -> bool {
     const INIT_ALL_DISTINCT = true;
-    for (i, all_distinct) in u32:0..COUNT {
-        for (j, all_distinct) in u32:0..COUNT {
+    for (i, all_distinct) in 0..COUNT {
+        for (j, all_distinct) in 0..COUNT {
             if i != j && valid[i] && valid[j] && items[i] == items[j] {
                 false
             } else {
@@ -1749,33 +1742,33 @@ pub fn distinct<COUNT: u32, N: u32, S: bool>(items: xN[S][N][COUNT], valid: bool
 }
 
 #[test]
-fn test_simple_nondistinct() { assert_eq(distinct(u2[2]:[1, 1], bool[2]:[true, true]), false) }
+fn test_simple_nondistinct() { assert_eq(distinct([u2:1, 1], [true, true]), false) }
 
 #[test]
 fn test_distinct_unsigned() {
-    let items = u8[4]:[1, 2, 3, 2];
-    let valid = bool[4]:[true, true, true, true];
+    let items = [u8:1, 2, 3, 2];
+    let valid = [true, true, true, true];
     assert_eq(distinct(items, valid), false);
 }
 
 #[test]
 fn test_distinct_signed() {
-    let items = s8[3]:[-1, 0, 1];
-    let valid = bool[3]:[true, true, true];
+    let items = [s8:-1, 0, 1];
+    let valid = [true, true, true];
     assert_eq(distinct(items, valid), true);
 }
 
 #[test]
 fn test_distinct_with_invalid() {
-    let items = u8[4]:[1, 2, 3, 1];
-    let valid = bool[4]:[true, true, true, false];
+    let items = [s8:1, 2, 3, 1];
+    let valid = [true, true, true, false];
     assert_eq(distinct(items, valid), true);
 }
 
 #[quickcheck]
 fn quickcheck_forced_duplicate(xs: u4[4], to_dupe: u2) -> bool {
     const ALL_VALID = bool[4]:[true, ...];
-    let forced_dupe = update(xs, (to_dupe as u32 + u32:1) % u32:4, xs[to_dupe]);
+    let forced_dupe = update(xs, (to_dupe as u32 + 1) % 4, xs[to_dupe]);
     distinct(forced_dupe, ALL_VALID) == false
 }
 
@@ -1784,7 +1777,7 @@ fn quickcheck_distinct_all_valid_items_same(value: u4, valid: bool[4]) -> bool {
     let items = u4[4]:[value, ...];  // All items are the same.
     let num_valid = popcount(valid as u4) as u32;
 
-    if num_valid <= u32:1 {
+    if num_valid <= 1 {
         // With 0 or 1 valid items, they are trivially distinct.
         distinct(items, valid) == true
     } else {

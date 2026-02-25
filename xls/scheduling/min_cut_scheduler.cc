@@ -162,11 +162,9 @@ absl::StatusOr<ScheduleCycleMap> MinCutScheduler(
       for (Node* node : f->nodes()) {
         if (node->Is<Receive>()) {
           XLS_RETURN_IF_ERROR(bounds->TightenNodeUb(node, 0));
-          XLS_RETURN_IF_ERROR(bounds->PropagateUpperBounds());
         }
         if (node->Is<Send>()) {
           XLS_RETURN_IF_ERROR(bounds->TightenNodeLb(node, pipeline_stages - 1));
-          XLS_RETURN_IF_ERROR(bounds->PropagateLowerBounds());
         }
       }
     } else {
@@ -175,6 +173,7 @@ absl::StatusOr<ScheduleCycleMap> MinCutScheduler(
           "other than receives-first-sends-last.");
     }
   }
+  XLS_RETURN_IF_ERROR(bounds->PropagateBounds());
 
   for (Node* node : f->nodes()) {
     if (node->Is<MinDelay>()) {
@@ -187,13 +186,12 @@ absl::StatusOr<ScheduleCycleMap> MinCutScheduler(
   if (Proc* proc = dynamic_cast<Proc*>(f)) {
     for (Node* node : proc->params()) {
       XLS_RETURN_IF_ERROR(bounds->TightenNodeUb(node, 0));
-      XLS_RETURN_IF_ERROR(bounds->PropagateUpperBounds());
     }
     for (Node* node : proc->next_values()) {
       XLS_RETURN_IF_ERROR(bounds->TightenNodeUb(node, 0));
-      XLS_RETURN_IF_ERROR(bounds->PropagateUpperBounds());
     }
   }
+  XLS_RETURN_IF_ERROR(bounds->PropagateBounds());
 
   // Try a number of different orderings of cycle boundary at which the min-cut
   // is performed and keep the best one.
@@ -211,8 +209,7 @@ absl::StatusOr<ScheduleCycleMap> MinCutScheduler(
     for (int64_t cycle : cut_order) {
       XLS_RETURN_IF_ERROR(
           SplitAfterCycle(f, cycle, delay_estimator, &trial_bounds));
-      XLS_RETURN_IF_ERROR(trial_bounds.PropagateLowerBounds());
-      XLS_RETURN_IF_ERROR(trial_bounds.PropagateUpperBounds());
+      XLS_RETURN_IF_ERROR(trial_bounds.PropagateBounds());
     }
     XLS_ASSIGN_OR_RETURN(int64_t trial_register_count,
                          CountInteriorPipelineRegisters(f, trial_bounds));

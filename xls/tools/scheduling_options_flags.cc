@@ -97,8 +97,6 @@ ABSL_FLAG(xls::SchedulingStrategy, scheduling_strategy,
           "\n"
           "asap: Fast scheduler which schedules nodes as early as possible. "
           "Good for development and rapid iteration.\n"
-          // TODO(allight): Fix this missing feature.
-          "      Does not respect io_constraints.\n"
           "min_cut: Approximates the minimum number of registers using a "
           "min-cut based algorithm.\n"
           "         Does not respect io_constraints.\n"

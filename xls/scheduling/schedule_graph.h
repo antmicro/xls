@@ -28,6 +28,8 @@
 #include "absl/log/check.h"
 #include "absl/status/statusor.h"
 #include "absl/types/span.h"
+#include "cppitertools/imap.hpp"
+#include "cppitertools/reversed.hpp"
 #include "xls/ir/channel.h"
 #include "xls/ir/function_base.h"
 #include "xls/ir/node.h"
@@ -112,10 +114,27 @@ class ScheduleGraph {
       const ProcElaboration& elab,
       const absl::flat_hash_set<Node*>& dead_after_synthesis);
 
+  // Add additional constraints to the topo sort of nodes. 'refinements' is an
+  // adjacency list that will be merged with the existing topo sort. This
+  // invalidates any existing references and iterators to nodes().
+  absl::Status RefineTopoSort(
+      absl::flat_hash_map<Node*, std::vector<Node*>> refinements);
+
   std::string_view name() const { return name_; }
 
   // Returns the nodes of the graph in topological sorted order.
   absl::Span<const ScheduleNode> nodes() const { return nodes_; }
+
+  bool contains(Node* node) const { return node_map_.contains(node); }
+
+  auto topo_sort() const {
+    return iter::imap([](const ScheduleNode& node) { return node.node; },
+                      nodes());
+  }
+  auto reverse_topo_sort() const {
+    return iter::imap([](const ScheduleNode& node) { return node.node; },
+                      iter::reversed(nodes_));
+  }
 
   absl::Span<const ScheduleBackedge> backedges() const { return backedges_; }
 

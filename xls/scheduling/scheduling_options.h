@@ -1,5 +1,7 @@
 #include "absl/strings/str_cat.h"
+#include "absl/strings/str_format.h"
 #include "absl/strings/str_join.h"
+#include "xls/ir/channel.h"
 #include "ortools/math_opt/cpp/math_opt.h"
 // Copyright 2022 The XLS Authors
 //
@@ -19,7 +21,9 @@
 #define XLS_SCHEDULING_SCHEDULING_OPTIONS_H_
 
 #include <cstdint>
+#include <limits>
 #include <optional>
+#include <ostream>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -72,7 +76,7 @@ enum class PathEvaluateStrategy : int8_t {
   WINDOW,
 };
 
-enum class IODirection : int8_t { kReceive, kSend };
+using IODirection = ChannelDirection;
 
 // This represents a constraint saying that interactions on the given
 // `source_channel` of the type specified by the given `source_direction`
@@ -122,6 +126,37 @@ class IOConstraint {
                       s.minimum_latency_, s.maximum_latency_);
   }
 
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink, const IOConstraint& constraint) {
+    auto dir_to_string = [](IODirection dir) {
+      return dir == IODirection::kSend ? "send" : "recv";
+    };
+    auto min_limit_to_string = [](int64_t limit) -> std::string {
+      if (limit == std::numeric_limits<int64_t>::min()) {
+        return "none";
+      }
+      return absl::StrCat(limit);
+    };
+    auto max_limit_to_string = [](int64_t limit) -> std::string {
+      if (limit == std::numeric_limits<int64_t>::max()) {
+        return "none";
+      }
+      return absl::StrCat(limit);
+    };
+    absl::Format(&sink, "%s:%s:%s:%s:%s:%s", constraint.source_channel_,
+                 dir_to_string(constraint.source_direction_),
+                 constraint.target_channel_,
+                 dir_to_string(constraint.target_direction_),
+                 min_limit_to_string(constraint.minimum_latency_),
+                 max_limit_to_string(constraint.maximum_latency_));
+  }
+
+  friend std::ostream& operator<<(std::ostream& os,
+                                  const IOConstraint& constraint) {
+    os << absl::StreamFormat("%v", constraint);
+    return os;
+  }
+
  private:
   std::string source_channel_;
   IODirection source_direction_;
@@ -142,6 +177,19 @@ class NodeInCycleConstraint {
   Node* GetNode() const { return node_; }
   int64_t GetCycle() const { return cycle_; }
 
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink,
+                            const NodeInCycleConstraint& constraint) {
+    absl::Format(&sink, "%s@%d", constraint.GetNode()->GetName(),
+                 constraint.GetCycle());
+  }
+
+  friend std::ostream& operator<<(std::ostream& os,
+                                  const NodeInCycleConstraint& constraint) {
+    os << absl::StreamFormat("%v", constraint);
+    return os;
+  }
+
  private:
   Node* node_;
   int64_t cycle_;
@@ -151,6 +199,8 @@ class NodeInCycleConstraint {
 // The constraint will be `a - b ≤ max_difference`, so if you want to express
 // `a ≤ b`, set max_difference to 0, and if you want to express `a < b`, set
 // max_difference to -1.
+//
+// TODO(allight): This seems to be dead. Should we remove it.
 class DifferenceConstraint {
  public:
   DifferenceConstraint(Node* a, Node* b, int64_t max_difference)
@@ -159,6 +209,14 @@ class DifferenceConstraint {
   Node* GetA() const { return a_; }
   Node* GetB() const { return b_; }
   int64_t GetMaxDifference() const { return max_difference_; }
+
+  friend std::ostream& operator<<(std::ostream& os,
+                                  const DifferenceConstraint& constraint) {
+    os << absl::StreamFormat("%s - %s <= %d", constraint.GetA()->GetName(),
+                             constraint.GetB()->GetName(),
+                             constraint.GetMaxDifference());
+    return os;
+  }
 
  private:
   Node* a_;
@@ -171,6 +229,11 @@ class DifferenceConstraint {
 class RecvsFirstSendsLastConstraint {
  public:
   RecvsFirstSendsLastConstraint() = default;
+  friend std::ostream& operator<<(
+      std::ostream& os, const RecvsFirstSendsLastConstraint& constraint) {
+    os << "RecvsFirstSendsLastConstraint";
+    return os;
+  }
 };
 
 // When this is present, state backedges will be forced to span over at most II
@@ -178,6 +241,11 @@ class RecvsFirstSendsLastConstraint {
 class BackedgeConstraint {
  public:
   BackedgeConstraint() = default;
+  friend std::ostream& operator<<(std::ostream& os,
+                                  const BackedgeConstraint& constraint) {
+    os << "BackedgeConstraint";
+    return os;
+  }
 };
 
 // When this is present, whenever we have a receive with a dependency on a send,
@@ -191,6 +259,12 @@ class SendThenRecvConstraint {
       : minimum_latency_(minimum_latency) {}
 
   int64_t MinimumLatency() const { return minimum_latency_; }
+
+  friend std::ostream& operator<<(std::ostream& os,
+                                  const SendThenRecvConstraint& constraint) {
+    os << "SendThenRecvConstraint(" << constraint.MinimumLatency() << ")";
+    return os;
+  }
 
  private:
   int64_t minimum_latency_;
@@ -206,6 +280,12 @@ class SameChannelConstraint {
       : minimum_latency_(minimum_latency) {}
 
   int64_t MinimumLatency() const { return minimum_latency_; }
+
+  friend std::ostream& operator<<(std::ostream& os,
+                                  const SameChannelConstraint& constraint) {
+    os << "SameChannelConstraint(" << constraint.MinimumLatency() << ")";
+    return os;
+  }
 
  private:
   int64_t minimum_latency_;

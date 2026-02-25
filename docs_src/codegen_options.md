@@ -205,7 +205,7 @@ control the scheduler.
     -   `sdc`: The default constraint solver scheduler which minimizes register
         use while respecting clock period.
 
-    -   `asap`: Fast scheduler which places nodes as early as possible. Does not
+    -   `asap`: Fast scheduler which places nodes as early as possible. Does
         respect io constraints. This scheduler is meant for use during
         development to quickly approximate the cycle accurate behavior of the
         pipeline.

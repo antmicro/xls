@@ -41,6 +41,7 @@
 #include "xls/ir/proc.h"
 #include "xls/ir/proc_elaboration.h"
 #include "xls/ir/topo_sort.h"
+#include "ortools/graph/topologicalsorter.h"
 
 namespace xls {
 namespace {
@@ -164,6 +165,41 @@ ScheduleGraph ScheduleGraph::Create(
   }
 
   return ScheduleGraph(f->name(), f, std::move(nodes), std::move(backedges));
+}
+
+absl::Status ScheduleGraph::RefineTopoSort(
+    absl::flat_hash_map<Node*, std::vector<Node*>> refinements) {
+  // Just use ortools topo sorter instead of the normal xls one since its easier
+  // to add arbitrary refinements.
+  // Encode the graph as integer edge list.
+  std::vector<std::pair<int, int>> edges;
+  for (const ScheduleNode& node : nodes()) {
+    int from = node_map_.at(node.node);
+    for (Node* successor : node.successors) {
+      edges.push_back({from, node_map_.at(successor)});
+    }
+  }
+  for (const auto& [from, to_nodes] : refinements) {
+    int from_idx = node_map_.at(from);
+    for (Node* to : to_nodes) {
+      int to_idx = node_map_.at(to);
+      edges.push_back({from_idx, to_idx});
+    }
+  }
+  std::vector<int> sorted_nodes;
+  // Do the topo sort again. Stable means that the nodes will be in the same
+  // order as they already are, unless the refinements force a different order.
+  XLS_RET_CHECK(util::DenseIntStableTopologicalSort(
+      static_cast<int>(nodes_.size()), edges, &sorted_nodes))
+      << "Failed to topo sort " << name() << "with refinements.";
+  std::vector<ScheduleNode> new_nodes;
+  new_nodes.reserve(nodes_.size());
+  for (int node_idx : sorted_nodes) {
+    node_map_[nodes_[node_idx].node] = new_nodes.size();
+    new_nodes.push_back(std::move(nodes_[node_idx]));
+  }
+  nodes_ = std::move(new_nodes);
+  return absl::OkStatus();
 }
 
 absl::StatusOr<ScheduleGraph> ScheduleGraph::CreateSynchronousGraph(

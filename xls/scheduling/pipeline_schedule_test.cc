@@ -167,16 +167,14 @@ TEST_F(PipelineScheduleTest, OutrightInfeasibleSchedule) {
   fb.Not(fb.Not(fb.Not(fb.Not(x))));
   XLS_ASSERT_OK_AND_ASSIGN(Function * f, fb.Build());
 
-  ASSERT_THAT(
-      RunPipelineSchedule(f, TestDelayEstimator(),
-                          SchedulingOptions(SchedulingStrategy::MIN_CUT)
-                              .clock_period_ps(1)
-                              .pipeline_stages(2))
-          .status(),
-      StatusIs(
-          absl::StatusCode::kResourceExhausted,
-          HasSubstr(
-              "Cannot be scheduled in 2 stages. Computed lower bound is 4.")));
+  ASSERT_THAT(RunPipelineSchedule(f, TestDelayEstimator(),
+                                  SchedulingOptions(SchedulingStrategy::MIN_CUT)
+                                      .clock_period_ps(1)
+                                      .pipeline_stages(2))
+                  .status(),
+              StatusIs(absl::StatusCode::kResourceExhausted,
+                       HasSubstr("cannot be scheduled in 2 stages. Computed "
+                                 "minimum stage count is 4.")));
 }
 
 TEST_F(PipelineScheduleTest, InfeasibleScheduleWithBinPacking) {
@@ -189,16 +187,14 @@ TEST_F(PipelineScheduleTest, InfeasibleScheduleWithBinPacking) {
   fb.Not(fb.UDiv(fb.Not(x), fb.Not(x)));
   XLS_ASSERT_OK_AND_ASSIGN(Function * f, fb.Build());
 
-  ASSERT_THAT(
-      RunPipelineSchedule(f, TestDelayEstimator(),
-                          SchedulingOptions(SchedulingStrategy::MIN_CUT)
-                              .clock_period_ps(2)
-                              .pipeline_stages(2))
-          .status(),
-      StatusIs(
-          absl::StatusCode::kResourceExhausted,
-          HasSubstr(
-              "Cannot be scheduled in 2 stages. Computed lower bound is 3.")));
+  ASSERT_THAT(RunPipelineSchedule(f, TestDelayEstimator(),
+                                  SchedulingOptions(SchedulingStrategy::MIN_CUT)
+                                      .clock_period_ps(2)
+                                      .pipeline_stages(2))
+                  .status(),
+              StatusIs(absl::StatusCode::kResourceExhausted,
+                       HasSubstr("cannot be scheduled in 2 stages. Computed "
+                                 "minimum stage count is 3.")));
 }
 
 TEST_F(PipelineScheduleTest, InfeasibleScheduleWithReturnValueUsers) {
@@ -217,11 +213,8 @@ TEST_F(PipelineScheduleTest, InfeasibleScheduleWithReturnValueUsers) {
                               .clock_period_ps(1)
                               .pipeline_stages(2))
           .status(),
-      StatusIs(
-          absl::StatusCode::kResourceExhausted,
-          HasSubstr(
-              "the following node(s) must be scheduled in the final cycle but "
-              "that is impossible due to users of these node(s): ret_value")));
+      StatusIs(absl::StatusCode::kResourceExhausted,
+               HasSubstr("cannot be scheduled in any number of stages")));
 }
 
 TEST_F(PipelineScheduleTest, AsapScheduleNoParameters) {

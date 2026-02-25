@@ -42,6 +42,7 @@
 #include "xls/common/logging/log_lines.h"
 #include "xls/common/math_util.h"
 #include "xls/common/status/ret_check.h"
+#include "xls/common/status/status_builder.h"
 #include "xls/common/status/status_macros.h"
 #include "xls/data_structures/binary_search.h"
 #include "xls/estimators/delay_model/delay_estimator.h"
@@ -106,63 +107,20 @@ std::vector<Node*> FinalStageNodes(FunctionBase* f) {
 // applied.
 absl::Status TightenBounds(sched::ScheduleBounds& bounds, FunctionBase* f,
                            std::optional<int64_t> schedule_length) {
-  // Initially compute the lower bounds of all nodes.
-  XLS_RETURN_IF_ERROR(bounds.PropagateLowerBounds());
-
-  int64_t upper_bound;
+  // If we have a schedule length give everything that upper bound.
   if (schedule_length.has_value()) {
-    if (schedule_length.value() <= bounds.max_lower_bound()) {
-      return absl::ResourceExhaustedError(absl::StrFormat(
-          "Cannot be scheduled in %d stages. Computed lower bound is %d.",
-          schedule_length.value(), bounds.max_lower_bound() + 1));
-    }
-    upper_bound = schedule_length.value() - 1;
-  } else {
-    upper_bound = bounds.max_lower_bound();
-  }
-
-  // Set the lower bound of nodes which must be in the final stage to
-  // `upper_bound`
-  bool rerun_lb_propagation = false;
-  for (Node* node : FinalStageNodes(f)) {
-    if (bounds.lb(node) != upper_bound) {
-      XLS_RETURN_IF_ERROR(bounds.TightenNodeLb(node, upper_bound));
-      if (!node->users().empty()) {
-        rerun_lb_propagation = true;
-      }
+    for (Node* node : f->nodes()) {
+      XLS_RETURN_IF_ERROR(
+          bounds.TightenNodeUb(node, schedule_length.value() - 1));
     }
   }
-
-  // If fixing nodes in the final stage changed any lower bounds then
-  // repropagate the lower bounds.
-  if (rerun_lb_propagation) {
-    XLS_RETURN_IF_ERROR(bounds.PropagateLowerBounds());
-  }
-
-  if (bounds.max_lower_bound() > upper_bound) {
-    return absl::ResourceExhaustedError(
-        absl::StrFormat("Impossible to schedule %s %s; the following node(s) "
-                        "must be scheduled in the final cycle but that is "
-                        "impossible due to users of these node(s): %s",
-                        (f->IsProc() ? "proc" : "function"), f->name(),
-                        absl::StrJoin(FinalStageNodes(f), ", ")));
-  }
-
-  // Set and propagate upper bounds.
-  for (Node* node : f->nodes()) {
-    XLS_RETURN_IF_ERROR(bounds.TightenNodeUb(node, upper_bound));
-  }
-  for (Node* node : FirstStageNodes(f)) {
-    if (bounds.lb(node) > 0) {
-      return absl::ResourceExhaustedError(absl::StrFormat(
-          "Impossible to schedule %s %s; node `%s` must be scheduled in the "
-          "first cycle but that is impossible due to the node's operand(s)",
-          (f->IsProc() ? "Proc" : "Function"), f->name(), node->GetName()));
-    }
-    XLS_RETURN_IF_ERROR(bounds.TightenNodeUb(node, 0));
-  }
-  XLS_RETURN_IF_ERROR(bounds.PropagateUpperBounds());
-
+  // If we have a schedule_length (and therefore a small-ish max stage) we can
+  // try to propagate forever since we will hit that schedule length before
+  // long.
+  std::optional<int64_t> propagation_fuel =
+      schedule_length ? std::nullopt : std::make_optional<int64_t>(6);
+  XLS_RETURN_IF_ERROR(bounds.PropagateBounds(propagation_fuel))
+      << "Failed to schedule bounds for " << f->name() << ".";
   return absl::OkStatus();
 }
 
@@ -373,6 +331,51 @@ absl::StatusOr<int64_t> ApplyClockMargin(const SchedulingOptions& options,
         *options.clock_margin_percent()));
   }
   return clock_period_ps;
+}
+
+absl::Status GenerateHelpfulAsapError(absl::Status&& orig_status,
+                                      FunctionBase* f, int64_t clock_period_ps,
+                                      const DelayEstimator& delay_estimator,
+                                      const SchedulingOptions& options) {
+  xabsl::StatusBuilder status(std::move(orig_status));
+  // Try to figure out what the actual required stages are.
+  if (options.pipeline_stages().has_value()) {
+    XLS_ASSIGN_OR_RETURN(
+        auto bounds,
+        sched::ScheduleBounds::Create(
+            ScheduleGraph::Create(f, GetDeadAfterSynthesisNodes(f)),
+            clock_period_ps, delay_estimator,
+            f->GetInitiationInterval().value_or(1), options.constraints()),
+        std::move(status)
+            << "(Failed to create schedule bounds for error message creation)");
+    // Add first and last stage constraints.
+    using LastStageConstraint =
+        sched::ScheduleBounds::NodeSchedulingConstraint::LastStageConstraint;
+    for (Node* n : FirstStageNodes(f)) {
+      bounds.AddConstraint(NodeInCycleConstraint{n, 0});
+    }
+    for (Node* n : FinalStageNodes(f)) {
+      bounds.AddConstraint(LastStageConstraint{n});
+    }
+    absl::Status no_length =
+        TightenBounds(bounds, f, /*schedule_length=*/std::nullopt);
+    if (no_length.ok()) {
+      return (status << absl::StrFormat("Function %s cannot be scheduled in %d "
+                                        "stages. Computed minimum stage count "
+                                        "is %d.",
+                                        f->name(),
+                                        options.pipeline_stages().value(),
+                                        bounds.max_lower_bound() + 1))
+          .SetCode(absl::StatusCode::kResourceExhausted);
+    } else {
+      return (status << "Function " << f->name()
+                     << " cannot be scheduled in any number of stages via ASAP "
+                        "bounds. Some constraints may be unsatisfiable or "
+                        "require a full SDC schedule to resolve.")
+          .SetCode(absl::StatusCode::kResourceExhausted);
+    }
+  }
+  return status;
 }
 
 absl::StatusOr<PipelineSchedule> RunPipelineScheduleInternal(
@@ -708,9 +711,28 @@ absl::StatusOr<PipelineSchedule> RunPipelineScheduleInternal(
   } else {
     // Run an initial ASAP/ALAP scheduling pass, which we'll refine with the
     // chosen scheduler.
-    sched::ScheduleBounds bounds(f, TopoSort(f), clock_period_ps,
-                                 io_delay_added);
-    XLS_RETURN_IF_ERROR(TightenBounds(bounds, f, options.pipeline_stages()));
+    // First get the basic bounds.
+    XLS_ASSIGN_OR_RETURN(
+        auto bounds,
+        sched::ScheduleBounds::Create(
+            ScheduleGraph::Create(f, GetDeadAfterSynthesisNodes(f)),
+            clock_period_ps, io_delay_added,
+            f->GetInitiationInterval().value_or(1), options.constraints()));
+    // Add first and last stage constraints.
+    using LastStageConstraint =
+        sched::ScheduleBounds::NodeSchedulingConstraint::LastStageConstraint;
+    for (Node* n : FirstStageNodes(f)) {
+      bounds.AddConstraint(NodeInCycleConstraint{n, 0});
+    }
+    for (Node* n : FinalStageNodes(f)) {
+      bounds.AddConstraint(LastStageConstraint{n});
+    }
+    absl::Status tighten_bounds_status =
+        TightenBounds(bounds, f, options.pipeline_stages());
+    if (!tighten_bounds_status.ok()) {
+      return GenerateHelpfulAsapError(std::move(tighten_bounds_status), f,
+                                      clock_period_ps, io_delay_added, options);
+    }
 
     if (options.strategy() == SchedulingStrategy::MIN_CUT) {
       XLS_ASSIGN_OR_RETURN(
@@ -729,16 +751,23 @@ absl::StatusOr<PipelineSchedule> RunPipelineScheduleInternal(
         }
         int64_t cycle = absl::Uniform<int64_t>(
             absl::IntervalClosed, gen, bounds.lb(node), bounds.ub(node));
-        XLS_RETURN_IF_ERROR(bounds.TightenNodeLb(node, cycle));
-        XLS_RETURN_IF_ERROR(bounds.PropagateLowerBounds());
-        XLS_RETURN_IF_ERROR(bounds.TightenNodeUb(node, cycle));
-        XLS_RETURN_IF_ERROR(bounds.PropagateUpperBounds());
+        if (bounds.lb(node) != bounds.ub(node)) {
+          XLS_RETURN_IF_ERROR(bounds.TightenNodeLb(node, cycle));
+          XLS_RETURN_IF_ERROR(bounds.TightenNodeUb(node, cycle));
+          // TODO(allight): We might want to give this more fuel.
+          XLS_RETURN_IF_ERROR(bounds.PropagateBounds());
+        }
         cycle_map[node] = cycle;
       }
     } else {
       XLS_RET_CHECK(options.strategy() == SchedulingStrategy::ASAP);
       XLS_RET_CHECK(!options.pipeline_stages().has_value() ||
-                    options.pipeline_stages() == 1);
+                    options.pipeline_stages() == 1 ||
+                    options.pipeline_stages() >= bounds.max_lower_bound() + 1)
+          << "Pipeline stages must be at least 1 or greater than or equal to "
+             "the number of stages in the function. pipeline_stages: "
+          << (options.pipeline_stages() ? *options.pipeline_stages() : -1)
+          << " max_lower_bound: " << bounds.max_lower_bound();
       // Just schedule everything as soon as possible.
       for (Node* node : f->nodes()) {
         cycle_map[node] = bounds.lb(node);

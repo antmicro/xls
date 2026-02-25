@@ -1357,5 +1357,64 @@ void IrFuzzConditionalSpecializationWithBdd(
 FUZZ_TEST(IrFuzzTest, IrFuzzConditionalSpecializationWithBdd)
     .WithDomains(IrFuzzDomainWithArgs(/*arg_set_count=*/10));
 
+TEST_F(ConditionalSpecializationPassTest, SimplifySiblingAndOperand) {
+  auto p = CreatePackage();
+  // Verify that we can use conditions implied by one operand of an AND to
+  // simplify another operand.
+  XLS_ASSERT_OK_AND_ASSIGN(Function * f, ParseFunction(R"(
+fn f(state: bits[4], r0: bits[1], something_else: bits[1]) -> bits[1] {
+  literal.1: bits[4] = literal(value=3)
+  state_le_3: bits[1] = ule(state, literal.1)
+  r0_sel: bits[1] = and(state_le_3, r0)
+  literal.4: bits[4] = literal(value=4)
+  state_gt_4: bits[1] = ugt(state, literal.4)
+  literal.5: bits[4] = literal(value=5)
+  state_le_5: bits[1] = ule(state, literal.5)
+  range_check: bits[1] = and(state_le_5, state_gt_4)
+  term2: bits[1] = or(r0_sel, something_else)
+  ret result: bits[1] = and(range_check, term2)
+}
+  )",
+                                                       p.get()));
+  // When assessing `term2 = r0_sel || something_else` in the context of
+  // `range_check && term2`, we can assume 'range_check' to be true (since
+  // `term2`'s value wouldn't matter otherwise), so we know:
+  //   `state <= 5 && state > 4`.
+  // (In other words, `state == 5`.)
+  //
+  // `r0_sel` is `(state <= 3) && r0`. Since 'state' is 5, `state <= 3` is
+  // false, so `r0_sel` is 0.
+  //
+  // Since 0 is the identity element for OR, `term2 = r0_sel || something_else`
+  // simplifies to `something_else` in this context.
+
+  solvers::z3::ScopedVerifyEquivalence sve{f};
+  EXPECT_THAT(Run(f), IsOkAndHolds(true));
+  EXPECT_THAT(f->return_value(),
+              m::And(m::Name("range_check"), m::Param("something_else")));
+}
+
+TEST_F(ConditionalSpecializationPassTest, SimplifySymmetricBooleanOps) {
+  auto p = CreatePackage();
+  XLS_ASSERT_OK_AND_ASSIGN(Function * f, ParseFunction(R"(
+fn f(a: bits[1], b: bits[1]) -> bits[1] {
+  term1: bits[1] = or(a, b)
+  term2: bits[1] = or(b, a)
+  ret result: bits[1] = and(term1, term2)
+}
+  )",
+                                                       p.get()));
+  // One term should be replaced with a literal 1, because (A || B) implies
+  // (B || A) and vice-versa. However, it should only simplify one term, as we'd
+  // otherwise end up changing the meaning by accidentally removing all of the
+  // inputs; e.g., `and(term1, term2)` would become `and(1, 1)`.
+
+  solvers::z3::ScopedVerifyEquivalence sve{f};
+  XLS_ASSERT_OK_AND_ASSIGN(bool changed, Run(f));
+  EXPECT_TRUE(changed);
+  EXPECT_THAT(f->return_value(),
+              m::And(m::Literal(1), m::Or(m::Param("b"), m::Param("a"))));
+}
+
 }  // namespace
 }  // namespace xls

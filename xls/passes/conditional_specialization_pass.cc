@@ -1226,12 +1226,59 @@ absl::StatusOr<bool> ConditionalSpecializationPass::RunOnFunctionBaseInternal(
         continue;
       }
 
-      const ConditionSet& edge_set =
+      const ConditionSet& original_edge_set =
           condition_map.GetEdgeConditionSet(operand, node);
+      std::optional<ConditionSet> modified_edge_set = std::nullopt;
+      auto edge_set = [&]() -> const ConditionSet& {
+        if (!modified_edge_set.has_value()) {
+          return original_edge_set;
+        }
+        return *modified_edge_set;
+      };
+      auto mutable_edge_set = [&]() -> ConditionSet& {
+        if (!modified_edge_set.has_value()) {
+          modified_edge_set = original_edge_set;
+        }
+        return *modified_edge_set;
+      };
+
+      if (node->OpIn({Op::kAnd, Op::kNand, Op::kOr, Op::kNor})) {
+        // For boolean operations we can assume that all other operands are
+        // *not* the absorbing element for the operation when evaluating a given
+        // operand.
+        //
+        // For example, if we have:
+        //   x = and(a, b)
+        //
+        // When evaluating `b`, we can assume `a` is not 0. Otherwise, the
+        // result of the `and` would be equal to 0 regardless of `b`'s value,
+        // and we are only interested in `b`'s value when it affects the result.
+        bool is_and_like = node->OpIn({Op::kAnd, Op::kNand});
+        int64_t bit_count = node->BitCountOrDie();
+        // Absorbing element for AND/NAND is all zeros, for OR/NOR is all ones.
+        Bits absorbing =
+            is_and_like ? Bits(bit_count) : Bits::AllOnes(bit_count);
+
+        for (int64_t other_operand_no = 0;
+             other_operand_no < node->operand_count(); ++other_operand_no) {
+          if (operand_no == other_operand_no) {
+            continue;
+          }
+          Node* other_operand = node->operand(other_operand_no);
+          if (other_operand->Is<Literal>()) {
+            continue;
+          }
+          mutable_edge_set().Union(condition_cache.GetImplied(Condition{
+              .node = other_operand,
+              .partial =
+                  PartialInformation(IntervalSet::Punctured(absorbing))}));
+        }
+      }
+
       VLOG(4) << absl::StrFormat("Conditions on edge %s -> %s: %s",
                                  operand->GetName(), node->GetName(),
-                                 edge_set.ToString());
-      if (edge_set.empty()) {
+                                 edge_set().ToString());
+      if (edge_set().empty()) {
         continue;
       }
 
@@ -1242,13 +1289,41 @@ absl::StatusOr<bool> ConditionalSpecializationPass::RunOnFunctionBaseInternal(
       }
 
       std::unique_ptr<QueryEngine> specialized_query_engine =
-          query_engine.SpecializeGiven(edge_set.GetAsGivens());
+          query_engine.SpecializeGiven(edge_set().GetAsGivens());
 
       // First check to see if the condition set directly implies a value for
       // the operand. If so replace with the implied value.
       if (std::optional<Bits> implied_value =
-              ImpliedNodeValue(edge_set, operand, *specialized_query_engine);
+              ImpliedNodeValue(edge_set(), operand, *specialized_query_engine);
           implied_value.has_value()) {
+        // If the implied value is the absorbing element for the operation, we
+        // can replace the entire operation with the absorbing element (or its
+        // negation).
+        if (node->OpIn({Op::kAnd, Op::kNand, Op::kOr, Op::kNor})) {
+          bool is_and_like = node->OpIn({Op::kAnd, Op::kNand});
+          int64_t bit_count = node->BitCountOrDie();
+          // Absorbing for AND/NAND is all zeros, for OR/NOR is all ones.
+          Bits absorbing =
+              is_and_like ? Bits(bit_count) : Bits::AllOnes(bit_count);
+          if (implied_value.value() == absorbing) {
+            Bits replacement_value = absorbing;
+            if (node->OpIn({Op::kNand, Op::kNor})) {
+              replacement_value = bits_ops::Not(replacement_value);
+            }
+            VLOG(3) << absl::StreamFormat(
+                "Replacing %s with %v, because operand %d is implied to be %v, "
+                "which is absorbing for %s",
+                node->GetName(), replacement_value, operand_no, *implied_value,
+                OpToString(node->op()));
+            XLS_ASSIGN_OR_RETURN(
+                Node * replacement,
+                f->MakeNode<Literal>(node->loc(), Value(replacement_value)));
+            XLS_RETURN_IF_ERROR(node->ReplaceUsesWith(replacement));
+            changed = true;
+            break;
+          }
+        }
+
         VLOG(3) << absl::StreamFormat("Replacing operand %d of %s with %v",
                                       operand_no, node->GetName(),
                                       implied_value.value());
@@ -1294,7 +1369,7 @@ absl::StatusOr<bool> ConditionalSpecializationPass::RunOnFunctionBaseInternal(
               break;
             }
             std::optional<Bits> implied_selector = ImpliedNodeValue(
-                edge_set, select->selector(), *specialized_query_engine);
+                edge_set(), select->selector(), *specialized_query_engine);
             if (!implied_selector.has_value()) {
               break;
             }
@@ -1314,7 +1389,7 @@ absl::StatusOr<bool> ConditionalSpecializationPass::RunOnFunctionBaseInternal(
               break;
             }
             std::optional<TernaryVector> implied_selector = ImpliedNodeTernary(
-                edge_set, select->selector(), *specialized_query_engine);
+                edge_set(), select->selector(), *specialized_query_engine);
             if (!implied_selector.has_value()) {
               break;
             }
@@ -1338,7 +1413,7 @@ absl::StatusOr<bool> ConditionalSpecializationPass::RunOnFunctionBaseInternal(
               break;
             }
             std::optional<TernaryVector> implied_selector = ImpliedNodeTernary(
-                edge_set, ohs->selector(), *specialized_query_engine);
+                edge_set(), ohs->selector(), *specialized_query_engine);
             if (!implied_selector.has_value()) {
               break;
             }
@@ -1391,12 +1466,12 @@ absl::StatusOr<bool> ConditionalSpecializationPass::RunOnFunctionBaseInternal(
             for (Node* potential_src : bitwise_op->operands()) {
               XLS_RET_CHECK(potential_src->GetType()->IsBits());
               std::optional<Bits> implied_src = ImpliedNodeValue(
-                  edge_set, potential_src, *specialized_query_engine);
+                  edge_set(), potential_src, *specialized_query_engine);
               if (implied_src.has_value() && is_identity(*implied_src)) {
                 continue;
               }
               if (nonidentity_operand.has_value()) {
-                // There's more than one potentially-non-zero operand; we're
+                // There's more than one potentially-non-identity operand; we're
                 // done, there's nothing to do.
                 nonidentity_operand = std::nullopt;
                 break;

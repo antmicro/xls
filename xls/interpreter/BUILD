@@ -477,7 +477,14 @@ cc_library(
 cc_test(
     name = "serial_proc_runtime_test",
     srcs = ["serial_proc_runtime_test.cc"],
-    data = ["force_assert.ir"],
+    data = [
+        "force_assert.ir",
+        "testdata/serial_proc_runtime_test_ExplicitStateAccessMatch.ir",
+        "testdata/serial_proc_runtime_test_ExplicitStateAccessMatchMultipleWrites.ir",
+        "testdata/serial_proc_runtime_test_ExplicitStateAccessMultipleReads.ir",
+        "testdata/serial_proc_runtime_test_ExplicitStateAccessMultipleWrites.ir",
+        "testdata/serial_proc_runtime_test_ExplicitStateAccessWriteBeforeRead.ir",
+    ],
     deps = [
         ":channel_queue",
         ":evaluator_options",

@@ -302,7 +302,7 @@ absl::StatusOr<T> ToProto(const StructDefBase& struct_def,
   proto.set_identifier(struct_def.identifier());
   proto.set_is_public(struct_def.is_public());
   for (int64_t i = 0; i < struct_def.size(); ++i) {
-    proto.add_member_names(ToProtoString(struct_def.GetMemberName(i)));
+    proto.add_member_names(struct_def.GetMemberName(i));
   }
   return proto;
 }
@@ -338,7 +338,7 @@ absl::StatusOr<EnumDefProto> ToProto(const EnumDef& enum_def,
   proto.set_identifier(enum_def.identifier());
   proto.set_is_public(enum_def.is_public());
   for (int64_t i = 0; i < enum_def.values().size(); ++i) {
-    proto.add_member_names(ToProtoString(enum_def.GetMemberName(i)));
+    proto.add_member_names(enum_def.GetMemberName(i));
   }
   return proto;
 }

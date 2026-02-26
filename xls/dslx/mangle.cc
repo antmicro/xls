@@ -113,7 +113,8 @@ absl::StatusOr<std::string> MangleDslxName(
 
   std::string scope_str = "";
   if (!scope.empty()) {
-    scope_str = absl::StrCat(scope, "__");
+    scope_str = absl::StrCat(
+        absl::StrReplaceAll(scope, {{">", "_"}, {"<", "_"}}), "__");
   }
 
   std::string suffix;

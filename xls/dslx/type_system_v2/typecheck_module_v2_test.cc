@@ -5330,6 +5330,29 @@ impl S<A> {
 
 const X = S<16>{}.foo(100);
 const Y = S<32>{}.foo(200);
+const_assert!(X == 101);
+const_assert!(Y == 201);
+)",
+      TypecheckSucceeds(AllOf(
+          HasNodeWithType("X", "uN[16]"), HasNodeWithType("Y", "uN[32]"),
+          HasNodeWithType("100", "uN[16]"), HasNodeWithType("200", "uN[32]"))));
+}
+
+TEST(TypecheckV2Test, InstanceMethodTakingStaticParametricTypeAndUsingSelf) {
+  EXPECT_THAT(
+      R"(
+struct S<A: u32> {
+  val: uN[A]
+}
+
+impl S<A> {
+  fn foo(self, a: uN[A]) -> uN[A] { a + self.val }
+}
+
+const X = S<16>{val: 1}.foo(100);
+const Y = S<32>{val: 2}.foo(200);
+const_assert!(X == 101);
+const_assert!(Y == 202);
 )",
       TypecheckSucceeds(AllOf(
           HasNodeWithType("X", "uN[16]"), HasNodeWithType("Y", "uN[32]"),
@@ -5348,6 +5371,26 @@ impl S<A> {
 
 const X = S<16>{}.foo(100);
 const Y = S<32>{}.foo(200);
+ const_assert!(X == 101);
+)",
+      TypecheckSucceeds(AllOf(
+          HasNodeWithType("X", "uN[17]"), HasNodeWithType("Y", "uN[33]"),
+          HasNodeWithType("100", "uN[17]"), HasNodeWithType("200", "uN[33]"))));
+}
+
+TEST(TypecheckV2Test, ParametricInstanceMethodTakingStaticConstType) {
+  EXPECT_THAT(
+      R"(
+struct S<A: u32> {}
+
+impl S<A> {
+  const C = A + 1;
+  fn foo<N: u32>(self, a: uN[C]) -> uN[C] { a + 1 }
+}
+
+const X = S<16>{}.foo<20>(100);
+const Y = S<32>{}.foo<16>(200);
+const_assert!(X == 101);
 )",
       TypecheckSucceeds(AllOf(
           HasNodeWithType("X", "uN[17]"), HasNodeWithType("Y", "uN[33]"),
@@ -5443,9 +5486,27 @@ impl S<M> {
 
 const X = S<4>{}.add<3>();
 const Y = S<5>{}.add<6>();
+const_assert!(X == 7);
 )",
       TypecheckSucceeds(AllOf(HasNodeWithType("X", "uN[32]"),
                               HasNodeWithType("Y", "uN[32]"))));
+}
+
+TEST(TypecheckV2Test,
+     ParametricInstanceMethodOfParametricStructDuplicatesParametric) {
+  EXPECT_THAT(
+      R"(
+struct S<M: u32> {}
+
+impl S<M> {
+  fn add<M: u32>(self) -> u32 { M }
+}
+
+const X = S<4>{}.add<3>();
+const Y = S<5>{}.add<6>();
+)",
+      TypecheckFails(HasSubstr(
+          "Parametric binding `M` shadows binding from struct definition")));
 }
 
 TEST(TypecheckV2Test, ParametricInstanceMethodUsingParametricConstant) {

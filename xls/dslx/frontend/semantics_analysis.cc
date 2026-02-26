@@ -34,6 +34,8 @@
 #include "xls/dslx/frontend/ast.h"
 #include "xls/dslx/frontend/ast_node.h"
 #include "xls/dslx/frontend/ast_node_visitor_with_default.h"
+#include "xls/dslx/frontend/ast_utils.h"
+#include "xls/dslx/frontend/bindings.h"
 #include "xls/dslx/frontend/module.h"
 #include "xls/dslx/frontend/pos.h"
 #include "xls/dslx/frontend/token_utils.h"
@@ -250,8 +252,9 @@ class SideEffectExpressionFinder : public AstNodeVisitorWithDefault {
 
 class PreTypecheckPass : public AstNodeVisitorWithDefault {
  public:
-  PreTypecheckPass(WarningCollector& warning_collector)
-      : warning_collector_(warning_collector) {}
+  PreTypecheckPass(WarningCollector& warning_collector,
+                   const FileTable& file_table)
+      : warning_collector_(warning_collector), file_table_(file_table) {}
 
   absl::Status HandleStatementBlock(const StatementBlock* node) override {
     for (size_t i = 0; i < node->statements().size(); ++i) {
@@ -298,6 +301,29 @@ class PreTypecheckPass : public AstNodeVisitorWithDefault {
 
   absl::Status HandleFunction(const Function* node) override {
     WarnIfConfusinglyNamedLikeTest(*node, warning_collector_);
+
+    // If this function is an instance method on a parametric struct, ensure
+    // that it doesn't duplicate any parametric bindings from the struct.
+    if (node->IsMethodOnParametricStruct() && node->IsParametric()) {
+      const auto* struct_ref = absl::down_cast<const TypeRefTypeAnnotation*>(
+          (*node->impl())->struct_ref());
+      StructDef* struct_def =
+          std::get<StructDef*>(struct_ref->type_ref()->type_definition());
+
+      ParametricBindings bindings(node->parametric_bindings());
+      for (ParametricBinding* parametric_binding :
+           struct_def->parametric_bindings()) {
+        if (node->parametric_keys().contains(
+                parametric_binding->identifier())) {
+          return xls::dslx::ParseErrorStatus(
+              bindings.at(parametric_binding->identifier())->span(),
+              absl::StrFormat("Parametric binding `%s` shadows binding from "
+                              "struct definition",
+                              parametric_binding->identifier()),
+              file_table_);
+        }
+      }
+    }
     return DefaultHandler(node);
   }
 
@@ -368,6 +394,8 @@ class PreTypecheckPass : public AstNodeVisitorWithDefault {
 
  private:
   WarningCollector& warning_collector_;
+
+  const FileTable& file_table_;
 };
 
 class CollectUseDef : public AstNodeVisitorWithDefault {
@@ -498,7 +526,7 @@ absl::Status SemanticsAnalysis::RunPreTypeCheckPass(
     NextParamStateVisitor next_param_visitor(state_struct_def);
     XLS_RETURN_IF_ERROR(module.Accept(&next_param_visitor));
   }
-  PreTypecheckPass pass(warning_collector);
+  PreTypecheckPass pass(warning_collector, import_data.file_table());
 
   for (const ModuleMember& top : module.top()) {
     if (const Function* const* func = std::get_if<Function*>(&top)) {

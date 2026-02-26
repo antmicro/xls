@@ -3434,7 +3434,7 @@ absl::Status FunctionConverter::HandleFunction(
   // outside world, since they're driven and named by DSL instantiation, so we
   // forgo exposing them here.
   if (requires_implicit_token && (node->is_public() || is_top_) &&
-      !node->IsParametric()) {
+      !node->IsParametric() && !node->IsMethodOnParametricStruct()) {
     XLS_ASSIGN_OR_RETURN(
         xls::Function * wrapper,
         EmitImplicitTokenEntryWrapper(ir_fn, node, is_top_,
@@ -3993,7 +3993,7 @@ absl::StatusOr<std::string> FunctionConverter::GetCalleeIdentifier(
   absl::btree_set<std::string> free_keys = f->GetFreeParametricKeySet();
   const CallingConvention convention = GetCallingConvention(f);
   Module* m = f->owner();
-  if (!f->IsParametric()) {
+  if (!f->IsParametric() && !f->IsMethodOnParametricStruct()) {
     return MangleDslxName(m->name(), f->identifier(), convention, free_keys,
                           /*parametric_env=*/nullptr, scope);
   }

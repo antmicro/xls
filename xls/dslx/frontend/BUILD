@@ -739,6 +739,8 @@ cc_library(
         ":ast",
         ":ast_node",
         ":ast_node_visitor_with_default",
+        ":ast_utils",
+        ":bindings",
         ":module",
         ":pos",
         ":token_utils",

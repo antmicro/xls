@@ -4032,6 +4032,51 @@ TEST_F(IrConverterTest, MatchExhaustiveOneRangeAndValueInSingleArm) {
   ExpectIr(converted);
 }
 
+TEST_F(IrConverterTest, ConvertInstanceMethodOnParametricStruct) {
+  constexpr std::string_view program = R"(
+  struct S<A: u32> {
+    val: uN[A]
+  }
+
+  impl S<A> {
+    fn foo(self, a: uN[A]) -> uN[A] { a + self.val }
+  }
+
+  fn main() -> (u16, u32) {
+    const X = S<16>{val: 1}.foo(100);
+    const Y = S<32>{val: 2}.foo(200);
+    (X, Y)
+  }
+  )";
+
+  XLS_ASSERT_OK_AND_ASSIGN(std::string converted,
+                           ConvertModuleForTest(program));
+  ExpectIr(converted);
+}
+
+TEST_F(IrConverterTest, ConvertParametricInstanceMethodOnParametricStruct) {
+  constexpr std::string_view program = R"(
+  struct S<A: u32> {
+    val: uN[A]
+  }
+
+  impl S<A> {
+    fn foo<N: u32>(self, a: uN[A]) -> uN[A] { a + self.val }
+  }
+
+  fn main() -> (u16, u16, u32) {
+    const X = S<16>{val: 1}.foo<24>(100);
+    const Y = S<16>{val: 2}.foo<16>(100);
+    const Z = S<32>{val: 2}.foo<16>(200);
+    (X, Y, Z)
+  }
+  )";
+
+  XLS_ASSERT_OK_AND_ASSIGN(std::string converted,
+                           ConvertModuleForTest(program));
+  ExpectIr(converted);
+}
+
 TEST_F(IrConverterTest, ConvertImplFunctionOnStructMember) {
   constexpr std::string_view program = R"(
   struct F {}

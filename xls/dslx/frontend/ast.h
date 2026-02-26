@@ -2515,6 +2515,7 @@ class Function : public AstNode {
   void set_test_utility(bool value) { is_test_utility_ = value; }
   void set_compiler_derived(bool value) { is_compiler_derived_ = value; }
   bool IsMethod() const;
+  bool IsMethodOnParametricStruct() const;
   bool IsStub() const { return is_stub_; }
   bool IsCompilerDerived() const { return is_compiler_derived_; }
 
@@ -3246,6 +3247,14 @@ class StructDefBase : public AstNode {
   NameDef* name_def() const { return name_def_; }
   const std::vector<ParametricBinding*>& parametric_bindings() const {
     return parametric_bindings_;
+  }
+
+  absl::flat_hash_set<std::string> ParametricKeys() const {
+    absl::flat_hash_set<std::string> result;
+    for (const ParametricBinding* binding : parametric_bindings_) {
+      result.emplace(binding->name_def()->identifier());
+    }
+    return result;
   }
 
   const std::vector<StructMemberNode*>& members() const { return members_; }

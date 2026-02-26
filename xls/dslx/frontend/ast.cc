@@ -2301,6 +2301,22 @@ bool Function::IsMethod() const {
          nullptr;
 }
 
+bool Function::IsMethodOnParametricStruct() const {
+  if (!IsMethod()) {
+    return false;
+  }
+  // A method on a trait itself, as opposed to a struct that implements the
+  // trait, will not have an impl.
+  if (!impl().has_value()) {
+    return false;
+  }
+  const auto* struct_ref =
+      absl::down_cast<const TypeRefTypeAnnotation*>((*impl())->struct_ref());
+  StructDef* struct_def =
+      std::get<StructDef*>(struct_ref->type_ref()->type_definition());
+  return !struct_def->parametric_bindings().empty();
+}
+
 std::vector<AstNode*> Function::GetChildren(bool want_types) const {
   std::vector<AstNode*> results;
   results.push_back(name_def());

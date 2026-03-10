@@ -1480,3 +1480,56 @@ xls_dslx_verilog(
     library = "const_for_dslx",
     verilog_file = "const_for.sv",
 )
+
+xls_dslx_library(
+    name = "content_based_arbiter_dslx",
+    srcs = [
+        "content_based_arbiter.x",
+    ],
+)
+
+xls_dslx_test(
+    name = "content_based_arbiter_dslx_test",
+    srcs = ["content_based_arbiter.x"],
+    dslx_test_args = {"compare": "jit"},
+)
+
+xls_dslx_verilog(
+    name = "content_based_arbiter_verilog",
+    codegen_args = {
+        "module_name": "content_based_arbiter",
+        "delay_model": "unit",
+        "pipeline_stages": "4",
+        "reset": "rst",
+    },
+    dslx_top = "ContentBasedArbiterInst",
+    library = "content_based_arbiter_dslx",
+    verilog_file = "content_based_arbiter.sv",
+)
+
+# TODO: Enable this after introducing peek()
+# xls_dslx_library(
+#     name = "peek_content_based_arbiter_dslx",
+#     srcs = [
+#         "peek_content_based_arbiter.x",
+#     ],
+# )
+#
+# xls_dslx_test(
+#     name = "peek_content_based_arbiter_dslx_test",
+#     srcs = ["peek_content_based_arbiter.x"],
+#     dslx_test_args = {"compare": "jit"},
+# )
+#
+# xls_dslx_verilog(
+#     name = "peek_content_based_arbiter_verilog",
+#     codegen_args = {
+#         "module_name": "peek_content_based_arbiter",
+#         "delay_model": "unit",
+#         "pipeline_stages": "4",
+#         "reset": "rst",
+#     },
+#     dslx_top = "PeekContentBasedArbiterInst",
+#     library = "peek_content_based_arbiter_dslx",
+#     verilog_file = "peek_content_based_arbiter.sv",
+# )

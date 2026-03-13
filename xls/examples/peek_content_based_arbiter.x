@@ -40,7 +40,7 @@ fn highest_priority_packet<N: u32>(storage: Packet[N], storage_valid: bool[N]) -
 }
 
 pub proc PeekContentBasedArbiter<N: u32> {
-    type State = PeekContentBasedArbiterState<N>;
+    type State = PeekContentBasedArbiterState;
 
     enable_r: chan<bool> in;
     enable_comp_s: chan<()> out;
@@ -58,14 +58,14 @@ pub proc PeekContentBasedArbiter<N: u32> {
 
     init { zero!<State>() }
 
-    next(state: ()) {
+    next(state: State) {
         let (recv_en_tok, enabled, enabled_valid) =
             recv_non_blocking(join(), enable_r, state.enabled);
         let send_en_tok = send_if(recv_en_tok, enable_comp_s, enabled_valid, ());
 
         if state.enabled {
             let (storage, storage_valid, peek_in_tok) =
-                unroll_for! (i, (storage, storage_valid, prev_tok)) in u32:0..N {
+                const for (i, (storage, storage_valid, prev_tok)) in u32:0..N {
                     let (tok, data, data_valid) =
                         peek_non_blocking(join(), inputs_r[i], zero!<Packet>());
                     if data_valid {
@@ -82,13 +82,14 @@ pub proc PeekContentBasedArbiter<N: u32> {
             let (packet, idx) = highest_priority_packet(storage, storage_valid);
 
             let has_value = or_reduce(std::convert_to_bits_msb0(storage_valid));
-            let recv_in_tok = unroll_for!(i, (tok, result)): (u32, token) in u32:0..N) {
+            let recv_in_tok = const for (i, tok): (u32, token) in u32:0..N {
                 let (tok, _) =
-                    recv_if(peek_in_tok, n_req_r[i], has_value && (sel == i), zero!<Packet>());
+                    recv_if(peek_in_tok, inputs_r[i], has_value && (idx == i), zero!<Packet>());
                 tok
-            }(peek_tok);
+            }(peek_in_tok);
             let sent_out_tok = send_if(recv_in_tok, output_s, has_value, packet);
-        }
+        };
+        State { enabled }
     }
 }
 

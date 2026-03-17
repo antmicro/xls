@@ -1480,3 +1480,20 @@ xls_dslx_verilog(
     library = "const_for_dslx",
     verilog_file = "const_for.sv",
 )
+
+xls_dslx_library(
+    name = "common_dslx",
+    srcs = [
+        "common.x",
+    ],
+)
+
+xls_dslx_library(
+    name = "dynamic_usage_dslx",
+    srcs = [
+        "dynamic_usage.x",
+    ],
+    deps = [
+        ":common_dslx",
+    ],
+)

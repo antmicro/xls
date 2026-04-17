@@ -1,0 +1,50 @@
+// Channel definitions with sample buffer capacity.
+// DSLX u32 type corresponds to Promela int.
+chan data_s = [8] of { int };
+chan resp_s = [8] of { int };
+
+// Equivalent of proc Counter
+proctype Counter(chan out) {
+    int cnt = 0; // Initial state from DSLX: init { u32:0 }
+
+    do // Infinite loop representing DSLX next() cycles
+    ::
+       // Check if the channel is NOT full before sending.
+       // If the channel is full, this assertion will fail in SPIN.
+       assert(nfull(out));
+       // Sending current count to the channel
+       out ! cnt;
+       // Incrementing the counter for the next cycle
+       cnt = cnt + 1
+    od
+}
+
+// Equivalent of proc SlowReceiver
+proctype SlowReceiver(chan in; chan out) {
+    bool state = false; // Initial state from DSLX: init { false }
+    int val;
+
+    do // Infinite loop representing DSLX next() cycles
+    ::
+       if
+       :: state ->
+          // Condition matches state == true; maps to recv_if and send_if
+          in ? val;
+          out ! val
+       :: else ->
+          // If state is false, skip I/O operations
+          skip
+       fi;
+
+       // State transition: toggle boolean state (equivalent to return !state)
+       state = !state
+    od
+}
+
+// Process to initialize the system
+init {
+    atomic {
+        run Counter(data_s);
+        run SlowReceiver(data_s, resp_s);
+    }
+}

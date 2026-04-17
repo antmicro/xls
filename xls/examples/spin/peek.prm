@@ -1,0 +1,36 @@
+// Channel definitions with a sample capacity.
+// DSLX u32 corresponds to Promela int.
+chan req_r = [7] of { int };
+chan resp_s = [7] of { int };
+
+// Equivalent of the DSLX proc Peek
+proctype Peek(chan in, out) {
+    int peeked_val;
+    int val;
+    int PACKET_THRESHOLD = 10;
+
+    do // Infinite loop representing DSLX next() cycles
+    :: in ? <peeked_val> ->
+       // STEP 1: Hypothetical peek() in Promela (poll)
+       // It blocks until data is available, then copies it to 'peeked_val'
+       // without removing it from the channel.
+
+       bool should_process = (peeked_val >= PACKET_THRESHOLD);
+
+       // STEP 2: Logic corresponding to DSLX recv_if
+       if
+       :: should_process ->
+          progress: in ? val // If predicate is true, perform actual recv
+       :: else ->
+          val = 0  // If false, return zero value (default_value)
+       fi;
+
+       // STEP 3: Send the resulting value to the output channel
+       out ! val
+    od
+}
+
+// System initialization
+init {
+    run Peek(req_r, resp_s);
+}

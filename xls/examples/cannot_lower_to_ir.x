@@ -14,34 +14,46 @@
 
 // From `ProcWithUnconvertibleConfigGivesUsefulError` IR converter test
 // as an example of proc that cannot be converted to IR.
-proc Generator {
-  out_ch: chan<u32> out;
-  val: u32;
+proc Adder {
+  req_r: chan<u32> in;
+  resp_s: chan<u32> out;
 
-  init {()}
-  config(out_ch: chan<u32> out, val: u32, val2: u32) {
-    (out_ch, val + val2)
+  config(req_r: chan<u32> in, resp_s: chan<u32> out) {
+    (req_r, resp_s)
   }
-  next(state: ()) {
-    send(join(), out_ch, val);
+
+  init {  }
+
+  next(_: ()) {
+    let (tok, data) = recv(join(), req_r);
+    let processed = data + u32:5;
+    let tok = send(tok, resp_s, processed);
   }
 }
 
 #[test_proc]
 proc Testing {
+  req_s: chan<u32> out;
+  resp_r: chan<u32> in;
   terminator: chan<bool> out;
-  response: chan<u32> in;
+
+  config(terminator: chan<bool> out) {
+    let (req_s, req_r) = chan<u32>("req");
+    let (resp_s, resp_r) = chan<u32>("resp");
+    spawn Adder(req_r, resp_s);
+
+    (req_s, resp_r, terminator)
+  }
 
   init {  }
 
-  config(terminator: chan<bool> out){
-    let (s, r) = chan<u32, u32:1>("test_chan");
-    spawn Generator(s, u32:66, u32:99);
-    (terminator, r)
-  }
+  next(_: ()) {
+    let tok = send(join(), req_s, u32:16);
+    let (tok, _data) = recv(tok, resp_r);
 
-  next(state: ()) {
-    let (tok, data) = recv(join(), response);
-    send(tok, terminator, true);
+    let tok = send(tok, req_s, u32:32);
+    let (tok, _data) = recv(tok, resp_r);
+
+    let tok = send(tok, terminator, true);
   }
 }

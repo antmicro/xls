@@ -1433,8 +1433,9 @@ xls_dslx_test(
     name = "cannot_lower_to_ir_test",
     srcs = ["cannot_lower_to_ir.x"],
     dslx_test_args = {
-        "lower_to_ir": "false",
+        "lower_to_ir": "true",
         "convert_tests": "true",
+        "lower_to_proc_scoped_channels": "false",
     },
 )
 
@@ -1526,14 +1527,6 @@ xls_dslx_test(
     dslx_test_args = {"compare": "jit"},
 )
 
-xls_dslx_ir(
-    name = "const_match_ir",
-    dslx_top = "ConstMatchInst",
-    ir_conv_args = {"lower_to_proc_scoped_channels": "true"},
-    ir_file = "const_match.ir",
-    library = ":const_match_dslx",
-)
-
 xls_dslx_opt_ir(
     name = "const_match_opt_ir",
     srcs = ["const_match.x"],
@@ -1552,4 +1545,35 @@ xls_dslx_verilog(
     dslx_top = "ConstMatchInst",
     library = ":const_match_dslx",
     verilog_file = "const_match.sv",
+)
+
+xls_dslx_library(
+    name = "order_dependence_dslx",
+    srcs = ["order_dependence.x"],
+)
+
+xls_dslx_test(
+    name = "order_dependence_test",
+    size = "small",
+    srcs = ["order_dependence.x"],
+    dslx_test_args = {"compare": "none"},
+)
+
+xls_dslx_opt_ir(
+    name = "order_dependence_opt_ir",
+    srcs = ["order_dependence.x"],
+    dslx_top = "Arbiter",
+)
+
+xls_dslx_verilog(
+    name = "order_dependence_verilog",
+    codegen_args = {
+        "module_name": "Arbiter",
+        "delay_model": "unit",
+        "pipeline_stages": "2",
+        "reset": "rst",
+    },
+    dslx_top = "Arbiter",
+    library = ":order_dependence_dslx",
+    verilog_file = "order_dependence.sv",
 )

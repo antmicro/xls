@@ -25,20 +25,19 @@ proc Receiver {
 
     init { false }
 
-    next(_: ()) {
+    next(received: bool) {
         // First set of operations.
-        let (tok0, req0, valid0) = recv_non_blocking(
-            join(), req_r[0], u32:0);
-        trace_fmt!("Received {}!", req0);
-        // More operations...
+        let (tok0, req0, valid0) = recv_if_non_blocking(
+            join(), req_r[0], !received, u32:0);
         let tok0 = send(tok0, resp_s[0], req0);
+        let received = valid0 || received;
 
-        // Second set of operations
-        let (tok1, req1, valid1) = recv_non_blocking(
-            join(), req_r[1], u32:0);
-        trace_fmt!("Received {}!", req1);
-        // More operations...
+        // Second set of operations.
+        let (tok1, req1, valid1) = recv_if_non_blocking(
+            join(), req_r[1], !received, u32:0);
         let tok1 = send(tok1, resp_s[1], req1);
+        let received = valid1 || received;
+        received
     }
 }
 

@@ -1529,9 +1529,12 @@ xls_dslx_test(
 xls_dslx_ir(
     name = "const_match_ir",
     dslx_top = "ConstMatchInst",
-    ir_conv_args = {"lower_to_proc_scoped_channels": "true"},
+    ir_conv_args = {
+        "lower_to_proc_scoped_channels": "true",
+        "convert_tests": "true"
+    },
     ir_file = "const_match.ir",
-    library = ":const_match_dslx",
+    dslx_path = "const_match.x",
 )
 
 xls_dslx_opt_ir(
@@ -1552,4 +1555,11 @@ xls_dslx_verilog(
     dslx_top = "ConstMatchInst",
     library = ":const_match_dslx",
     verilog_file = "const_match.sv",
+)
+
+xls_dslx_test(
+    name = "order_dependence_test",
+    size = "small",
+    srcs = ["order_dependence.x"],
+    dslx_test_args = {"compare": "none"},
 )

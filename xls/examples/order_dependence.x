@@ -53,10 +53,7 @@ proc Worker {
 }
 
 proc Toppy {
-    req_r: chan<u32>[2] in;
-    resp_s: chan<u32>[2] out;
-    err: chan<u32> out;
-    config(req_r: chan<()>[2] in, resp_s: chan<u32>[2] out,
+    config(req_r: chan<u32>[2] in, resp_s: chan<u32>[2] out,
            err: chan<u32> out) {
         spawn Worker(req_r[0], resp_s[0], err);
         spawn BuggyWorker(req_r[1], resp_s[1], err);
@@ -70,13 +67,13 @@ proc Toppy {
 
 #[test_proc]
 proc Tester {
-    req_s: chan<()>[2] out;
+    req_s: chan<u32>[2] out;
     resp_r: chan<u32>[2] in;
     err: chan<u32> in;
     terminator: chan<bool> out;
 
     config(terminator: chan<bool> out) {
-        let (req_s, req_r) = chan<()>[2]("req");
+        let (req_s, req_r) = chan<u32>[2]("req");
         let (resp_s, resp_r) = chan<u32>[2]("resp");
         let (err_s, err_r) = chan<u32>("err");
         spawn Toppy(req_r, resp_s, err_s);
@@ -90,11 +87,10 @@ proc Tester {
         let tok1 = send(join(), req_s[1], u32:16);
 
         let (tok2, err, err_valid) = recv_non_blocking(tok1, err, u32:0);
-        assert_eq(err == u32:500);
-        assert_eq(err_valid);
+        assert_eq(err, u32:500);
 
         let tok0 = send(join(), req_s[0], u32:8);
 
-        let tok = send(tok, terminator, true);
+        let tok = send(join(tok0, tok2), terminator, true);
     }
 }

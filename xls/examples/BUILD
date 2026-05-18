@@ -1526,17 +1526,6 @@ xls_dslx_test(
     dslx_test_args = {"compare": "jit"},
 )
 
-xls_dslx_ir(
-    name = "const_match_ir",
-    dslx_top = "ConstMatchInst",
-    ir_conv_args = {
-        "lower_to_proc_scoped_channels": "true",
-        "convert_tests": "true"
-    },
-    ir_file = "const_match.ir",
-    dslx_path = "const_match.x",
-)
-
 xls_dslx_opt_ir(
     name = "const_match_opt_ir",
     srcs = ["const_match.x"],

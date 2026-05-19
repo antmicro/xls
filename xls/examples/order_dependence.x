@@ -19,16 +19,15 @@ proc BuggyWorker {
     resp_s: chan<u32> out;
     err: chan<u32> out;
 
-    config(req_r: chan<u32> in, resp_s: chan<u32> out,
-           err: chan<u32> out) {
+    config(req_r: chan<u32> in, resp_s: chan<u32> out, err: chan<u32> out) {
         (req_r, resp_s, err)
     }
 
     init {  }
 
     next(state: ()) {
-        let (tok, req0, valid0) = recv_non_blocking(
-            join(), req_r, u32:0);
+        let (tok, _req0) = recv(join(), req_r);
+        let tok = send(tok, resp_s, u32:0);
         // Oh no, a proc is unimplemented!
         let tok = send(tok, err, u32:500);
     }
@@ -39,8 +38,7 @@ proc Worker {
     resp_s: chan<u32> out;
     err: chan<u32> out;
 
-    config(req_r: chan<u32> in, resp_s: chan<u32> out,
-           err: chan<u32> out) {
+    config(req_r: chan<u32> in, resp_s: chan<u32> out, err: chan<u32> out) {
         (req_r, resp_s, err)
     }
 
@@ -49,14 +47,17 @@ proc Worker {
     next(state: ()) {
         let (tok, req) = recv(join(), req_r);
         let tok = send(tok, resp_s, req + u32:5);
+        // Everything is alright.
+        let tok = send(tok, err, u32:200);
     }
 }
 
 proc Toppy {
-    config(req_r: chan<u32>[2] in, resp_s: chan<u32>[2] out,
-           err: chan<u32> out) {
-        spawn Worker(req_r[0], resp_s[0], err);
-        spawn BuggyWorker(req_r[1], resp_s[1], err);
+    config(req_r: chan<u32> in, resp_s: chan<u32> out, err: chan<u32> out) {
+        // Bad example - assigning single channel to multiple procs.
+        // Switch spawn order to receive different results in `Tester`.
+        spawn BuggyWorker(req_r, resp_s, err);
+        spawn Worker(req_r, resp_s, err);
         ()
     }
 
@@ -67,14 +68,14 @@ proc Toppy {
 
 #[test_proc]
 proc Tester {
-    req_s: chan<u32>[2] out;
-    resp_r: chan<u32>[2] in;
+    req_s: chan<u32> out;
+    resp_r: chan<u32> in;
     err: chan<u32> in;
     terminator: chan<bool> out;
 
     config(terminator: chan<bool> out) {
-        let (req_s, req_r) = chan<u32>[2]("req");
-        let (resp_s, resp_r) = chan<u32>[2]("resp");
+        let (req_s, req_r) = chan<u32>("req");
+        let (resp_s, resp_r) = chan<u32>("resp");
         let (err_s, err_r) = chan<u32>("err");
         spawn Toppy(req_r, resp_s, err_s);
 
@@ -84,13 +85,14 @@ proc Tester {
     init {  }
 
     next(_: ()) {
-        let tok1 = send(join(), req_s[1], u32:16);
+        let tok = send(join(), req_s, u32:16);
 
-        let (tok2, err, err_valid) = recv_non_blocking(tok1, err, u32:0);
-        assert_eq(err, u32:500);
+        let (tok, resp) = recv(tok, resp_r);
+        trace_fmt!("Received resp: {}", resp);
 
-        let tok0 = send(join(), req_s[0], u32:8);
+        let (tok, err) = recv(tok, err);
+        trace_fmt!("Received err: {}", err);
 
-        let tok = send(join(tok0, tok2), terminator, true);
+        let tok = send(tok, terminator, true);
     }
 }

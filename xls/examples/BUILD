@@ -1433,8 +1433,9 @@ xls_dslx_test(
     name = "cannot_lower_to_ir_test",
     srcs = ["cannot_lower_to_ir.x"],
     dslx_test_args = {
-        "lower_to_ir": "false",
+        "lower_to_ir": "true",
         "convert_tests": "true",
+        "lower_to_proc_scoped_channels": "false",
     },
 )
 
@@ -1551,4 +1552,19 @@ xls_dslx_test(
     size = "small",
     srcs = ["order_dependence.x"],
     dslx_test_args = {"compare": "none"},
+)
+
+xls_dslx_library(
+    name = "error_check_dslx",
+    srcs = ["error_check.x"],
+)
+
+xls_dslx_ir(
+    name = "error_check_ir",
+    dslx_top = "Adder",
+    # ir_conv_args = {
+    #     "convert_tests": "true",
+    # },
+    ir_file = "error_check.ir",
+    library = ":error_check_dslx",
 )

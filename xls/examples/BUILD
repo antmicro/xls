@@ -1547,6 +1547,11 @@ xls_dslx_verilog(
     verilog_file = "const_match.sv",
 )
 
+xls_dslx_library(
+    name = "order_dependence_dslx",
+    srcs = ["order_dependence.x"],
+)
+
 xls_dslx_test(
     name = "order_dependence_test",
     size = "small",
@@ -1554,17 +1559,21 @@ xls_dslx_test(
     dslx_test_args = {"compare": "none"},
 )
 
-xls_dslx_library(
-    name = "error_check_dslx",
-    srcs = ["error_check.x"],
+xls_dslx_opt_ir(
+    name = "order_dependence_opt_ir",
+    srcs = ["order_dependence.x"],
+    dslx_top = "Arbiter",
 )
 
-xls_dslx_ir(
-    name = "error_check_ir",
-    dslx_top = "Adder",
-    # ir_conv_args = {
-    #     "convert_tests": "true",
-    # },
-    ir_file = "error_check.ir",
-    library = ":error_check_dslx",
+xls_dslx_verilog(
+    name = "order_dependence_verilog",
+    codegen_args = {
+        "module_name": "Arbiter",
+        "delay_model": "unit",
+        "pipeline_stages": "1",
+        "reset": "rst",
+    },
+    dslx_top = "Arbiter",
+    library = ":order_dependence_dslx",
+    verilog_file = "order_dependence.sv",
 )

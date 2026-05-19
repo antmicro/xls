@@ -14,72 +14,82 @@
 
 #![feature(type_inference_v2)]
 
-proc BuggyWorker {
+proc Worker<VALUE: u32> {
     req_r: chan<u32> in;
     resp_s: chan<u32> out;
-    err: chan<u32> out;
 
-    config(req_r: chan<u32> in, resp_s: chan<u32> out, err: chan<u32> out) {
-        (req_r, resp_s, err)
-    }
-
-    init {  }
-
-    next(state: ()) {
-        let (tok, _req0) = recv(join(), req_r);
-        let tok = send(tok, resp_s, u32:0);
-        // Oh no, a proc is unimplemented!
-        let tok = send(tok, err, u32:500);
-    }
-}
-
-proc Worker {
-    req_r: chan<u32> in;
-    resp_s: chan<u32> out;
-    err: chan<u32> out;
-
-    config(req_r: chan<u32> in, resp_s: chan<u32> out, err: chan<u32> out) {
-        (req_r, resp_s, err)
+    config(req_r: chan<u32> in, resp_s: chan<u32> out) {
+        (req_r, resp_s)
     }
 
     init {  }
 
     next(state: ()) {
         let (tok, req) = recv(join(), req_r);
-        let tok = send(tok, resp_s, req + u32:5);
-        // Everything is alright.
-        let tok = send(tok, err, u32:200);
+        let tok = send(tok, resp_s, req + VALUE);
     }
 }
 
-proc Toppy {
-    config(req_r: chan<u32> in, resp_s: chan<u32> out, err: chan<u32> out) {
-        // Bad example - assigning single channel to multiple procs.
-        // Switch spawn order to receive different results in `Tester`.
-        spawn BuggyWorker(req_r, resp_s, err);
-        spawn Worker(req_r, resp_s, err);
-        ()
+proc Receiver {
+    req_r: chan<u32>[2] in;
+    resp_s: chan<u32> out;
+
+    config(req_r: chan<u32>[2] in, resp_s: chan<u32> out) {
+        (req_r, resp_s)
+    }
+
+    init { false }
+
+    next(received: bool) {
+        let (tok0, req0, valid0) = recv_if_non_blocking(join(), req_r[0], !received, u32:0);
+        let (tok1, req1, valid1) = recv_if_non_blocking(join(), req_r[1], !received, u32:0);
+        let tok = send_if(join(tok0, tok1), resp_s, valid0 || valid1, req0 + req1);
+        received || valid0 || valid1
+    }
+}
+
+proc Arbiter {
+    req_r: chan<u32> in;
+    resp_s: chan<u32> out;
+    worker_req_s: chan<u32>[2] out;
+    receiver_resp_r: chan<u32> in;
+
+    config(req_r: chan<u32> in, resp_s: chan<u32> out) {
+        let (worker_req_s, worker_req_r) = chan<u32>[2]("worker_req");
+        let (receiver_req_s, receiver_req_r) = chan<u32>[2]("receiver_req");
+        let (receiver_resp_s, receiver_resp_r) = chan<u32>("receiver_resp");
+
+        spawn Worker<u32:5>(worker_req_r[0], receiver_req_s[0]);
+        spawn Receiver(receiver_req_r, receiver_resp_s);
+        spawn Worker<u32:16>(worker_req_r[1], receiver_req_s[1]);
+
+        (req_r, resp_s, worker_req_s, receiver_resp_r)
     }
 
     init {  }
 
-    next(state: ()) {  }
+    next(state: ()) {
+        let (tok, req, req_valid) = recv_non_blocking(join(), req_r, u32:0);
+        let tok0 = send_if(tok, worker_req_s[0], req_valid, req);
+        let tok1 = send_if(tok, worker_req_s[1], req_valid, req);
+
+        let (tok, resp, valid) = recv_non_blocking(join(tok0, tok1), receiver_resp_r, u32:0);
+        let tok = send_if(tok, resp_s, valid, resp);
+    }
 }
 
 #[test_proc]
 proc Tester {
     req_s: chan<u32> out;
     resp_r: chan<u32> in;
-    err: chan<u32> in;
     terminator: chan<bool> out;
 
     config(terminator: chan<bool> out) {
         let (req_s, req_r) = chan<u32>("req");
         let (resp_s, resp_r) = chan<u32>("resp");
-        let (err_s, err_r) = chan<u32>("err");
-        spawn Toppy(req_r, resp_s, err_s);
+        spawn Arbiter(req_r, resp_s);
 
-        (req_s, resp_r, err_r, terminator)
+        (req_s, resp_r, terminator)
     }
 
     init {  }
@@ -89,9 +99,6 @@ proc Tester {
 
         let (tok, resp) = recv(tok, resp_r);
         trace_fmt!("Received resp: {}", resp);
-
-        let (tok, err) = recv(tok, err);
-        trace_fmt!("Received err: {}", err);
 
         let tok = send(tok, terminator, true);
     }

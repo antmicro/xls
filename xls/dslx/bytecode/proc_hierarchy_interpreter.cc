@@ -392,6 +392,11 @@ absl::StatusOr<int64_t> ProcHierarchyInterpreter::TickUntilOutput(
     }
     std::vector<std::string> blocked_channels;
     std::shuffle(proc_instances().begin(), proc_instances().end(), random_gen_);
+    std::cout << "proc order: [";
+    for (auto& p : proc_instances()) {
+      std::cout << p.proc()->name_def()->identifier() << ", ";
+    }
+    std::cout << "]\n";
     for (auto& p : proc_instances()) {
       XLS_ASSIGN_OR_RETURN(ProcRunResult run_result, p.Run());
       if (run_result.execution_state == ProcExecutionState::kBlockedOnReceive) {

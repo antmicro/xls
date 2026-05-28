@@ -108,6 +108,12 @@ class BytecodeInterpreterOptions {
   }
   FormatPreference format_preference() const { return format_preference_; }
 
+  BytecodeInterpreterOptions& seed(std::optional<int64_t> value) {
+    seed_ = value;
+    return *this;
+  }
+  std::optional<int64_t> seed() const { return seed_; }
+
  private:
   PostFnEvalHook post_fn_eval_hook_ = nullptr;
   RolloverHook rollover_hook_ = nullptr;
@@ -116,6 +122,7 @@ class BytecodeInterpreterOptions {
   std::optional<int64_t> max_ticks_;
   bool validate_final_stack_depth_ = true;
   FormatPreference format_preference_ = FormatPreference::kDefault;
+  std::optional<int64_t> seed_ = 0;
 };
 
 }  // namespace xls::dslx

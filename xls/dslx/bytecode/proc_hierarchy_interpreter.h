@@ -158,7 +158,7 @@ class ProcHierarchyInterpreter {
   InterpValueChannelManager channel_manager_;
   std::vector<ProcInstance> proc_instances_;
   std::vector<InterpValue> interface_args_;
-  std::mt19937 random_gen_{std::random_device{}()};
+  std::mt19937 random_gen_;
 
   // The interface is defined by the config arguments of the top-level proc.
   struct InterfaceChannel {

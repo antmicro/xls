@@ -245,6 +245,7 @@ ProcHierarchyInterpreter::Create(ImportData* import_data, TypeInfo* type_info,
         param->identifier(), param_type.value(),
         &channel_type->payload_type()));
   }
+  hierarchy_interpreter->random_gen_.seed(options.seed().value_or(0));
 
   XLS_RETURN_IF_ERROR(ProcConfigBytecodeInterpreter::EvalSpawn(
       import_data, &proc_id_factory,

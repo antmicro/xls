@@ -1048,7 +1048,8 @@ absl::StatusOr<TestResultData> AbstractTestRunner::ParseAndTest(
         .trace_channels(options.trace_channels)
         .trace_calls(options.trace_calls)
         .max_ticks(options.max_ticks)
-        .format_preference(options.format_preference);
+        .format_preference(options.format_preference)
+        .seed(options.seed);
     if (std::holds_alternative<TestFunction*>(*member)) {
       XLS_ASSIGN_OR_RETURN(
           out, runner->RunTestFunction(test_name, interpreter_options,

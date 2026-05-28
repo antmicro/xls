@@ -107,6 +107,7 @@ struct ParseAndTestOptions {
   bool execute = true;
   std::optional<int64_t> seed = std::nullopt;
   ConvertOptions convert_options;
+  std::optional<uint32_t> iters = 1;
 
   bool trace_channels = false;
   bool trace_calls = false;

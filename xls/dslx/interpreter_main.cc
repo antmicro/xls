@@ -113,6 +113,8 @@ ABSL_FLAG(std::optional<bool>, lower_to_ir, true,
 ABSL_FLAG(std::optional<bool>, convert_tests, false,
           "Include tests in the IR conversion test. Has effect only when "
           "'lower_to_ir' flag is set.");
+ABSL_FLAG(uint32_t, iters, 1,
+          "Run test 'iters' number of times with diferent seeds based on the `seed` value");
 
 // LINT.ThenChange(//xls/build_rules/xls_dslx_rules.bzl)
 
@@ -168,7 +170,8 @@ absl::StatusOr<TestResult> RealMain(
     bool warnings_as_errors, std::optional<int64_t> seed, bool trace_channels,
     bool trace_calls, std::optional<int64_t> max_ticks,
     std::optional<std::string_view> xml_output_file, EvaluatorType evaluator,
-    const std::vector<std::string>& configured_values) {
+    const std::vector<std::string>& configured_values,
+    std::optional<uint32_t> iters) {
   XLS_ASSIGN_OR_RETURN(
       WarningKindSet warnings,
       GetWarningsSetFromFlags(absl::GetFlag(FLAGS_enable_warnings),
@@ -253,6 +256,7 @@ absl::StatusOr<TestResult> RealMain(
       .quickcheck_runner = quickcheck_runner.get(),
       .execute = execute,
       .seed = seed,
+      .iters = iters,
       .trace_channels = trace_channels,
       .trace_calls = trace_calls,
       .max_ticks = max_ticks,
@@ -384,6 +388,11 @@ int main(int argc, char* argv[]) {
           ? std::nullopt
           : std::optional<int64_t>(absl::GetFlag(FLAGS_max_ticks));
 
+  std::optional<uint32_t> iters =
+      absl::GetFlag(FLAGS_iters) == 0
+          ? std::nullopt
+          : std::optional<uint32_t>(absl::GetFlag(FLAGS_iters));
+
   xls::dslx::CompareFlag compare_flag;
   if (compare_flag_str == "none") {
     compare_flag = xls::dslx::CompareFlag::kNone;
@@ -467,7 +476,7 @@ int main(int argc, char* argv[]) {
       args[0], dslx_paths, dslx_stdlib_path, test_filter, preference,
       compare_flag, execute, warnings_as_errors, seed, trace_channels,
       trace_calls, max_ticks, xml_output_file, evaluator.value(),
-      configured_values);
+      configured_values, iters);
   if (!test_result.ok()) {
     return xls::ExitStatus(test_result.status());
   }

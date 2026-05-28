@@ -1030,67 +1030,72 @@ absl::StatusOr<TestResultData> AbstractTestRunner::ParseAndTest(
           .timestamp = test_case_start});
       continue;
     }
+    for (uint32_t iter_num = 0; iter_num < options.iters.value_or(1); iter_num++) {
+      std::cerr << "[ RUN UNITTEST  ] " << test_name;
+      if (options.iters.has_value()) {
+        std::cerr << ", iter " << iter_num;
+      }
+      std::cerr << "\n";
+      RunResult out;
+      BytecodeInterpreterOptions interpreter_options;
 
-    std::cerr << "[ RUN UNITTEST  ] " << test_name << '\n';
-    RunResult out;
-    BytecodeInterpreterOptions interpreter_options;
+      // If requested, create a result entry and capture trace messages.
+      xls::EvaluatorResultProto* result_proto = nullptr;
+      if (options.results_out != nullptr) {
+        result_proto = options.results_out->add_results();
+      }
 
-    // If requested, create a result entry and capture trace messages.
-    xls::EvaluatorResultProto* result_proto = nullptr;
-    if (options.results_out != nullptr) {
-      result_proto = options.results_out->add_results();
-    }
+      // Create an events collector for this specific test run.
+      InfoLoggingDslxInterpreterEvents test_events;
 
-    // Create an events collector for this specific test run.
-    InfoLoggingDslxInterpreterEvents test_events;
-
-    interpreter_options.post_fn_eval_hook(post_fn_eval_hook)
+      interpreter_options.post_fn_eval_hook(post_fn_eval_hook)
         .trace_channels(options.trace_channels)
         .trace_calls(options.trace_calls)
         .max_ticks(options.max_ticks)
         .format_preference(options.format_preference)
-        .seed(options.seed);
-    if (std::holds_alternative<TestFunction*>(*member)) {
-      XLS_ASSIGN_OR_RETURN(
-          out, runner->RunTestFunction(test_name, interpreter_options,
-                                       /*events=*/&test_events));
-    } else {
-      if (options.results_out != nullptr) {
-        return absl::UnimplementedError(
-            "Collecting EvaluatorResultsProto for proc tests is not yet "
-            "implemented");
+        .seed(options.seed.value_or(0) + iter_num);
+      if (std::holds_alternative<TestFunction*>(*member)) {
+        XLS_ASSIGN_OR_RETURN(
+                             out, runner->RunTestFunction(test_name, interpreter_options,
+                                                          /*events=*/&test_events));
+      } else {
+        if (options.results_out != nullptr) {
+          return absl::UnimplementedError(
+                                          "Collecting EvaluatorResultsProto for proc tests is not yet "
+                                          "implemented");
+        }
+        XLS_ASSIGN_OR_RETURN(out,
+                             runner->RunTestProc(test_name, interpreter_options));
       }
-      XLS_ASSIGN_OR_RETURN(out,
-                           runner->RunTestProc(test_name, interpreter_options));
-    }
-    auto test_case_end = absl::Now();
+      auto test_case_end = absl::Now();
 
-    // If collecting results, copy the events into the result proto for this
-    // test invocation.
-    if (result_proto != nullptr) {
-      *result_proto->mutable_events() = test_events.AsProto();
-    }
-
-    if (out.result.ok()) {
-      // Add to the tracking data.
-      result.AddTestCase(test_xml::TestCase{
-          .name = test_name,
-          .file = std::string{start_pos.GetFilename(file_table)},
-          .line = start_pos.GetHumanLineno(),
-          .status = test_xml::RunStatus::kRun,
-          .result = test_xml::RunResult::kCompleted,
-          .time = test_case_end - test_case_start,
-          .timestamp = test_case_start});
-      std::cerr << "[            OK ]" << '\n';
-    } else {
+      // If collecting results, copy the events into the result proto for this
+      // test invocation.
       if (result_proto != nullptr) {
-        xls::AssertMessageProto* am =
-            result_proto->mutable_events()->add_assert_msgs();
-        am->set_message(std::string(out.result.message()));
+        *result_proto->mutable_events() = test_events.AsProto();
       }
-      HandleError(result, out.result, test_name, start_pos, test_case_start,
-                  test_case_end - test_case_start,
-                  /*is_quickcheck=*/false, file_table, import_data.vfs());
+
+      if (out.result.ok()) {
+        // Add to the tracking data.
+        result.AddTestCase(test_xml::TestCase{
+            .name = test_name,
+            .file = std::string{start_pos.GetFilename(file_table)},
+            .line = start_pos.GetHumanLineno(),
+            .status = test_xml::RunStatus::kRun,
+            .result = test_xml::RunResult::kCompleted,
+            .time = test_case_end - test_case_start,
+            .timestamp = test_case_start});
+        std::cerr << "[            OK ]" << '\n';
+      } else {
+        if (result_proto != nullptr) {
+          xls::AssertMessageProto* am =
+            result_proto->mutable_events()->add_assert_msgs();
+          am->set_message(std::string(out.result.message()));
+        }
+        HandleError(result, out.result, test_name, start_pos, test_case_start,
+                    test_case_end - test_case_start,
+                    /*is_quickcheck=*/false, file_table, import_data.vfs());
+      }
     }
   }
 

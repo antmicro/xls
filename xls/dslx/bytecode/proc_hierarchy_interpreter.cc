@@ -323,12 +323,12 @@ absl::Status ProcHierarchyInterpreter::Tick() {
   for (auto& p : proc_instances()) {
     ready_list.push_back(&p);
   }
-
   std::deque<ProcInstance*> next_ready_list;
   bool progress_made;
   do {
     progress_made = false;
     while (!ready_list.empty()) {
+      std::shuffle(ready_list.begin(), ready_list.end(), random_gen_);
       ProcInstance* p = ready_list.front();
       ready_list.pop_front();
 

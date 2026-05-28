@@ -120,6 +120,8 @@ def _get_dslx_test_cmdline(ctx, src, all_srcs, append_cmd_line_args = True):
         "lower_to_proc_scoped_channels",
         "lower_to_ir",
         "convert_tests",
+        "seed",
+        "iters",
     )
 
     dslx_test_args = dict(_dslx_test_args)

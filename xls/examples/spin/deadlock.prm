@@ -1,0 +1,50 @@
+#define FIFO_DEPTH 2
+
+chan req0 = [FIFO_DEPTH] of { int };
+chan resp0 = [FIFO_DEPTH] of { int };
+chan resp1 = [FIFO_DEPTH] of { int };
+
+// Proc A implementation
+proctype A(chan in_ch, out0_ch, out1_ch) {
+  int state = 0;
+
+  do
+  ::
+     // This does not work in the DSLX interpreter
+     in_ch ? _ ->      // recv(join(), req0_r)
+     out0_ch ! state;  // send(join(), resp0_s, state)
+
+     // This does, but has exactly the same meaning as the code above
+     // in_ch ? _ ->      // recv(join(), req0_r)
+     // out0_ch ! state;  // send(join(), resp0_s, state)
+
+     out1_ch ! state;  // send(join(), resp1_s, state)
+     state = state + 1 // state + u32:1
+  od
+}
+
+// Proc B implementation
+proctype B(chan in_ch, out_ch) {
+  int data;
+
+  do
+  ::
+     in_ch ? data ->   // recv(join(), req0_r)
+     out_ch ! data     // send(join(), resp0_s, data)
+  od
+}
+
+init {
+  int data;
+  int i;
+
+  // config()
+  run A(req0, resp0, resp1);
+  run B(resp0, req0);
+
+  // next()
+  for (i : 0 .. 10) {
+    resp1 ? data;               // recv(tok, resp1_r)
+    printf("Data: %d\n", data); // trace_fmt!
+  }
+}

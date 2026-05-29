@@ -63,3 +63,14 @@ xls_dslx_test(
     library = ":peek_dslx",
     dslx_test_args = {"compare": "jit"},
 )
+
+xls_dslx_library(
+    name = "deadlock_dslx",
+    srcs = [ "deadlock.x" ],
+)
+
+xls_dslx_test(
+    name = "deadlock_dslx_test",
+    srcs = ["deadlock.x"],
+    dslx_test_args = {"compare": "jit"},
+)

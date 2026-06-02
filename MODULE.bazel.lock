@@ -807,6 +807,43 @@
         ]
       }
     },
+    "//dependency_support/spin:extension.bzl%spin_extension": {
+      "general": {
+        "bzlTransitiveDigest": "JqhOlJx22BKOlennclGT5xd4yxiCwP5JnAHLQ/hqOZ4=",
+        "usagesDigest": "OY+qzTHfABqiBjmwfd5DPWD0TSZmD+oOuML4yDuyEco=",
+        "recordedFileInputs": {},
+        "recordedDirentsInputs": {},
+        "envVariables": {},
+        "generatedRepoSpecs": {
+          "spin": {
+            "bzlFile": "@@bazel_tools//tools/build_defs/repo:http.bzl",
+            "ruleClassName": "http_archive",
+            "attributes": {
+              "sha256": "e2ba8cfebf963cb524be2a3caee68821472602f9c4f0e557f2550d8e382eab99",
+              "strip_prefix": "Spin-master",
+              "urls": [
+                "https://github.com/nimble-code/Spin/archive/refs/heads/master.tar.gz"
+              ],
+              "build_file": "@@//dependency_support/spin:bundled.BUILD.bazel",
+              "patches": [
+                "@@//dependency_support/spin/patches:spin_json_trace.patch"
+              ],
+              "patch_args": [
+                "-p1",
+                "--fuzz=3"
+              ]
+            }
+          }
+        },
+        "recordedRepoMappingEntries": [
+          [
+            "",
+            "bazel_tools",
+            "bazel_tools"
+          ]
+        ]
+      }
+    },
     "//dependency_support/z3:extension.bzl%z3_extension": {
       "general": {
         "bzlTransitiveDigest": "qu/tfQRAZhNUvlq6u2XDvfhIcWFScGpF3KrIx02SlwM=",

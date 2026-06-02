@@ -52,6 +52,7 @@
 #include "xls/dslx/warning_kind.h"
 #include "xls/ir/evaluator_result.pb.h"
 #include "xls/ir/format_preference.h"
+#include "xls/spin/promela_spin_runner.h"
 
 // LINT.IfChange
 ABSL_FLAG(std::string, dslx_path, "",
@@ -116,6 +117,14 @@ ABSL_FLAG(std::optional<bool>, convert_tests, false,
 
 // LINT.ThenChange(//xls/build_rules/xls_dslx_rules.bzl)
 
+ABSL_FLAG(bool, spin_verify, false,
+          "When true, converts the DSLX source to Promela, runs SPIN guided "
+          "simulation, and compares per-channel event sequences against the "
+          "DSLX interpreter trace. The spin binary is located via Bazel "
+          "runfiles or PATH. The top-level test proc is inferred from the "
+          "module; a warning is emitted when multiple #[test_proc] entries "
+          "are present. Implies --trace_channels.");
+
 namespace xls::dslx {
 namespace {
 
@@ -175,6 +184,9 @@ absl::StatusOr<TestResult> RealMain(
                               absl::GetFlag(FLAGS_disable_warnings)));
   std::optional<bool> type_inference_v2_flag =
       absl::GetFlag(FLAGS_type_inference_v2);
+  const bool spin_verify = absl::GetFlag(FLAGS_spin_verify);
+  // --spin_verify requires channel tracing to build the DSLX side of the trace.
+  if (spin_verify) trace_channels = true;
   std::optional<TypeInferenceVersion> type_inference_version =
       type_inference_v2_flag.has_value()
           ? std::make_optional(*type_inference_v2_flag
@@ -258,11 +270,12 @@ absl::StatusOr<TestResult> RealMain(
       .max_ticks = max_ticks,
   };
 
-  // Create a results proto if requested and plumb it through options.
+  // Create a results proto if requested or needed for SPIN trace comparison.
   xls::EvaluatorResultsProto results_proto;
-  options.results_out = !absl::GetFlag(FLAGS_output_results_proto).empty()
-                            ? &results_proto
-                            : nullptr;
+  options.results_out =
+      (!absl::GetFlag(FLAGS_output_results_proto).empty() || spin_verify)
+          ? &results_proto
+          : nullptr;
 
   std::unique_ptr<AbstractTestRunner> test_runner = GetTestRunner(evaluator);
   XLS_ASSIGN_OR_RETURN(TestResultData test_result,
@@ -278,12 +291,13 @@ absl::StatusOr<TestResult> RealMain(
   }
 
   // If requested, write the results proto to the given file in text format.
-  if (options.results_out != nullptr) {
+  if (!absl::GetFlag(FLAGS_output_results_proto).empty()) {
     std::string text;
     QCHECK(google::protobuf::TextFormat::PrintToString(results_proto, &text));
     XLS_RETURN_IF_ERROR(
         SetFileContents(absl::GetFlag(FLAGS_output_results_proto), text));
   }
+
 
   // Early feeback if the code cannot be lowered to IR.
   std::optional<bool> lower_to_ir_flag = absl::GetFlag(FLAGS_lower_to_ir);
@@ -350,6 +364,17 @@ absl::StatusOr<TestResult> RealMain(
           absl::StrFormat("IR conversion test failed for %s.",
                           absl::StrJoin(failed_ir_conversion_entries, ", ")));
     }
+  }
+
+  // Promela / SPIN trace verification.
+  if (spin_verify) {
+    spin::SpinVerificationOptions spin_opts;
+    spin_opts.dslx_stdlib_path = dslx_stdlib_path.string();
+    spin_opts.dslx_paths.assign(dslx_paths.begin(), dslx_paths.end());
+    spin_opts.test_filter = test_filter;
+    spin_opts.type_inference_v2 = type_inference_v2_flag.value_or(false);
+    XLS_RETURN_IF_ERROR(spin::RunSpinVerification(
+        program, entry_module_path, module_name, results_proto, spin_opts));
   }
 
   return test_result.result();

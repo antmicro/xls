@@ -637,6 +637,7 @@ cc_binary(
         "//xls/dslx/run_routines:test_xml",
         "//xls/ir:evaluator_result_cc_proto",
         "//xls/ir:format_preference",
+        "//xls/spin:promela_spin_runner",
         "@com_google_absl//absl/flags:flag",
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/log:check",

@@ -1,0 +1,73 @@
+--- a/Src/main.c
++++ b/Src/main.c
+@@ -51,3 +51,4 @@
+ int	old_priority_rules;	/* use pre 6.2.0 rules */
+ int	product, Strict;
++FILE	*json_trace_fp = NULL;	/* output file for -Q JSON channel trace */
+ short	replay;
+@@ -267,5 +268,9 @@
+ #else
+ 	struct stat x;
+ #endif
++	if (json_trace_fp)
++	{	fclose(json_trace_fp);
++		json_trace_fp = NULL;
++	}
+ 	if (preprocessonly == 0 &&  strlen(out1) > 0)
+ 	{	(void) unlink((const char *) out1);
+@@ -941,5 +946,17 @@
+ 			  	alldone(0);
+ 			  }
+ 			  verbose +=  4; break;
++		case 'Q': if (argc < 3)
++			  {	fprintf(stderr,
++				    "spin: -Q requires an output filename\n");
++				alldone(1);
++			  }
++			  json_trace_fp = fopen(argv[2], "w");
++			  if (!json_trace_fp)
++			  {	fprintf(stderr,
++				    "spin: cannot open '%s'\n", argv[2]);
++				alldone(1);
++			  }
++			  argc--; argv++; break;
+ 		case 'q': if (isdigit((int) argv[1][2]))
+ 			  	qhide(atoi(&argv[1][2]));
+--- a/Src/mesg.c
++++ b/Src/mesg.c
+@@ -20,3 +20,4 @@
+ extern int	verbose, TstOnly, s_trail, analyze, columns;
+ extern int	lineno, depth, xspin, m_loss, jumpsteps;
+ extern int	nproc, nstop;
++extern FILE	*json_trace_fp;	/* set by -Q flag; emit JSON channel trace */
+@@ -42,2 +43,3 @@
+ extern void	putarrow(int, int);
+ static void	sr_talk(Lextok *, int, char *, char *, int, Queue *);
++static void	channm(Lextok *);
+@@ -337,3 +338,13 @@
+ 		/* may 30, 2023: the field types are 0..nflds, not i+0..nflds */
+ 		typ_ck(q->fld_width[j], Sym_typ(m->lft), "send");
+ 	}
++	if (json_trace_fp && q->nflds == 1)
++	{	int json_val = q->contents[i];
++		GBuf[0] = '\0';
++		channm(n);
++		fprintf(json_trace_fp,
++			"{\"channel_name\":\"%s\",\"direction\":\"SEND\",\"value\":%d}\n",
++			GBuf, json_val);
++		fflush(json_trace_fp);
++	}
++
+@@ -431,3 +442,12 @@
+ 	oi = q->stepnr[i];
++	if (json_trace_fp && full && n->val < 2 && q->nflds == 1 && !Rvous)
++	{	GBuf[0] = '\0';
++		channm(n);
++		fprintf(json_trace_fp,
++			"{\"channel_name\":\"%s\",\"direction\":\"RECV\",\"value\":%d}\n",
++			GBuf, q->contents[i]);
++		fflush(json_trace_fp);
++	}
++
+ 	for (m = n->rgt, j = 0; m && j < q->nflds; m = m->rgt, j++)
+ 	{	if (columns && !full)	/* was columns == 1 */

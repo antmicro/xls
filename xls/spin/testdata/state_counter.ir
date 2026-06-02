@@ -1,0 +1,13 @@
+package state_counter
+
+file_number 0 "/home/rwinkler/Projects/xls_ws2/xls/xls/spin/testdata/state_counter.x"
+
+top proc __state_counter__Counter_0_next<>(__state: bits[32], init={0}) {
+  __state: bits[32] = state_read(state_element=__state, id=2)
+  literal.5: bits[32] = literal(value=1, id=5, pos=[(0,3,29)])
+  add.6: bits[32] = add(__state, literal.5, id=6, pos=[(0,3,21)])
+  __token: token = literal(value=token, id=1)
+  literal.3: bits[1] = literal(value=1, id=3)
+  tuple.4: () = tuple(id=4, pos=[(0,1,13)])
+  next_value.7: () = next_value(param=__state, value=add.6, id=7)
+}

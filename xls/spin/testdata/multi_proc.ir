@@ -1,0 +1,19 @@
+package multi_proc
+
+file_number 0 "/home/rwinkler/Projects/xls_ws2/xls/xls/spin/testdata/multi_proc.x"
+
+top proc __multi_proc__ProcA_0_next<>(__state: bits[1], init={0}) {
+  __state: bits[1] = state_read(state_element=__state, id=2)
+  __token: token = literal(value=token, id=1)
+  literal.3: bits[1] = literal(value=1, id=3)
+  tuple.4: () = tuple(id=4, pos=[(0,1,13)])
+  next_value.5: () = next_value(param=__state, value=__state, id=5)
+}
+
+proc __multi_proc__ProcB_0_next<>(__state: bits[1], init={0}) {
+  __state: bits[1] = state_read(state_element=__state, id=7)
+  __token: token = literal(value=token, id=6)
+  literal.8: bits[1] = literal(value=1, id=8)
+  tuple.9: () = tuple(id=9, pos=[(0,6,13)])
+  next_value.10: () = next_value(param=__state, value=__state, id=10)
+}

@@ -57,6 +57,18 @@ xls_dslx_test_common_attrs = {
               "'compare' dslx_test_arg is only available with the default 'dslx-interpreter' " +
               "evaluator.",
     ),
+    "spin_verify": attr.bool(
+        default = False,
+        doc = "When True, converts the DSLX source to Promela, runs SPIN guided " +
+              "simulation, and compares per-channel event sequences against the " +
+              "DSLX interpreter trace. Passes --spin_verify to interpreter_main.",
+    ),
+    "trace_channels": attr.bool(
+        default = False,
+        doc = "When True, passes --trace_channels to interpreter_main so " +
+              "channel send/receive events are printed during the test. " +
+              "Implied by spin_verify.",
+    ),
 }
 
 def get_dslx_test_cmd(ctx, src_files_to_test):
@@ -76,10 +88,13 @@ def get_dslx_test_cmd(ctx, src_files_to_test):
     dslx_interpreter_tool_runfiles = (
         ctx.attr._xls_dslx_interpreter_tool[DefaultInfo].default_runfiles
     )
+    extra_runfiles = [dslx_interpreter_tool_runfiles]
+    if ctx.attr.spin_verify:
+        extra_runfiles.append(ctx.attr._spin[DefaultInfo].default_runfiles)
     runfiles = get_runfiles_for_xls(
         ctx,
-        [dslx_interpreter_tool_runfiles],
-        src_files_to_test,
+        extra_runfiles,
+        src_files_to_test + ([ctx.executable._spin] if ctx.attr.spin_verify else []),
     )
 
     cmds = []
@@ -148,11 +163,17 @@ def _get_dslx_test_cmdline(ctx, src, all_srcs, append_cmd_line_args = True):
     dslx_test_args["evaluator"] = ctx.attr.evaluator
     my_args = args_to_string(dslx_test_args)
 
-    cmd = "{} {} {}".format(
+    extra_flags = []
+    if ctx.attr.trace_channels and not ctx.attr.spin_verify:
+        extra_flags.append("--trace_channels")
+    if ctx.attr.spin_verify:
+        extra_flags.append("--spin_verify")
+    cmd = "{} {} {} {}".format(
         dslx_interpreter_tool.short_path,
         src.short_path,
         my_args,
-    )
+        " ".join(extra_flags),
+    ).strip()
 
     # Append command-line arguments.
     if append_cmd_line_args:
@@ -203,6 +224,13 @@ xls_dslx_test = rule(
         xls_dslx_library_as_input_attrs,
         xls_dslx_test_common_attrs,
         dicts.pick(xls_toolchain_attrs, ["_xls_dslx_interpreter_tool"]),
+        {
+            "_spin": attr.label(
+                default = Label("@spin//:spin"),
+                executable = True,
+                cfg = "target",
+            ),
+        },
     ),
     test = True,
 )

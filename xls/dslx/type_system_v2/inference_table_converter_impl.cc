@@ -2238,13 +2238,68 @@ class InferenceTableConverterImpl : public InferenceTableConverter,
     }
 
     if (callee.IsInProc()) {
-      for (const AstNode* child : (*callee.proc())->GetChildren(false)) {
+      const Proc* callee_proc = *callee.proc();
+      // Proc-scope `const`/type-alias declarations may be referenced by the
+      // member declarations converted below (e.g. a channel type using a
+      // proc-scope const for its width, as derived from a parametric
+      // binding like `CONFIG`), so resolve them into the invocation context
+      // first. `const`s are additionally added to `actual_parametrics` --
+      // the same map used for the proc's own parametric bindings just above
+      // -- so that `GetParametricFreeType` substitutes them (not just
+      // literal parametric bindings like `CONFIG`) out of formal types
+      // before those types are unified against the caller's own actual
+      // arguments; otherwise a reference to a proc-scope const in a formal
+      // channel type is left dangling when evaluated in the caller's scope,
+      // where the const doesn't exist.
+      for (const ProcStmt& stmt : callee_proc->stmts()) {
+        if (std::holds_alternative<ConstantDef*>(stmt)) {
+          auto* constant = std::get<ConstantDef*>(stmt);
+          XLS_RETURN_IF_ERROR(
+              ConvertSubtree(constant, std::nullopt, invocation_context));
+          if (invocation_context->type_info()->IsKnownConstExpr(
+                  constant->value())) {
+            XLS_ASSIGN_OR_RETURN(
+                InterpValue value,
+                invocation_context->type_info()->GetConstExpr(
+                    constant->value()));
+            // Prefer the const's own explicit type annotation, or one
+            // already resolved for its value expression, if either is
+            // available. Otherwise (e.g. the value came from a function
+            // call like `std::clog2(...)`, whose type lives on a type
+            // variable rather than a directly attached annotation), fall
+            // back to building a bits annotation directly from the
+            // computed value's own bit count and signedness.
+            const TypeAnnotation* value_type_annotation = nullptr;
+            if (constant->type_annotation() != nullptr) {
+              value_type_annotation = constant->type_annotation();
+            } else if (std::optional<const TypeAnnotation*> resolved =
+                           table_.GetTypeAnnotation(constant->value());
+                       resolved.has_value()) {
+              value_type_annotation = *resolved;
+            } else {
+              XLS_ASSIGN_OR_RETURN(int64_t bit_count, value.GetBitCount());
+              value_type_annotation = CreateUnOrSnAnnotation(
+                  module_, constant->span(), value.IsSigned(), bit_count);
+            }
+            XLS_ASSIGN_OR_RETURN(
+                Number * value_expr,
+                MakeTypeCheckedNumber(module_, table_, constant->span(),
+                                      value, value_type_annotation));
+            actual_parametrics.emplace(constant->name_def(), value_expr);
+          }
+        } else if (std::holds_alternative<TypeAlias*>(stmt)) {
+          AstNode* stmt_node = std::get<TypeAlias*>(stmt);
+          XLS_RETURN_IF_ERROR(
+              ConvertSubtree(stmt_node, std::nullopt, invocation_context));
+        }
+      }
+      for (const AstNode* child : callee_proc->GetChildren(false)) {
         if (child->kind() == AstNodeKind::kConstAssert) {
           XLS_RETURN_IF_ERROR(
               ConvertSubtree(child, std::nullopt, invocation_context));
         }
       }
-      for (const ProcMember* member : (*callee.proc())->members()) {
+      for (const ProcMember* member : callee_proc->members()) {
         XLS_RETURN_IF_ERROR(
             ConvertSubtree(member, std::nullopt, invocation_context));
       }

@@ -19,6 +19,7 @@
 #include <vector>
 
 #include "absl/base/casts.h"
+#include "absl/container/flat_hash_set.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "xls/common/status/ret_check.h"
@@ -42,6 +43,33 @@ class Flattener : public AstNodeVisitorWithDefault {
   absl::Status HandleFunction(const Function* node) override {
     if (!include_parametric_entities_ && node->IsParametric()) {
       return absl::OkStatus();
+    }
+    // `config`/`init`/`next` are proc functions that are also registered as
+    // independent top-level module members (see the parser's proc handling,
+    // which adds them to the module for name-collision-avoidance reasons --
+    // google/xls#1029), so one of them can be flattened/converted before the
+    // enclosing proc's own turn comes up in module order. In particular,
+    // `config`'s return type is auto-derived from the proc's own member
+    // declarations, so evaluating it can require a proc-scope `const` (e.g.
+    // a channel type using a proc-scope const for its width) to already be
+    // resolved. Ensure the proc's own const/type-alias/const-assert
+    // declarations are flattened first, ahead of this function's own
+    // subtree, so they land earlier in `nodes_` and get converted first.
+    // Guarded by `procs_with_consts_flattened_` so this only happens once
+    // per proc even though it's called for each of config/init/next.
+    if (node->IsInProc()) {
+      const Proc* proc = *node->proc();
+      if (procs_with_consts_flattened_.insert(proc).second) {
+        for (const ProcStmt& stmt : proc->stmts()) {
+          if (std::holds_alternative<ConstantDef*>(stmt) ||
+              std::holds_alternative<TypeAlias*>(stmt) ||
+              std::holds_alternative<ConstAssert*>(stmt)) {
+            AstNode* stmt_node =
+                std::visit([](auto* n) -> AstNode* { return n; }, stmt);
+            XLS_RETURN_IF_ERROR(stmt_node->Accept(this));
+          }
+        }
+      }
     }
     return DefaultHandler(node);
   }
@@ -298,6 +326,7 @@ class Flattener : public AstNodeVisitorWithDefault {
   const AstNode* const root_;
   const bool include_parametric_entities_;
   std::vector<const AstNode*> nodes_;
+  absl::flat_hash_set<const Proc*> procs_with_consts_flattened_;
 };
 
 }  // namespace

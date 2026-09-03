@@ -1132,6 +1132,7 @@ cc_library(
         ":inference_table_converter",
         ":inference_table_utils",
         ":parametric_struct_instantiator",
+        ":populate_table_visitor",
         ":simplified_type_annotation_cache",
         ":type_annotation_filter",
         ":type_annotation_utils",

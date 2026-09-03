@@ -97,6 +97,10 @@ class PopulateInferenceTableVisitor : public PopulateTableVisitor,
     return annotation->Accept(this);
   }
 
+  absl::Status PopulateFromImpl(const Impl* impl) override {
+    return impl->Accept(this);
+  }
+
   absl::Status PopulateFromUnrolledLoopBody(
       const StatementBlock* root) override {
     XLS_RET_CHECK(!handle_proc_functions_);

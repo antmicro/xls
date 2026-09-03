@@ -40,6 +40,11 @@ class PopulateTableVisitor {
   virtual absl::Status PopulateFromUnrolledLoopBody(
       const StatementBlock* body) = 0;
   virtual absl::Status PopulateFromColonRef(const ColonRef* colon_ref) = 0;
+  // Populates the table for a struct/proc `impl` that has no top-level
+  // presence of its own in the module being converted -- e.g. one freshly
+  // cloned as the concrete type substituted for a generic `<T: type>`
+  // parameter, which whole-module population never reaches.
+  virtual absl::Status PopulateFromImpl(const Impl* impl) = 0;
 };
 
 // Creates a PopulateTableVisitor for the given module and table.

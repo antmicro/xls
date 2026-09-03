@@ -1411,3 +1411,14 @@ xls_dslx_test(
     evaluator = "ir-jit",
     library = ":new_style_proc_spawn_test_dslx",
 )
+
+dslx_lang_test(
+    name = "trait_bound_generic_minimal",
+    convert_to_ir = False,
+)
+
+dslx_lang_test(
+    name = "trait_bound_generic_ram_model",
+    convert_to_ir = False,
+    dslx_deps = ["//xls/examples:ram_dslx"],
+)

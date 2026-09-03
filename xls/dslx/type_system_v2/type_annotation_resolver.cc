@@ -51,6 +51,7 @@
 #include "xls/dslx/type_system_v2/inference_table_converter.h"
 #include "xls/dslx/type_system_v2/inference_table_utils.h"
 #include "xls/dslx/type_system_v2/parametric_struct_instantiator.h"
+#include "xls/dslx/type_system_v2/populate_table_visitor.h"
 #include "xls/dslx/type_system_v2/simplified_type_annotation_cache.h"
 #include "xls/dslx/type_system_v2/type_annotation_filter.h"
 #include "xls/dslx/type_system_v2/type_annotation_utils.h"
@@ -662,11 +663,48 @@ class StatefulResolver : public TypeAnnotationResolver {
           (*struct_def->impl())->GetMember(member_type->member_name());
       if (impl_member.has_value()) {
         if (std::holds_alternative<ConstantDef*>(*impl_member)) {
+          // Ordinarily this impl member is already converted by virtue of
+          // being a top-level struct's own impl. That doesn't hold when the
+          // struct is only reached indirectly, e.g. as the concrete type
+          // substituted for a generic `<T: type>` parameter -- nothing else
+          // visits it first in that case, so convert it explicitly here too.
+          auto* const_member = std::get<ConstantDef*>(*impl_member);
+          // A struct/impl reached only via a `TypeRef` cloned as the
+          // concrete type substituted for a generic `<T: type>` parameter
+          // has no other top-level presence of its own, so whole-module
+          // population never visits it and its members have no type
+          // variable or annotation yet. Populate it on demand in that case;
+          // `ConvertSubtree` below assumes population already happened, and
+          // for every other (non-cloned) impl it already has.
+          if (!table_.GetTypeVariable(const_member).has_value() &&
+              !table_.GetTypeAnnotation(const_member).has_value()) {
+            std::unique_ptr<PopulateTableVisitor> populator =
+                CreatePopulateTableVisitor(const_member->owner(), &table_,
+                                           &import_data_,
+                                           /*typecheck_imported_module=*/nullptr);
+            XLS_RETURN_IF_ERROR(
+                populator->PopulateFromImpl(*struct_def->impl()));
+          }
+          // A non-parametric struct's own const is converted and evaluated
+          // against the "no parametric context" TypeInfo regardless of what
+          // proc substituted this struct in for a generic `<T: type>`
+          // parameter -- using the caller's ambient `parametric_context`
+          // here would convert into the wrong TypeInfo, which silently
+          // breaks constexpr evaluation of the const's value later (it
+          // looks up the root TypeInfo, separately from this conversion). A
+          // parametric struct's own consts are unaffected: `parametric_context`
+          // was already reassigned to that struct's own context above.
+          std::optional<const ParametricContext*> const_member_context =
+              struct_def->IsParametric() ? parametric_context : std::nullopt;
+          XLS_ASSIGN_OR_RETURN(
+              InferenceTableConverter * const_member_converter,
+              import_data_.GetInferenceTableConverter(const_member->owner()));
+          XLS_RETURN_IF_ERROR(const_member_converter->ConvertSubtree(
+              const_member, std::nullopt, const_member_context));
           XLS_ASSIGN_OR_RETURN(
               std::optional<const TypeAnnotation*> member_type,
               ResolveAndUnifyTypeAnnotationsForNode(
-                  parametric_context, std::get<ConstantDef*>(*impl_member),
-                  filter));
+                  const_member_context, const_member, filter));
           XLS_RET_CHECK(member_type.has_value());
           return parametric_struct_instantiator_
               .GetParametricFreeStructMemberType(
@@ -688,6 +726,39 @@ class StatefulResolver : public TypeAnnotationResolver {
         return absl::UnimplementedError(
             absl::StrCat("Impl member type is not supported: ",
                          ToAstNode(*impl_member)->ToString()));
+      }
+      // If the struct's own impl doesn't override this name, and the impl
+      // implements a trait, fall back to the trait's default `const` of the
+      // same name -- using the already-resolved `struct_def` directly,
+      // rather than (as the `ResolveColonRefTarget` fallback further below
+      // does) re-deriving the struct from `context_node`'s colon-ref, whose
+      // subject may still be an unsubstituted generic `<T: type>` parameter
+      // at this point and fail to resolve back to this struct at all.
+      std::optional<Trait*> impl_trait_ref =
+          (*struct_def->impl())->trait_ref();
+      if (impl_trait_ref.has_value()) {
+        for (ConstantDef* trait_const : (*impl_trait_ref)->GetConstants()) {
+          if (trait_const->identifier() != member_type->member_name()) {
+            continue;
+          }
+          // The trait's const lives inside the `Trait` node, which (unlike
+          // a struct's impl) is not otherwise reached by any conversion
+          // pass, so it needs to be explicitly converted here before its
+          // type can be resolved.
+          XLS_ASSIGN_OR_RETURN(
+              InferenceTableConverter * trait_const_converter,
+              import_data_.GetInferenceTableConverter(trait_const->owner()));
+          XLS_RETURN_IF_ERROR(trait_const_converter->ConvertSubtree(
+              trait_const, std::nullopt, parametric_context));
+          XLS_ASSIGN_OR_RETURN(
+              std::optional<const TypeAnnotation*> const_type,
+              ResolveAndUnifyTypeAnnotationsForNode(
+                  parametric_context, trait_const, filter));
+          XLS_RET_CHECK(const_type.has_value());
+          return parametric_struct_instantiator_
+              .GetParametricFreeStructMemberType(
+                  parametric_context, *struct_or_proc_ref, *const_type);
+        }
       }
     }
     if (!member.has_value()) {

@@ -176,7 +176,24 @@ class Visitor : public AstNodeVisitorWithDefault {
         target = table_.GetColonRefTarget(direct_colon_ref);
       }
     }
-    if (!target.has_value() && !type_.IsEnum()) {
+    // `PopulateFromColonRef` above only sets a target for some subject
+    // kinds (e.g. a bare generic type variable); for others -- notably a
+    // `TypeRefTypeAnnotation` subject, produced when converting a generic
+    // `T::CONSTANT` to its direct form -- it defers resolution, and
+    // `target` is left as the stale self-reference sentinel from the
+    // original (pre-conversion) node. Treat that the same as "unresolved".
+    //
+    // This used to also require `!type_.IsEnum()`, on the assumption that an
+    // enum-typed colon-ref with no target must be a direct enum-member
+    // reference like `MyEnum::FOO` (handled below) rather than a struct's
+    // own const. That assumption doesn't hold once a struct's const can
+    // itself be enum-typed, as this code's own comment below already notes
+    // ("this logic doesn't apply to a const declaration whose value happens
+    // to be some enum value"). Resolving unconditionally is safe for the
+    // genuine direct-enum-member case too: it simply finds no struct and
+    // returns `nullopt`, leaving `target` as it was.
+    if (!target.has_value() ||
+        (*target)->kind() == AstNodeKind::kColonRef) {
       XLS_ASSIGN_OR_RETURN(target, converter_.ResolveColonRefTarget(
                                        direct_colon_ref, parametric_context_));
     }
@@ -284,6 +301,16 @@ class Visitor : public AstNodeVisitorWithDefault {
             << colon_ref->ToString()
             << " with target: " << (*target)->ToString();
     if (target_is_constant_def) {
+      // A non-parametric struct's own const is evaluated against the "no
+      // parametric context" env regardless of what proc substituted this
+      // struct in for a generic `<T: type>` parameter (mirroring
+      // `evaluation_ti`'s reset above) -- using the caller's ambient
+      // `parametric_context_` here, as happened before this fix, silently
+      // breaks evaluation of any nested expression that itself needs to be
+      // resolved against that env (e.g. an enum-literal `ColonRef` used as
+      // the const's value).
+      std::optional<const ParametricContext*> evaluation_context =
+          parametric_context_;
       XLS_ASSIGN_OR_RETURN(
           std::optional<StructOrProcRef> struct_or_proc,
           GetStructOrProcRefForSubject(direct_colon_ref, import_data_));
@@ -293,12 +320,26 @@ class Visitor : public AstNodeVisitorWithDefault {
             parametric_struct_instantiator_.GetOrCreateParametricStructContext(
                 parametric_context_, *struct_or_proc, direct_colon_ref));
         evaluation_ti = struct_context->type_info();
+        evaluation_context = struct_context;
+      } else if (struct_or_proc.has_value() &&
+                 struct_or_proc->def->owner() == &module_) {
+        // `import_data_.GetRootTypeInfoForNode` above returns a distinct
+        // `TypeInfo` object from the one actually used to convert and note
+        // constexpr values for a same-module, non-parametric struct's own
+        // members (e.g. by the on-demand population/conversion this struct
+        // needed in the first place, if reached only via a generic `<T:
+        // type>` substitution) -- go through the same accessor those used,
+        // so a nested expression within the const's value (e.g. an
+        // enum-literal `ColonRef`) that also needed on-demand handling is
+        // found where it was actually noted.
+        evaluation_context = std::nullopt;
+        XLS_ASSIGN_OR_RETURN(evaluation_ti, converter_.GetTypeInfo(std::nullopt));
       }
 
       // Evaluate the value, and note it if successful.
       absl::StatusOr<InterpValue> value = ConstexprEvaluator::EvaluateToValue(
           &import_data_, evaluation_ti, &warning_collector_,
-          table_.GetParametricEnv(parametric_context_),
+          table_.GetParametricEnv(evaluation_context),
           absl::down_cast<const ConstantDef*>(*target)->value());
       if (value.ok()) {
         VLOG(6) << "Noting constexpr for ColonRef: " << colon_ref->ToString()

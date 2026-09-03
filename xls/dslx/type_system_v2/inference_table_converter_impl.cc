@@ -3514,7 +3514,11 @@ class InferenceTableConverterImpl : public InferenceTableConverter,
       std::optional<const ParametricContext*> parametric_context) override {
     std::optional<const AstNode*> existing =
         table_.GetColonRefTarget(colon_ref);
-    if (existing.has_value()) {
+    // A self-referential target is the "generic, not yet resolved" sentinel
+    // (see e.g. `SetColonRefTarget(node, node)` in populate_table_visitor.cc)
+    // rather than an actual cached resolution -- fall through to resolve it
+    // for real instead of returning it as-is.
+    if (existing.has_value() && *existing != colon_ref) {
       return existing;
     }
     XLS_ASSIGN_OR_RETURN(std::optional<StructOrProcRef> struct_ref,
@@ -3541,6 +3545,34 @@ class InferenceTableConverterImpl : public InferenceTableConverter,
           impl->GetMember(colon_ref->attr());
       if (impl_member.has_value()) {
         resolved = ToAstNode(*impl_member);
+        // A struct/impl reached only via a `TypeRef` cloned as the concrete
+        // type substituted for a generic `<T: type>` parameter has no other
+        // top-level presence of its own, so whole-module population never
+        // visits it and this member has no type variable or annotation, nor
+        // has it been converted -- both of which its constexpr value
+        // evaluation (done elsewhere, against the struct's own, non-
+        // parametric-context TypeInfo) silently depends on. Populate and
+        // convert it on demand in that case.
+        if (std::holds_alternative<ConstantDef*>(*impl_member) &&
+            !table_.GetTypeVariable(std::get<ConstantDef*>(*impl_member))
+                 .has_value() &&
+            !table_.GetTypeAnnotation(std::get<ConstantDef*>(*impl_member))
+                 .has_value()) {
+          auto* const_member = std::get<ConstantDef*>(*impl_member);
+          std::unique_ptr<PopulateTableVisitor> populator =
+              CreatePopulateTableVisitor(const_member->owner(), &table_,
+                                         &import_data_,
+                                         /*typecheck_imported_module=*/nullptr);
+          XLS_RETURN_IF_ERROR(populator->PopulateFromImpl(impl));
+          std::optional<const ParametricContext*> const_member_context =
+              struct_ref->def->IsParametric() ? target_struct_context
+                                              : std::nullopt;
+          XLS_ASSIGN_OR_RETURN(
+              InferenceTableConverter * const_member_converter,
+              import_data_.GetInferenceTableConverter(const_member->owner()));
+          XLS_RETURN_IF_ERROR(const_member_converter->ConvertSubtree(
+              const_member, std::nullopt, const_member_context));
+        }
       }
       impl_trait_ref = impl->trait_ref();
     }
@@ -3551,10 +3583,26 @@ class InferenceTableConverterImpl : public InferenceTableConverter,
     // associated const.
     if (!resolved.has_value() && impl_trait_ref.has_value()) {
       for (ConstantDef* trait_const : (*impl_trait_ref)->GetConstants()) {
-        if (trait_const->identifier() == colon_ref->attr()) {
-          resolved = trait_const;
-          break;
+        if (trait_const->identifier() != colon_ref->attr()) {
+          continue;
         }
+        // The trait's const lives inside the `Trait` node, which (unlike a
+        // struct's impl) is not otherwise reached by any conversion pass,
+        // so it needs to be explicitly converted here before its value can
+        // be resolved -- mirroring the equivalent fix already present in
+        // `ResolveMemberType`'s own trait-fallback branch (this function's
+        // counterpart for value, rather than type, resolution).
+        // A trait is never parametric, so -- like a non-parametric struct's
+        // own const elsewhere in this function -- its const is converted
+        // under the "no parametric context" env regardless of the caller's
+        // ambient one.
+        XLS_ASSIGN_OR_RETURN(
+            InferenceTableConverter * trait_const_converter,
+            import_data_.GetInferenceTableConverter(trait_const->owner()));
+        XLS_RETURN_IF_ERROR(trait_const_converter->ConvertSubtree(
+            trait_const, std::nullopt, std::nullopt));
+        resolved = trait_const;
+        break;
       }
     }
     if (!resolved.has_value()) {

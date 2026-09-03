@@ -1074,8 +1074,12 @@ class AstCloner : public AstNodeVisitor {
   absl::Status HandleImpl(const Impl* n) override {
     // To avoid infinite loops between impl -> function -> struct -> impl, use a
     // placeholder for children (members and struct def) and add afterward.
+    // `trait_ref()` is passed through as-is (not cloned): it points at the
+    // trait's own top-level declaration, which isn't per-impl state, so the
+    // clone should reference the same one the original does.
     Impl* new_impl = module(n)->Make<Impl>(
-        n->span(), nullptr, std::vector<ImplMember>{}, n->is_public());
+        n->span(), nullptr, std::vector<ImplMember>{}, n->is_public(),
+        n->trait_ref());
     old_to_new_[n] = new_impl;
     if (!old_to_new_.contains(n->struct_ref())) {
       XLS_RETURN_IF_ERROR(ReplaceOrVisit(n->struct_ref()));

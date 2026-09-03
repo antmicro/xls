@@ -753,8 +753,13 @@ class InferenceTableImpl : public InferenceTable {
           std::optional<const AstNode*> target =
               GetColonRefTarget(old_node_as_colon_ref);
           if (target.has_value()) {
+            // A self-referential target is a sentinel meaning "generic,
+            // not yet resolved" (see e.g. `SetColonRefTarget(node, node)` in
+            // populate_table_visitor.cc). Copying it verbatim would leave
+            // the clone's target pointing at the old node instead of at
+            // itself, breaking that invariant for whoever checks it later.
             SetColonRefTarget(absl::down_cast<const ColonRef*>(new_node),
-                              *target);
+                              *target == old_node ? new_node : *target);
           }
         }
       }

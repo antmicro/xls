@@ -163,6 +163,7 @@ XLS_DSLX_AST_NODE_EACH(FORWARD_DECL)
 
 class StructDefBase;
 class StructInstanceBase;
+class Trait;
 
 // Helper type (abstract base) for double dispatch on AST nodes.
 class AstNodeVisitor {
@@ -3719,7 +3720,8 @@ using ImplMember =
 class Impl : public AstNode {
  public:
   Impl(Module* owner, Span span, TypeAnnotation* struct_ref,
-       std::vector<ImplMember> members, bool is_public);
+       std::vector<ImplMember> members, bool is_public,
+       std::optional<Trait*> trait_ref = std::nullopt);
 
   ~Impl() override;
 
@@ -3730,6 +3732,11 @@ class Impl : public AstNode {
   absl::Status Accept(AstNodeVisitor* v) const override {
     return v->HandleImpl(this);
   }
+
+  // The trait this impl implements, if this is `impl SomeTrait for
+  // SomeStruct { ... }` rather than a plain inherent `impl SomeStruct {
+  // ... }`.
+  std::optional<Trait*> trait_ref() const { return trait_ref_; }
 
   std::string_view GetNodeTypeName() const override { return "Impl"; }
 
@@ -3777,6 +3784,7 @@ class Impl : public AstNode {
   TypeAnnotation* struct_ref_;
   std::vector<ImplMember> members_;
   bool public_;
+  std::optional<Trait*> trait_ref_;
 
   template <typename T>
   std::optional<T> GetMemberOfType(std::string_view name) const;
@@ -3843,7 +3851,7 @@ class Lambda : public Expr {
 class Trait : public AstNode {
  public:
   Trait(Module* owner, Span span, NameDef* name_def,
-        std::vector<Function*> members, bool is_public);
+        std::vector<ImplMember> members, bool is_public);
 
   ~Trait() override;
 
@@ -3865,12 +3873,20 @@ class Trait : public AstNode {
   const Span& span() const { return span_; }
   std::optional<Span> GetSpan() const override { return span_; }
 
-  const std::vector<Function*>& members() const { return members_; }
+  const std::vector<ImplMember>& members() const { return members_; }
+
+  // Returns just the `fn` members of the trait -- the ones that
+  // `ModuleTraitManager` may derive bodies for. Associated `const`s are not
+  // derived; an implementing struct's `impl` must provide them directly.
+  std::vector<Function*> GetFunctions() const;
+
+  // Returns just the `const` members of the trait (associated constants).
+  std::vector<ConstantDef*> GetConstants() const;
 
  private:
   Span span_;
   NameDef* name_def_;
-  std::vector<Function*> members_;
+  std::vector<ImplMember> members_;
   bool public_;
 };
 

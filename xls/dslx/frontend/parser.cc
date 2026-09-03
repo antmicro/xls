@@ -4857,6 +4857,36 @@ absl::StatusOr<Impl*> Parser::ParseImpl(const Pos& start_pos, bool is_public,
 
   Bindings impl_bindings(&bindings);
   XLS_RETURN_IF_ERROR(DropKeywordOrError(Keyword::kImpl));
+
+  // Look ahead for `impl SomeTrait for SomeStruct { ... }`: if the token
+  // right after a leading identifier is `for`, that identifier names a
+  // trait rather than the struct being implemented (which follows `for`).
+  // A plain inherent `impl SomeStruct { ... }` is unaffected -- this
+  // lookahead only fires when `for` genuinely follows the first token.
+  std::optional<Trait*> trait_ref;
+  XLS_ASSIGN_OR_RETURN(const Token* first_tok, PeekToken());
+  if (first_tok->kind() == TokenKind::kIdentifier) {
+    XLS_ASSIGN_OR_RETURN(const Token* second_tok, PeekToken(1));
+    if (second_tok->IsKeyword(Keyword::kFor)) {
+      XLS_ASSIGN_OR_RETURN(Token trait_name_tok,
+                           PopTokenOrError(TokenKind::kIdentifier));
+      std::optional<BoundNode> bound =
+          bindings.ResolveNode(trait_name_tok.GetStringValue());
+      if (!bound.has_value() ||
+          !std::holds_alternative<NameDef*>(*bound) ||
+          std::get<NameDef*>(*bound)->definer()->kind() !=
+              AstNodeKind::kTrait) {
+        return ParseErrorStatus(
+            trait_name_tok.span(),
+            absl::StrFormat("`%s` is not a trait.",
+                            trait_name_tok.GetStringValue()));
+      }
+      trait_ref = absl::down_cast<Trait*>(
+          std::get<NameDef*>(*bound)->definer());
+      XLS_RETURN_IF_ERROR(DropKeywordOrError(Keyword::kFor));
+    }
+  }
+
   XLS_ASSIGN_OR_RETURN(
       TypeAnnotation * type,
       ParseTypeAnnotation(impl_bindings, /*first=*/std::nullopt,
@@ -4916,7 +4946,8 @@ absl::StatusOr<Impl*> Parser::ParseImpl(const Pos& start_pos, bool is_public,
     }
   }
   Span span(start_pos, GetPos());
-  auto* impl = module_->Make<Impl>(span, type, std::move(members), is_public);
+  auto* impl = module_->Make<Impl>(span, type, std::move(members), is_public,
+                                   trait_ref);
   (*struct_def)->set_impl(impl);
   for (Function* f : impl->GetFunctions()) {
     f->set_impl(impl);
@@ -4933,10 +4964,17 @@ absl::StatusOr<Trait*> Parser::ParseTrait(const Pos& start_pos, bool is_public,
   XLS_ASSIGN_OR_RETURN(Token name_tok, PopTokenOrError(TokenKind::kIdentifier));
   NameDef* name_def = module_->Make<NameDef>(
       name_tok.span(), name_tok.GetStringValue(), nullptr);
+  // Register the trait's name in the *outer* bindings (not just
+  // `trait_bindings`, which only covers the trait's own body) so that
+  // `impl SomeTrait for SomeStruct` elsewhere in the module can resolve
+  // `SomeTrait` by name. Structs/enums/consts all register themselves this
+  // way when parsed; traits previously did not, which is why a trait's name
+  // could not be referenced from an `impl`.
+  bindings.Add(name_def->identifier(), name_def);
   trait_bindings.AddTraitAsSelf(name_def);
   XLS_RETURN_IF_ERROR(DropTokenOrError(TokenKind::kOBrace, /*start=*/nullptr,
                                        "Opening brace for trait."));
-  std::vector<Function*> members;
+  std::vector<ImplMember> members;
   while (true) {
     XLS_ASSIGN_OR_RETURN(bool found_cbrace, TryDropToken(TokenKind::kCBrace));
     if (found_cbrace) {
@@ -4950,13 +4988,33 @@ absl::StatusOr<Trait*> Parser::ParseTrait(const Pos& start_pos, bool is_public,
           ParseFunctionInternal(member_start_pos, /*is_public=*/true,
                                 trait_bindings));
       members.push_back(function);
+    } else if (peek->IsKeyword(Keyword::kConst)) {
+      // An associated const in a trait must carry a value (unlike Rust,
+      // which allows a bare `const FOO: u32;` declaration): DSLX's
+      // `ConstantDef` has no representation for "declared but valueless"
+      // the way `Function` does for a stub body, so instead the trait's
+      // const value is a *default* -- exactly like Rust's optional
+      // `trait Foo { const BAR: u32 = 5; }` form, just mandatory here.
+      // An implementing struct's `impl` may override it with its own
+      // `const` of the same name; if it doesn't, the trait's default
+      // applies.
+      XLS_ASSIGN_OR_RETURN(
+          ConstantDef * constant,
+          ParseConstantDef(member_start_pos, /*is_public=*/true,
+                           trait_bindings));
+      members.push_back(constant);
     } else {
-      return ParseErrorStatus(peek->span(),
-                              "Only functions are supported in traits.");
+      return ParseErrorStatus(
+          peek->span(),
+          "Only functions and constants (with a default value) are "
+          "supported in traits.");
     }
   }
   Span span(start_pos, GetPos());
-  return module_->Make<Trait>(span, name_def, std::move(members), is_public);
+  Trait* trait =
+      module_->Make<Trait>(span, name_def, std::move(members), is_public);
+  name_def->set_definer(trait);
+  return trait;
 }
 
 absl::StatusOr<TuplePattern*> Parser::ParseTuplePattern(const Pos& start_pos,

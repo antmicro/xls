@@ -1457,7 +1457,27 @@ class PopulateInferenceTableVisitor : public PopulateTableVisitor,
     return DefaultHandler(node);
   }
 
-  absl::Status HandleTrait(const Trait*) override { return absl::OkStatus(); }
+  absl::Status HandleTrait(const Trait* node) override {
+    // Previously a no-op: fine when every trait member was a body-less `fn`
+    // stub (fully explicit param/return types need no inferred type
+    // variable, and trait functions are separately reachable -- see
+    // HandleFunction's comment on procs for the analogous case). Now that
+    // traits may also declare `const`s with default values, those DO need
+    // table population (name <-> type variable, unified with the type
+    // annotation and value), same as any other `const`. Unlike functions,
+    // consts are not reachable from anywhere else, so walk just those,
+    // instead of delegating to `DefaultHandler` (which segfaults --
+    // presumably from double-visiting the trait's `fn` stubs combined with
+    // `Self` resolution in an abstract, unimplemented trait context; not
+    // yet root-caused).
+    for (const ImplMember& member : node->members()) {
+      if (std::holds_alternative<ConstantDef*>(member)) {
+        XLS_RETURN_IF_ERROR(
+            std::get<ConstantDef*>(member)->Accept(this));
+      }
+    }
+    return absl::OkStatus();
+  }
 
   absl::Status HandleTestFunction(const TestFunction* node) override {
     VLOG(5) << "HandleTestFunction: " << node->ToString();

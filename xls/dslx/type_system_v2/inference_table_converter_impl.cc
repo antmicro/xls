@@ -3534,11 +3534,27 @@ class InferenceTableConverterImpl : public InferenceTableConverter,
                                parametric_context, *struct_ref, colon_ref));
     }
     std::optional<const AstNode*> resolved;
+    std::optional<Trait*> impl_trait_ref;
     if (struct_ref->def->impl().has_value()) {
+      Impl* impl = *struct_ref->def->impl();
       std::optional<ImplMember> impl_member =
-          (*struct_ref->def->impl())->GetMember(colon_ref->attr());
+          impl->GetMember(colon_ref->attr());
       if (impl_member.has_value()) {
         resolved = ToAstNode(*impl_member);
+      }
+      impl_trait_ref = impl->trait_ref();
+    }
+    // If the struct's own `impl` doesn't override this name, and the impl
+    // implements a trait, fall back to the trait's default `const` of the
+    // same name (if any) -- mirroring how a struct's `impl` overrides a
+    // trait's default field-by-field rather than needing to restate every
+    // associated const.
+    if (!resolved.has_value() && impl_trait_ref.has_value()) {
+      for (ConstantDef* trait_const : (*impl_trait_ref)->GetConstants()) {
+        if (trait_const->identifier() == colon_ref->attr()) {
+          resolved = trait_const;
+          break;
+        }
       }
     }
     if (!resolved.has_value()) {

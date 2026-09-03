@@ -1110,11 +1110,17 @@ class AstCloner : public AstNodeVisitor {
     XLS_RETURN_IF_ERROR(ReplaceOrVisit(n->name_def()));
     NameDef* new_name_def =
         absl::down_cast<NameDef*>(old_to_new_[n->name_def()]);
-    std::vector<Function*> new_members;
+    std::vector<ImplMember> new_members;
     new_members.reserve(n->members().size());
-    for (Function* member : n->members()) {
-      XLS_RETURN_IF_ERROR(ReplaceOrVisit(member));
-      new_members.push_back(absl::down_cast<Function*>(old_to_new_[member]));
+    for (const auto& member : n->members()) {
+      AstNode* member_node = ToAstNode(member);
+      XLS_RETURN_IF_ERROR(ReplaceOrVisit(member_node));
+      AstNode* new_node = old_to_new_[member_node];
+      if (new_node->kind() == AstNodeKind::kConstantDef) {
+        new_members.push_back(absl::down_cast<ConstantDef*>(new_node));
+      } else {
+        new_members.push_back(absl::down_cast<Function*>(new_node));
+      }
     }
     old_to_new_[n] = module(n)->Make<Trait>(n->span(), new_name_def,
                                             new_members, n->is_public());

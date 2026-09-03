@@ -120,7 +120,10 @@ class ModuleTraitManagerImpl : public ModuleTraitManager {
             << struct_or_proc_def.identifier() << "`";
     TypeSystemTrace trace =
         tracer_.TraceDeriveTrait(&trait, &struct_or_proc_def, struct_type);
-    for (Function* function : trait.members()) {
+    // Only `fn` members are derived; a trait's `const` members are either
+    // overridden directly by the implementing struct's own `impl`, or fall
+    // back to the trait's default value -- neither needs derivation.
+    for (Function* function : trait.GetFunctions()) {
       VLOG(5) << "Deriving trait member `" << function->identifier() << "`";
 
       StructFunctionKey struct_function_key{

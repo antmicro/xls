@@ -708,6 +708,33 @@ class StatefulResolver : public TypeAnnotationResolver {
                   CreateFunctionTypeAnnotation(
                       module_, *absl::down_cast<const Function*>(*resolved)));
         }
+        // A trait's default `const` (not overridden by the struct's own
+        // impl) resolves here too -- `ResolveColonRefTarget` already found
+        // it via the impl's `trait_ref()`, mirroring the `ConstantDef`
+        // handling above for a struct's own impl member.
+        if (resolved.has_value() &&
+            (*resolved)->kind() == AstNodeKind::kConstantDef) {
+          auto* trait_const =
+              const_cast<ConstantDef*>(absl::down_cast<const ConstantDef*>(*resolved));
+          // The trait's `const` lives inside the `Trait` node, which (unlike
+          // a struct's `impl`) is not otherwise reached by any conversion
+          // pass, so it needs to be explicitly converted here before its
+          // type can be resolved -- it is never converted just by virtue of
+          // being referenced.
+          XLS_ASSIGN_OR_RETURN(
+              InferenceTableConverter * trait_const_converter,
+              import_data_.GetInferenceTableConverter(trait_const->owner()));
+          XLS_RETURN_IF_ERROR(trait_const_converter->ConvertSubtree(
+              trait_const, std::nullopt, parametric_context));
+          XLS_ASSIGN_OR_RETURN(
+              std::optional<const TypeAnnotation*> const_type,
+              ResolveAndUnifyTypeAnnotationsForNode(
+                  parametric_context, trait_const, filter));
+          XLS_RET_CHECK(const_type.has_value());
+          return parametric_struct_instantiator_
+              .GetParametricFreeStructMemberType(
+                  parametric_context, *struct_or_proc_ref, *const_type);
+        }
         return TypeInferenceErrorStatus(
             member_type->span(), nullptr,
             absl::Substitute(

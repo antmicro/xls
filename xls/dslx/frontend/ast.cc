@@ -2105,12 +2105,14 @@ std::string ProcDef::ToString() const {
 // -- class Impl
 
 Impl::Impl(Module* owner, Span span, TypeAnnotation* struct_ref,
-           const std::vector<ImplMember> members, bool is_public)
+           const std::vector<ImplMember> members, bool is_public,
+           std::optional<Trait*> trait_ref)
     : AstNode(owner),
       span_(std::move(span)),
       struct_ref_(struct_ref),
       members_(members),
-      public_(is_public) {}
+      public_(is_public),
+      trait_ref_(trait_ref) {}
 
 Impl::~Impl() = default;
 
@@ -2199,7 +2201,7 @@ std::optional<Function*> Impl::GetFunction(std::string_view name) const {
 // -- class Trait
 
 Trait::Trait(Module* owner, Span span, NameDef* name_def,
-             std::vector<Function*> members, bool is_public)
+             std::vector<ImplMember> members, bool is_public)
     : AstNode(owner),
       span_(std::move(span)),
       name_def_(name_def),
@@ -2207,6 +2209,26 @@ Trait::Trait(Module* owner, Span span, NameDef* name_def,
       public_(is_public) {}
 
 Trait::~Trait() = default;
+
+std::vector<Function*> Trait::GetFunctions() const {
+  std::vector<Function*> result;
+  for (const ImplMember& member : members_) {
+    if (std::holds_alternative<Function*>(member)) {
+      result.push_back(std::get<Function*>(member));
+    }
+  }
+  return result;
+}
+
+std::vector<ConstantDef*> Trait::GetConstants() const {
+  std::vector<ConstantDef*> result;
+  for (const ImplMember& member : members_) {
+    if (std::holds_alternative<ConstantDef*>(member)) {
+      result.push_back(std::get<ConstantDef*>(member));
+    }
+  }
+  return result;
+}
 
 std::string Trait::ToString() const {
   std::string result =

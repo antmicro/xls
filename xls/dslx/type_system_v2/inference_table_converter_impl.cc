@@ -2207,10 +2207,11 @@ class InferenceTableConverterImpl : public InferenceTableConverter,
           }
           return module_.span();
         };
-        XLS_ASSIGN_OR_RETURN(Expr * value_expr,
-                             MakeTypeCheckedNumberOrEnumValue(
-                                 module_, table_, local_span(), value,
-                                 binding->type_annotation(), *binding_type));
+        XLS_ASSIGN_OR_RETURN(
+            Expr * value_expr,
+            MakeLiteralExprForValue(module_, local_span(), value,
+                                    binding->type_annotation(),
+                                    invocation_context, binding_type.get()));
         actual_parametrics.emplace(binding->name_def(), value_expr);
       }
     }
@@ -2239,18 +2240,11 @@ class InferenceTableConverterImpl : public InferenceTableConverter,
 
     if (callee.IsInProc()) {
       const Proc* callee_proc = *callee.proc();
-      // Proc-scope `const`/type-alias declarations may be referenced by the
-      // member declarations converted below (e.g. a channel type using a
-      // proc-scope const for its width, as derived from a parametric
-      // binding like `CONFIG`), so resolve them into the invocation context
-      // first. `const`s are additionally added to `actual_parametrics` --
-      // the same map used for the proc's own parametric bindings just above
-      // -- so that `GetParametricFreeType` substitutes them (not just
-      // literal parametric bindings like `CONFIG`) out of formal types
-      // before those types are unified against the caller's own actual
-      // arguments; otherwise a reference to a proc-scope const in a formal
-      // channel type is left dangling when evaluated in the caller's scope,
-      // where the const doesn't exist.
+      // Proc-scope const/type-alias declarations may be referenced by
+      // member declarations converted below, so resolve them first. Consts
+      // are also added to actual_parametrics so GetParametricFreeType
+      // substitutes them out of formal types; otherwise a const referenced
+      // in a formal channel type is left dangling in the caller's scope.
       for (const ProcStmt& stmt : callee_proc->stmts()) {
         if (std::holds_alternative<ConstantDef*>(stmt)) {
           auto* constant = std::get<ConstantDef*>(stmt);
@@ -2262,13 +2256,9 @@ class InferenceTableConverterImpl : public InferenceTableConverter,
                 InterpValue value,
                 invocation_context->type_info()->GetConstExpr(
                     constant->value()));
-            // Prefer the const's own explicit type annotation, or one
-            // already resolved for its value expression, if either is
-            // available. Otherwise (e.g. the value came from a function
-            // call like `std::clog2(...)`, whose type lives on a type
-            // variable rather than a directly attached annotation), fall
-            // back to building a bits annotation directly from the
-            // computed value's own bit count and signedness.
+            // Prefer the const's explicit or already-resolved type.
+            // Otherwise (e.g. from a call like std::clog2(...)), build a
+            // bits annotation from the value's bit count and signedness.
             const TypeAnnotation* value_type_annotation = nullptr;
             if (constant->type_annotation() != nullptr) {
               value_type_annotation = constant->type_annotation();
@@ -2761,10 +2751,10 @@ class InferenceTableConverterImpl : public InferenceTableConverter,
             Concretize(value_type_annotation, concretize_context));
         effective_type = resolved_binding_type.get();
       }
-      XLS_ASSIGN_OR_RETURN(Expr * value_expr,
-                           MakeTypeCheckedNumberOrEnumValue(
-                               module, table_, span, value,
-                               value_type_annotation, *effective_type));
+      XLS_ASSIGN_OR_RETURN(
+          Expr * value_expr,
+          MakeLiteralExprForValue(module, span, value, value_type_annotation,
+                                  concretize_context, effective_type));
       resolved_parametrics.emplace(binding->identifier(), value_expr);
       return absl::OkStatus();
     };
@@ -2950,10 +2940,12 @@ class InferenceTableConverterImpl : public InferenceTableConverter,
         XLS_ASSIGN_OR_RETURN(
             InterpValue value,
             (*struct_context)->type_info()->GetConstExpr(binding->name_def()));
-        std::optional<Number*> literal =
-            ConvertToNumberIfBitsLike(module_, binding->span(), value);
-        XLS_RET_CHECK(literal.has_value());
-        parametrics_and_constants.emplace(binding->name_def(), *literal);
+        XLS_ASSIGN_OR_RETURN(
+            Expr * literal,
+            MakeLiteralExprForValue(module_, binding->span(), value,
+                                    binding->type_annotation(),
+                                    struct_context));
+        parametrics_and_constants.emplace(binding->name_def(), literal);
       }
     }
 
@@ -3022,6 +3014,128 @@ class InferenceTableConverterImpl : public InferenceTableConverter,
                                      : std::nullopt);
   }
 
+  // Serializes an already-known constexpr `value` into a fresh literal AST
+  // expression (Number, Array, XlsTuple, or StructInstance, recursively for
+  // composite values) that type-checks on its own. This is what makes
+  // substituting a struct, array, or tuple valued parametric possible:
+  // there is no single Number that can represent it.
+  //
+  // `declared_type` drives the recursion: the binding's type at the top
+  // level, then an element or member type. An enum value needs a
+  // concretized Type to build a ColonRef instead of an invalid Number;
+  // `concrete_type` is used if already known, otherwise `parametric_context`
+  // concretizes it on demand, covering an enum nested in a struct, array,
+  // or tuple field too.
+  absl::StatusOr<Expr*> MakeLiteralExprForValue(
+      Module& module, const Span& span, const InterpValue& value,
+      const TypeAnnotation* declared_type,
+      std::optional<const ParametricContext*> parametric_context =
+          std::nullopt,
+      const Type* concrete_type = nullptr) {
+    if (value.IsEnum()) {
+      std::unique_ptr<Type> resolved_type;
+      if (concrete_type == nullptr && parametric_context.has_value()) {
+        XLS_ASSIGN_OR_RETURN(resolved_type,
+                             Concretize(declared_type, parametric_context));
+        concrete_type = resolved_type.get();
+      }
+      if (concrete_type != nullptr) {
+        return MakeTypeCheckedNumberOrEnumValue(module, table_, span, value,
+                                                declared_type, *concrete_type);
+      }
+    }
+    if (value.IsBits() || value.IsEnum()) {
+      // Sets type_annotation() on the node itself, unlike
+      // ConvertToNumberIfBitsLike (leaves it null, so
+      // PopulateInferenceTableVisitor::HandleNumber infers a wrong
+      // minimal-width type if this node is re-populated). Not built via
+      // MakeTypeCheckedNumber either: it requires span's file to match
+      // module's own file, which fails for a struct-valued parametric's
+      // fields carrying spans from another module.
+      Number* literal = module.Make<Number>(
+          span, value.ToString(/*humanize=*/true), NumberKind::kOther,
+          const_cast<TypeAnnotation*>(declared_type));
+      XLS_RETURN_IF_ERROR(table_.SetTypeAnnotation(literal, declared_type));
+      return literal;
+    }
+    if (value.IsArray()) {
+      const auto* array_type =
+          dynamic_cast<const ArrayTypeAnnotation*>(declared_type);
+      XLS_RET_CHECK(array_type != nullptr)
+          << "Array-valued parametric with non-array declared type: "
+          << declared_type->ToString();
+      XLS_ASSIGN_OR_RETURN(const std::vector<InterpValue>* elements,
+                           value.GetValues());
+      std::vector<Expr*> element_exprs;
+      element_exprs.reserve(elements->size());
+      for (const InterpValue& element : *elements) {
+        XLS_ASSIGN_OR_RETURN(
+            Expr * element_expr,
+            MakeLiteralExprForValue(module, span, element,
+                                   array_type->element_type(),
+                                   parametric_context));
+        element_exprs.push_back(element_expr);
+      }
+      Array* array = module.Make<Array>(span, std::move(element_exprs),
+                                        /*has_ellipsis=*/false);
+      XLS_RETURN_IF_ERROR(table_.SetTypeAnnotation(array, declared_type));
+      return array;
+    }
+    if (value.IsTuple()) {
+      XLS_ASSIGN_OR_RETURN(const std::vector<InterpValue>* elements,
+                           value.GetValues());
+      XLS_ASSIGN_OR_RETURN(std::optional<StructOrProcRef> struct_ref,
+                           GetStructOrProcRef(declared_type, import_data_));
+      if (struct_ref.has_value()) {
+        std::vector<std::string> member_names =
+            struct_ref->def->GetMemberNames();
+        XLS_RET_CHECK_EQ(member_names.size(), elements->size());
+        std::vector<std::pair<std::string, Expr*>> members;
+        members.reserve(elements->size());
+        for (int64_t i = 0; i < static_cast<int64_t>(member_names.size());
+            ++i) {
+          std::optional<StructMemberNode*> member =
+              struct_ref->def->GetMemberByName(member_names[i]);
+          XLS_RET_CHECK(member.has_value());
+          XLS_ASSIGN_OR_RETURN(
+              Expr * field_expr,
+              MakeLiteralExprForValue(module, span, (*elements)[i],
+                                     (*member)->type(), parametric_context));
+          members.push_back({member_names[i], field_expr});
+        }
+        StructInstance* instance = module.Make<StructInstance>(
+            span, const_cast<TypeAnnotation*>(declared_type),
+            std::move(members));
+        XLS_RETURN_IF_ERROR(table_.SetTypeAnnotation(instance, declared_type));
+        return instance;
+      }
+      const auto* tuple_type =
+          dynamic_cast<const TupleTypeAnnotation*>(declared_type);
+      XLS_RET_CHECK(tuple_type != nullptr)
+          << "Tuple-valued parametric with non-tuple, non-struct declared "
+             "type: "
+          << declared_type->ToString();
+      XLS_RET_CHECK_EQ(tuple_type->members().size(), elements->size());
+      std::vector<Expr*> element_exprs;
+      element_exprs.reserve(elements->size());
+      for (int64_t i = 0; i < static_cast<int64_t>(elements->size()); ++i) {
+        XLS_ASSIGN_OR_RETURN(
+            Expr * element_expr,
+            MakeLiteralExprForValue(module, span, (*elements)[i],
+                                   tuple_type->members()[i],
+                                   parametric_context));
+        element_exprs.push_back(element_expr);
+      }
+      XlsTuple* tuple = module.Make<XlsTuple>(span, std::move(element_exprs),
+                                              /*has_trailing_comma=*/false);
+      XLS_RETURN_IF_ERROR(table_.SetTypeAnnotation(tuple, declared_type));
+      return tuple;
+    }
+    return absl::UnimplementedError(absl::StrCat(
+        "Cannot represent parametric value as a literal expression: ",
+        value.ToString()));
+  }
+
   // Returns `type` with parametrics and parametric constants replaced with
   // `actual_values`. If `real_self_type` is specified, then any references to
   // `Self` in `type` are replaced with `real_self_type` in the returned type.
@@ -3049,12 +3163,44 @@ class InferenceTableConverterImpl : public InferenceTableConverter,
             [&](const AstNode* node, Module*,
                 const absl::flat_hash_map<const AstNode*, AstNode*>&)
                 -> absl::StatusOr<std::optional<AstNode*>> {
-              // Explicitly leave attrs alone in an example like
-              // `uN[STRUCT_CONST.n]`. With the current grammar, there is no way
-              // these nodes need parametric replacement. Trying to clone them
-              // across modules can make them fail to evaluate.
+              // Leave attrs alone in an example like `uN[STRUCT_CONST.n]`,
+              // where STRUCT_CONST isn't itself being substituted. But when
+              // the root subject of a field-access/index chain (e.g.
+              // CONFIG in uN[CONFIG.width]) is a substituted parametric,
+              // fall through so the recursive walk substitutes it with its
+              // literal expression (see MakeLiteralExprForValue).
+              //
+              // Narrower than "references a substituted parametric
+              // anywhere": an attr whose subject merely contains such a
+              // reference elsewhere (e.g. Struct<P>{}.method) must stay
+              // untouched, or substitution reclones that reference
+              // independently and can produce a differently-sized literal,
+              // breaking unification.
               if (node->kind() == AstNodeKind::kAttr) {
-                return const_cast<AstNode*>(node);
+                const AstNode* root = node;
+                while (true) {
+                  if (const auto* attr = dynamic_cast<const Attr*>(root)) {
+                    root = attr->lhs();
+                    continue;
+                  }
+                  if (const auto* index = dynamic_cast<const Index*>(root);
+                      index != nullptr &&
+                      std::holds_alternative<Expr*>(index->rhs())) {
+                    root = index->lhs();
+                    continue;
+                  }
+                  break;
+                }
+                const auto* root_ref = dynamic_cast<const NameRef*>(root);
+                bool root_is_substituted =
+                    root_ref != nullptr &&
+                    std::holds_alternative<const NameDef*>(
+                        root_ref->name_def()) &&
+                    actual_values.contains(
+                        std::get<const NameDef*>(root_ref->name_def()));
+                if (!root_is_substituted) {
+                  return const_cast<AstNode*>(node);
+                }
               }
               return std::nullopt;
             }));

@@ -34,3 +34,15 @@ xls_dslx_library(
 #     dslx_test_args = {"compare": "jit"},
 #     library = ":impl_style_dslx",
 # )
+
+xls_dslx_library(
+    name = "trait_style_dslx",
+    srcs = ["trait_style.x"],
+    deps = ["//xls/examples:ram_dslx"],
+)
+
+xls_dslx_test(
+    name = "trait_style_test",
+    dslx_test_args = {"compare": "jit"},
+    library = ":trait_style_dslx",
+)

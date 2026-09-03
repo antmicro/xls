@@ -9,10 +9,13 @@
 // own defaults.
 //
 // Unlike old_style.x, channel types here are inlined directly rather than
-// declared via a proc-scope `type` alias (e.g. `type ReadRespT = ...`):
-// routing a `T::CONST` reference through such an alias hits a separate,
-// unresolved gap in constexpr evaluation. Not a limitation of the pattern
-// itself -- just of this one intermediate form of writing it.
+// declared via a proc-scope `type` alias (e.g. `type ReadRespT = ...`).
+// Aliasing a plain bits-like type built from T::CONST works; aliasing a
+// parametric struct type (like `ram::ReadReq<...>`) does not yet -- the
+// same T::CONST gets resolved under two different, inconsistent contexts
+// depending on which resolution attempt reaches it, and the wrong one can
+// win. Not a limitation of the pattern itself, just of this one
+// intermediate form of writing it.
 import std;
 import xls.examples.ram;
 

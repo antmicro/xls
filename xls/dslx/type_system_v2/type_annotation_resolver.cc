@@ -1274,10 +1274,14 @@ class StatefulResolver : public TypeAnnotationResolver {
             latest = const_cast<TypeAnnotation*>(*type);
           }
 
-          // If the simplified type of a type alias is known, use it.
+          // If the simplified type of a type alias is known, use it. This
+          // must be looked up under the current `parametric_context`, not
+          // unconditionally `std::nullopt`: a generic `<T: type>` proc's
+          // type alias can have a different simplified type per
+          // substitution, and the cache is keyed accordingly.
           if (std::optional<const TypeAnnotation*> cached =
                   simplified_type_annotation_cache_.GetSimplifiedypeAnnotation(
-                      std::nullopt, alias)) {
+                      parametric_context, alias)) {
             return const_cast<TypeAnnotation*>(*cached);
           }
         }

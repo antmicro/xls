@@ -1422,3 +1422,8 @@ dslx_lang_test(
     convert_to_ir = False,
     dslx_deps = ["//xls/examples:ram_dslx"],
 )
+
+dslx_lang_test(
+    name = "trait_bound_generic_type_alias",
+    convert_to_ir = False,
+)

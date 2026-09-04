@@ -1,7 +1,7 @@
 #![feature(type_inference_v2)]
 
 // Demonstrates overriding the same 3 `ram::RamModel` parametrics as
-// old_style.x/impl_style.x (data_width, size, assert_valid_read), but
+// struct_as_value.x/struct_as_value_impl.x (data_width, size, assert_valid_read), but
 // directly at the spawn site via named parametric arguments -- no
 // `RamModelConfig` struct or `ConfiguredRamModel` wrapper proc needed.
 // `WORD_PARTITION_SIZE`, `SIMULTANEOUS_READ_WRITE_BEHAVIOR`, and

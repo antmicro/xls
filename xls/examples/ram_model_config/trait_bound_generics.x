@@ -2,13 +2,13 @@
 #![feature(traits)]
 #![feature(generics)]
 
-// Same wrapper as old_style.x, using a trait-bound generic instead of a
+// Same wrapper as struct_as_value.x, using a trait-bound generic instead of a
 // struct-valued parametric: each config is its own type implementing the
 // trait, and only overridden consts need restating -- no struct-update
 // splat needed, since unmentioned consts just fall back to the trait's
 // own defaults.
 //
-// Unlike old_style.x, channel types here are inlined directly rather than
+// Unlike struct_as_value.x, channel types here are inlined directly rather than
 // declared via a proc-scope `type` alias (e.g. `type ReadRespT = ...`).
 // Aliasing a plain bits-like type built from T::CONST works; aliasing a
 // parametric struct type (like `ram::ReadReq<...>`) does not yet -- the
@@ -27,13 +27,6 @@ trait RamModelConfig {
         ram::SimultaneousReadWriteBehavior::READ_BEFORE_WRITE;
     const INITIALIZED: bool = false;
     const ASSERT_VALID_READ: bool = true;
-}
-
-struct DemoConfig {}
-impl RamModelConfig for DemoConfig {
-    const DATA_WIDTH = u32:32;
-    const SIZE = u32:256;
-    const ASSERT_VALID_READ = false;
 }
 
 pub proc ConfiguredRamModel<T: type> {
@@ -59,6 +52,13 @@ pub proc ConfiguredRamModel<T: type> {
     init { () }
 
     next(state: ()) { () }
+}
+
+struct DemoConfig {}
+impl RamModelConfig for DemoConfig {
+    const DATA_WIDTH = u32:32;
+    const SIZE = u32:256;
+    const ASSERT_VALID_READ = false;
 }
 
 #[test_proc]

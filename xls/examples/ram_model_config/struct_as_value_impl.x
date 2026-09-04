@@ -1,11 +1,11 @@
 #![feature(type_inference_v2)]
 #![feature(generics)]
 
-// Same wrapper as old_style.x, in impl style. Hypothetical: `fn new`
+// Same wrapper as struct_as_value.x, in impl style. Hypothetical: `fn new`
 // spawns the old-style ram::RamModel via a classic `spawn` statement, but
 // deriving `fn new`'s ProcInitializer uses an evaluator that doesn't
 // support `spawn` -- unrelated to struct-as-parametric substitution. See
-// old_style.x for a working version of this pattern.
+// struct_as_value.x for a working version of this pattern.
 import std;
 import xls.examples.ram;
 

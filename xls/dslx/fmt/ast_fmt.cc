@@ -1341,17 +1341,30 @@ DocRef Formatter::FormatExprOrType(const ExprOrType& n) {
 }
 
 std::optional<DocRef> Formatter::FormatExplicitParametrics(
-    absl::Span<const ExprOrType> parametrics) {
+    absl::Span<const ExprOrType> parametrics,
+    absl::Span<const std::string> parametric_names) {
   if (parametrics.empty()) {
     return std::nullopt;
   }
-  return ConcatNGroup(arena_,
-                      {arena_.oangle(), arena_.break0(),
-                       FormatJoin<ExprOrType>(parametrics, Joiner::kCommaSpace,
-                                              [this](const ExprOrType& e) {
-                                                return FormatParametricArg(e);
-                                              }),
-                       arena_.cangle()});
+  return ConcatNGroup(
+      arena_,
+      {arena_.oangle(), arena_.break0(),
+       FormatJoin<ExprOrType>(
+           parametrics, Joiner::kCommaSpace,
+           [this, &parametrics, &parametric_names](const ExprOrType& e) {
+             DocRef value_doc = FormatParametricArg(e);
+             if (parametric_names.empty()) {
+               return value_doc;
+             }
+             const int64_t i = &e - parametrics.data();
+             if (parametric_names[i].empty()) {
+               return value_doc;
+             }
+             return ConcatN(arena_, {arena_.MakeText(parametric_names[i]),
+                                     arena_.space(), arena_.equals(),
+                                     arena_.space(), value_doc});
+           }),
+       arena_.cangle()});
 }
 
 DocRef Formatter::FormatFunctionRef(const FunctionRef& n) {
@@ -1365,8 +1378,8 @@ DocRef Formatter::FormatFunctionRef(const FunctionRef& n) {
 
 DocRef Formatter::FormatInvocation(const Invocation& n) {
   DocRef callee_doc = FormatExpr(*n.callee());
-  std::optional<DocRef> parametrics_doc =
-      FormatExplicitParametrics(n.explicit_parametrics());
+  std::optional<DocRef> parametrics_doc = FormatExplicitParametrics(
+      n.explicit_parametrics(), n.explicit_parametric_names());
 
   DocRef args_doc_internal = FormatJoin<const Expr*>(
       n.args(), Joiner::kCommaBreak1AsGroupNoTrailingComma,

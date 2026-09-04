@@ -42,6 +42,7 @@
 #include "absl/strings/substitute.h"
 #include "xls/common/status/ret_check.h"
 #include "xls/common/status/status_macros.h"
+#include "xls/dslx/errors.h"
 #include "xls/dslx/frontend/ast.h"
 #include "xls/dslx/frontend/ast_cloner.h"
 #include "xls/dslx/frontend/ast_node_visitor_with_default.h"
@@ -77,6 +78,78 @@ const TypeInferenceFlag TypeInferenceFlag::kFormalReturnType(
 
 const TypeInferenceFlag TypeInferenceFlag::kFormalParametricType(
     1 << 9, "formal-parametric-type");
+
+absl::StatusOr<std::vector<std::optional<ExprOrType>>>
+AlignExplicitParametricsToBindings(
+    const std::vector<const ParametricBinding*>& parametric_bindings,
+    const std::vector<ExprOrType>& explicit_parametrics,
+    const std::vector<std::string>& explicit_parametric_names,
+    const Span& span, const FileTable& file_table) {
+  CHECK(explicit_parametric_names.empty() ||
+        explicit_parametric_names.size() == explicit_parametrics.size());
+
+  std::vector<std::optional<ExprOrType>> result(parametric_bindings.size());
+
+  if (explicit_parametric_names.empty()) {
+    // Fast, common path: everything is positional.
+    if (explicit_parametrics.size() > parametric_bindings.size()) {
+      return ArgCountMismatchErrorStatus(
+          span,
+          absl::Substitute(
+              "Too many parametric values supplied; limit: $0 given: $1",
+              parametric_bindings.size(), explicit_parametrics.size()),
+          file_table);
+    }
+    for (int i = 0; i < explicit_parametrics.size(); i++) {
+      result[i] = explicit_parametrics[i];
+    }
+    return result;
+  }
+
+  absl::flat_hash_map<std::string, int> binding_index_by_name;
+  binding_index_by_name.reserve(parametric_bindings.size());
+  for (int i = 0; i < parametric_bindings.size(); i++) {
+    binding_index_by_name.emplace(
+        parametric_bindings[i]->name_def()->identifier(), i);
+  }
+
+  int next_positional_index = 0;
+  for (int i = 0; i < explicit_parametrics.size(); i++) {
+    const std::string& name = explicit_parametric_names[i];
+    int target_index;
+    if (name.empty()) {
+      if (next_positional_index >= parametric_bindings.size()) {
+        return ArgCountMismatchErrorStatus(
+            span,
+            absl::Substitute("Too many parametric values supplied; limit: $0",
+                             parametric_bindings.size()),
+            file_table);
+      }
+      target_index = next_positional_index;
+      next_positional_index++;
+    } else {
+      const auto it = binding_index_by_name.find(name);
+      if (it == binding_index_by_name.end()) {
+        return TypeInferenceErrorStatus(
+            span, /*type=*/nullptr,
+            absl::Substitute(
+                "No parametric named `$0` on this function or proc.", name),
+            file_table);
+      }
+      target_index = it->second;
+    }
+    if (result[target_index].has_value()) {
+      return TypeInferenceErrorStatus(
+          span, /*type=*/nullptr,
+          absl::Substitute(
+              "Parametric `$0` was given a value more than once.",
+              parametric_bindings[target_index]->name_def()->identifier()),
+          file_table);
+    }
+    result[target_index] = explicit_parametrics[i];
+  }
+  return result;
+}
 
 namespace {
 
@@ -349,16 +422,21 @@ class InferenceTableImpl : public InferenceTable {
         invocation_type_info, parent_context, self_type);
     const std::vector<ParametricBinding*>& bindings =
         callee.parametric_bindings();
-    const std::vector<ExprOrType>& explicit_parametrics =
-        node.explicit_parametrics();
-    XLS_RET_CHECK(explicit_parametrics.size() <= bindings.size());
+    const std::vector<const ParametricBinding*> const_bindings(
+        bindings.begin(), bindings.end());
+    XLS_ASSIGN_OR_RETURN(
+        std::vector<std::optional<ExprOrType>> aligned_parametrics,
+        AlignExplicitParametricsToBindings(
+            const_bindings, node.explicit_parametrics(),
+            node.explicit_parametric_names(), node.span(),
+            *node.owner()->file_table()));
     MutableParametricContextData mutable_data;
     for (int i = 0; i < bindings.size(); i++) {
       const ParametricBinding* binding = bindings[i];
       const InferenceVariable* variable =
           variables_.at(binding->name_def()).get();
-      if (i < explicit_parametrics.size()) {
-        const ExprOrType value = explicit_parametrics[i];
+      if (aligned_parametrics[i].has_value()) {
+        const ExprOrType value = *aligned_parametrics[i];
         if (std::holds_alternative<Expr*>(value)) {
           mutable_data.parametric_values.emplace(
               variable, ParametricContextScopedExpr(parent_context,

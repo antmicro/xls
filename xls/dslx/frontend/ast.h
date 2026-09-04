@@ -2869,7 +2869,8 @@ class Instantiation : public Expr {
  public:
   Instantiation(Module* owner, Span span, Expr* callee,
                 std::vector<ExprOrType> explicit_parametrics,
-                bool in_parens = false);
+                bool in_parens = false,
+                std::vector<std::string> explicit_parametric_names = {});
 
   ~Instantiation() override;
 
@@ -2889,6 +2890,15 @@ class Instantiation : public Expr {
     return explicit_parametrics_;
   }
 
+  // Parallel to `explicit_parametrics()`: for each entry, the formal
+  // parametric binding name it was given as, e.g. in `f<a, N = b>()` this
+  // would be `{"", "N"}`; an empty string means the corresponding entry in
+  // `explicit_parametrics()` was given positionally. Empty overall (rather
+  // than all-blank) if no explicit parametrics use named-argument syntax.
+  const std::vector<std::string>& explicit_parametric_names() const {
+    return explicit_parametric_names_;
+  }
+
   void set_callee(Expr* callee) { callee_ = callee; }
 
  protected:
@@ -2897,6 +2907,7 @@ class Instantiation : public Expr {
  private:
   Expr* callee_;
   std::vector<ExprOrType> explicit_parametrics_;
+  std::vector<std::string> explicit_parametric_names_;
 };
 
 // A reference to a function, with possible explicit parametrics. Currently,
@@ -2942,7 +2953,8 @@ class Invocation : public Instantiation {
   Invocation(
       Module* owner, Span span, Expr* callee, std::vector<Expr*> args,
       std::vector<ExprOrType> explicit_parametrics = {}, bool in_parens = false,
-      std::optional<const Invocation*> originating_invocation = std::nullopt);
+      std::optional<const Invocation*> originating_invocation = std::nullopt,
+      std::vector<std::string> explicit_parametric_names = {});
 
   ~Invocation() override;
 
@@ -3001,7 +3013,8 @@ class Spawn : public Instantiation {
   // A Spawn's body can be nullopt if it's the last expr
   // in an unroll_for or a const for body.
   Spawn(Module* owner, Span span, Expr* callee, Invocation* config,
-        Invocation* next, std::vector<ExprOrType> explicit_parametrics);
+        Invocation* next, std::vector<ExprOrType> explicit_parametrics,
+        std::vector<std::string> explicit_parametric_names = {});
 
   ~Spawn() override;
 

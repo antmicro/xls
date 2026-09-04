@@ -1759,10 +1759,15 @@ std::string SumDef::ToString() const {
 
 Instantiation::Instantiation(Module* owner, Span span, Expr* callee,
                              std::vector<ExprOrType> explicit_parametrics,
-                             bool in_parens)
+                             bool in_parens,
+                             std::vector<std::string> explicit_parametric_names)
     : Expr(owner, std::move(span), in_parens),
       callee_(callee),
-      explicit_parametrics_(std::move(explicit_parametrics)) {}
+      explicit_parametrics_(std::move(explicit_parametrics)),
+      explicit_parametric_names_(std::move(explicit_parametric_names)) {
+  CHECK(explicit_parametric_names_.empty() ||
+        explicit_parametric_names_.size() == explicit_parametrics_.size());
+}
 
 Instantiation::~Instantiation() = default;
 
@@ -1771,13 +1776,19 @@ std::string Instantiation::FormatParametrics() const {
     return "";
   }
 
-  return absl::StrCat("<",
-                      absl::StrJoin(explicit_parametrics_, ", ",
-                                    [](std::string* out, ExprOrType e) {
-                                      absl::StrAppend(out,
-                                                      ToAstNode(e)->ToString());
-                                    }),
-                      ">");
+  return absl::StrCat(
+      "<",
+      absl::StrJoin(
+          absl::MakeConstSpan(explicit_parametrics_), ", ",
+          [this, i = 0](std::string* out, ExprOrType e) mutable {
+            if (i < explicit_parametric_names_.size() &&
+                !explicit_parametric_names_[i].empty()) {
+              absl::StrAppend(out, explicit_parametric_names_[i], " = ");
+            }
+            absl::StrAppend(out, ToAstNode(e)->ToString());
+            ++i;
+          }),
+      ">");
 }
 
 // -- class FunctionRef
@@ -1803,9 +1814,11 @@ Invocation::Invocation(Module* owner, Span span, Expr* callee,
                        std::vector<Expr*> args,
                        std::vector<ExprOrType> explicit_parametrics,
                        bool in_parens,
-                       std::optional<const Invocation*> originating_invocation)
+                       std::optional<const Invocation*> originating_invocation,
+                       std::vector<std::string> explicit_parametric_names)
     : Instantiation(owner, std::move(span), callee,
-                    std::move(explicit_parametrics), in_parens),
+                    std::move(explicit_parametrics), in_parens,
+                    std::move(explicit_parametric_names)),
       args_(std::move(args)),
       originating_invocation_(originating_invocation) {}
 
@@ -1831,9 +1844,11 @@ std::string Invocation::FormatArgs() const {
 // -- class Spawn
 
 Spawn::Spawn(Module* owner, Span span, Expr* callee, Invocation* config,
-             Invocation* next, std::vector<ExprOrType> explicit_parametrics)
+             Invocation* next, std::vector<ExprOrType> explicit_parametrics,
+             std::vector<std::string> explicit_parametric_names)
     : Instantiation(owner, std::move(span), callee,
-                    std::move(explicit_parametrics)),
+                    std::move(explicit_parametrics), /*in_parens=*/false,
+                    std::move(explicit_parametric_names)),
       config_(config),
       next_(next) {}
 

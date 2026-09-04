@@ -486,6 +486,9 @@ class AstCloner : public AstNodeVisitor {
         CloneParametrics(n->explicit_parametrics()));
     return absl::OkStatus();
   }
+  // Note: `FunctionRef` does not currently support named parametric
+  // arguments, so its `explicit_parametric_names()` is always empty and
+  // need not be cloned.
 
   absl::Status HandleZeroMacro(const ZeroMacro* n) override {
     XLS_RETURN_IF_ERROR(VisitChildren(n));
@@ -639,7 +642,7 @@ class AstCloner : public AstNodeVisitor {
     old_to_new_[n] = module(n)->Make<Invocation>(
         n->span(), absl::down_cast<Expr*>(old_to_new_.at(n->callee())),
         new_args, CloneParametrics(n->explicit_parametrics()), n->in_parens(),
-        new_originator);
+        new_originator, n->explicit_parametric_names());
     return absl::OkStatus();
   }
 
@@ -941,7 +944,8 @@ class AstCloner : public AstNodeVisitor {
         n->span(), absl::down_cast<Expr*>(old_to_new_.at(n->callee())),
         absl::down_cast<Invocation*>(old_to_new_.at(n->config())),
         absl::down_cast<Invocation*>(old_to_new_.at(n->next())),
-        CloneParametrics(n->explicit_parametrics()));
+        CloneParametrics(n->explicit_parametrics()),
+        n->explicit_parametric_names());
     return absl::OkStatus();
   }
 

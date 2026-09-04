@@ -3048,12 +3048,17 @@ absl::StatusOr<Expr*> Parser::ParseTermRhs(Expr* lhs, Bindings& outer_bindings,
       Transaction sub_txn(this, &outer_bindings);
       absl::Cleanup sub_cleanup = [&sub_txn]() { sub_txn.Rollback(); };
 
-      absl::StatusOr<std::vector<ExprOrType>> parametrics =
-          ParseParametrics(*sub_txn.bindings());
-      if (!parametrics.ok()) {
-        VLOG(5) << "ParseParametrics gave error: " << parametrics.status();
+      absl::StatusOr<std::pair<std::vector<ExprOrType>, std::vector<std::string>>>
+          parametrics_and_names =
+              ParseParametricsAllowingNames(*sub_txn.bindings());
+      if (!parametrics_and_names.ok()) {
+        VLOG(5) << "ParseParametrics gave error: "
+                << parametrics_and_names.status();
         goto done;
       }
+      std::vector<ExprOrType>* parametrics = &parametrics_and_names->first;
+      std::vector<std::string>* parametric_names =
+          &parametrics_and_names->second;
 
       XLS_ASSIGN_OR_RETURN(bool has_open_paren,
                            PeekTokenIs(TokenKind::kOParen));
@@ -3092,6 +3097,13 @@ absl::StatusOr<Expr*> Parser::ParseTermRhs(Expr* lhs, Bindings& outer_bindings,
           return ParseErrorStatus(Span(parametric_start, GetPos()),
                                   "Cannot specify parametrics for a number.");
         }
+        if (absl::c_any_of(*parametric_names,
+                           [](const std::string& n) { return !n.empty(); })) {
+          return ParseErrorStatus(
+              Span(parametric_start, GetPos()),
+              "Named parametric arguments are not supported on a function "
+              "reference.");
+        }
         sub_txn.CommitAndCancelCleanup(&sub_cleanup);
         return module_->Make<FunctionRef>(lhs->span(), lhs, *parametrics);
       }
@@ -3104,7 +3116,8 @@ absl::StatusOr<Expr*> Parser::ParseTermRhs(Expr* lhs, Bindings& outer_bindings,
       XLS_ASSIGN_OR_RETURN(
           lhs, BuildMacroOrInvocation(Span(new_pos, GetPos()),
                                       *sub_txn.bindings(), lhs, std::move(args),
-                                      std::move(*parametrics)));
+                                      std::move(*parametrics),
+                                      std::move(*parametric_names)));
       sub_txn.CommitAndCancelCleanup(&sub_cleanup);
       break;
     }
@@ -3278,10 +3291,18 @@ absl::StatusOr<Expr*> Parser::BuildAssertFmtMacro(
 
 absl::StatusOr<Expr*> Parser::BuildMacroOrInvocation(
     const Span& span, Bindings& bindings, Expr* callee, std::vector<Expr*> args,
-    std::vector<ExprOrType> parametrics) {
+    std::vector<ExprOrType> parametrics,
+    std::vector<std::string> parametric_names) {
   if (auto* name_ref = dynamic_cast<NameRef*>(callee)) {
     if (auto* builtin = TryGet<BuiltinNameDef*>(name_ref->name_def())) {
       std::string name = builtin->identifier();
+      if (absl::c_any_of(parametric_names,
+                         [](const std::string& n) { return !n.empty(); })) {
+        return ParseErrorStatus(
+            span, absl::Substitute(
+                      "$0 does not support named parametric arguments.",
+                      name));
+      }
       if (name == "trace_fmt!") {
         return BuildFormatMacro(span, name, args, parametrics);
       }
@@ -3363,7 +3384,10 @@ absl::StatusOr<Expr*> Parser::BuildMacroOrInvocation(
     }
   }
   return module_->Make<Invocation>(span, callee, std::move(args),
-                                   std::move(parametrics));
+                                   std::move(parametrics),
+                                   /*in_parens=*/false,
+                                   /*originating_invocation=*/std::nullopt,
+                                   std::move(parametric_names));
 }
 
 absl::StatusOr<Spawn*> Parser::ParseSpawn(Bindings& bindings) {
@@ -3371,9 +3395,13 @@ absl::StatusOr<Spawn*> Parser::ParseSpawn(Bindings& bindings) {
   XLS_RETURN_IF_ERROR(PopIdentifierOrError(&spawn_span).status());
   XLS_ASSIGN_OR_RETURN(auto name_or_colon_ref, ParseNameOrColonRef(bindings));
   std::vector<ExprOrType> parametrics;
+  std::vector<std::string> parametric_names;
   XLS_ASSIGN_OR_RETURN(bool peek_is_oangle, PeekTokenIs(TokenKind::kOAngle));
   if (peek_is_oangle) {
-    XLS_ASSIGN_OR_RETURN(parametrics, ParseParametrics(bindings));
+    XLS_ASSIGN_OR_RETURN(auto parametrics_and_names,
+                         ParseParametricsAllowingNames(bindings));
+    parametrics = std::move(parametrics_and_names.first);
+    parametric_names = std::move(parametrics_and_names.second);
   }
 
   Expr* spawnee;
@@ -3451,21 +3479,26 @@ absl::StatusOr<Spawn*> Parser::ParseSpawn(Bindings& bindings) {
   XLS_ASSIGN_OR_RETURN(auto init_parametrics, CloneParametrics(parametrics));
   auto* init_invocation = module_->Make<Invocation>(
       init_ref->span(), init_ref, std::vector<Expr*>(),
-      std::move(init_parametrics));
+      std::move(init_parametrics), /*in_parens=*/false,
+      /*originating_invocation=*/std::nullopt, parametric_names);
   Pos next_limit = GetPos();
 
   XLS_ASSIGN_OR_RETURN(auto config_parametrics, CloneParametrics(parametrics));
-  auto* config_invoc =
-      module_->Make<Invocation>(Span(config_start, config_limit), config_ref,
-                                config_args, std::move(config_parametrics));
+  auto* config_invoc = module_->Make<Invocation>(
+      Span(config_start, config_limit), config_ref, config_args,
+      std::move(config_parametrics), /*in_parens=*/false,
+      /*originating_invocation=*/std::nullopt, parametric_names);
 
   XLS_ASSIGN_OR_RETURN(auto next_parametrics, CloneParametrics(parametrics));
   auto* next_invoc = module_->Make<Invocation>(
       Span(next_start, next_limit), next_ref,
-      std::vector<Expr*>({init_invocation}), std::move(next_parametrics));
+      std::vector<Expr*>({init_invocation}), std::move(next_parametrics),
+      /*in_parens=*/false, /*originating_invocation=*/std::nullopt,
+      parametric_names);
 
   return module_->Make<Spawn>(Span(spawn_span.start(), next_limit), spawnee,
-                              config_invoc, next_invoc, std::move(parametrics));
+                              config_invoc, next_invoc, std::move(parametrics),
+                              std::move(parametric_names));
 }
 
 absl::StatusOr<Index*> Parser::ParseBitSlice(const Pos& start_pos, Expr* lhs,
@@ -5344,9 +5377,9 @@ absl::StatusOr<ExprOrType> Parser::ParseParametricArg(Bindings& bindings) {
   return MaybeParseCast(bindings, type_annotation);
 }
 
-absl::StatusOr<std::vector<ExprOrType>> Parser::ParseParametrics(
-    Bindings& bindings) {
-  VLOG(5) << "ParseParametrics @ " << GetPos();
+absl::StatusOr<std::pair<std::vector<ExprOrType>, std::vector<std::string>>>
+Parser::ParseParametricsAllowingNames(Bindings& bindings) {
+  VLOG(5) << "ParseParametricsAllowingNames @ " << GetPos();
   XLS_RETURN_IF_ERROR(DropTokenOrError(TokenKind::kOAngle));
 
   // For parametric instantiation we allow a form like:
@@ -5356,9 +5389,60 @@ absl::StatusOr<std::vector<ExprOrType>> Parser::ParseParametrics(
   // Which can require us to interpret the >> as two close-angle tokens instead
   // of a single '>>' token.
   Scanner::CAngleContextGuard guard = EnterSeparateCAngleContext();
-  return ParseCommaSeq<ExprOrType>(
-      [this, &bindings]() { return ParseParametricArg(bindings); },
-      TokenKind::kCAngle);
+  bool seen_named = false;
+  XLS_ASSIGN_OR_RETURN(
+      auto pairs,
+      (ParseCommaSeq<std::pair<std::string, ExprOrType>>(
+          [this, &bindings,
+           &seen_named]() -> absl::StatusOr<std::pair<std::string, ExprOrType>> {
+            XLS_ASSIGN_OR_RETURN(const Token* peek, PeekToken());
+            std::string name;
+            if (peek->kind() == TokenKind::kIdentifier) {
+              XLS_ASSIGN_OR_RETURN(const Token* peek2, PeekToken(1));
+              if (peek2->kind() == TokenKind::kEquals) {
+                XLS_ASSIGN_OR_RETURN(name, PopIdentifierOrError());
+                XLS_RETURN_IF_ERROR(DropTokenOrError(TokenKind::kEquals));
+              }
+            }
+            if (name.empty() && seen_named) {
+              return ParseErrorStatus(
+                  peek->span(),
+                  "Positional parametric arguments must be given before "
+                  "named parametric arguments.");
+            }
+            if (!name.empty()) {
+              seen_named = true;
+            }
+            XLS_ASSIGN_OR_RETURN(ExprOrType value,
+                                 ParseParametricArg(bindings));
+            return std::make_pair(std::move(name), value);
+          },
+          TokenKind::kCAngle)));
+
+  std::vector<ExprOrType> values;
+  std::vector<std::string> names;
+  values.reserve(pairs.size());
+  names.reserve(pairs.size());
+  for (auto& [name, value] : pairs) {
+    names.push_back(std::move(name));
+    values.push_back(value);
+  }
+  return std::make_pair(std::move(values), std::move(names));
+}
+
+absl::StatusOr<std::vector<ExprOrType>> Parser::ParseParametrics(
+    Bindings& bindings) {
+  VLOG(5) << "ParseParametrics @ " << GetPos();
+  XLS_ASSIGN_OR_RETURN(auto values_and_names,
+                       ParseParametricsAllowingNames(bindings));
+  for (const std::string& name : values_and_names.second) {
+    if (!name.empty()) {
+      return ParseErrorStatus(
+          Span(GetPos(), GetPos()),
+          "Named parametric arguments are not supported in this context.");
+    }
+  }
+  return std::move(values_and_names.first);
 }
 
 }  // namespace xls::dslx

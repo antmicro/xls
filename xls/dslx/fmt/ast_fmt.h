@@ -211,7 +211,8 @@ class Formatter {
   std::optional<DocRef> FormatCommentsNested(const Pos start, const Pos limit);
   DocRef FormatConditionalMultiline(const Conditional& n);
   std::optional<DocRef> FormatExplicitParametrics(
-      absl::Span<const ExprOrType> parametrics);
+      absl::Span<const ExprOrType> parametrics,
+      absl::Span<const std::string> parametric_names = {});
   DocRef FormatExprOrType(const ExprOrType& n);
   DocRef FormatFlatBody(const Array& n);
   DocRef FormatFlatRest(const StructInstance& n);

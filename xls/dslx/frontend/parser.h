@@ -624,6 +624,13 @@ class Parser : public TokenParser {
   //                       ^---------------^
   absl::StatusOr<std::vector<ExprOrType>> ParseParametrics(Bindings& bindings);
 
+  // Like `ParseParametrics`, but also allows (and reports) named-argument
+  // syntax, e.g. `f<N = 5>()`, for use at invocation/spawn sites. The
+  // returned vectors are parallel and the same length; `names[i]` is empty
+  // for a positional argument. Positional arguments must precede named ones.
+  absl::StatusOr<std::pair<std::vector<ExprOrType>, std::vector<std::string>>>
+  ParseParametricsAllowingNames(Bindings& bindings);
+
   // Parses a single parametric arg.
   //
   // For example:
@@ -702,7 +709,8 @@ class Parser : public TokenParser {
   absl::StatusOr<Expr*> BuildMacroOrInvocation(
       const Span& span, Bindings& bindings, Expr* callee,
       std::vector<Expr*> args,
-      std::vector<ExprOrType> parametrics = std::vector<ExprOrType>{});
+      std::vector<ExprOrType> parametrics = std::vector<ExprOrType>{},
+      std::vector<std::string> parametric_names = std::vector<std::string>{});
 
   // Helper function that builds a `FormatMacro` corresponding to a DSLX
   // invocation with verbosity, like vtrace_fmt!(...). The verbosity should be

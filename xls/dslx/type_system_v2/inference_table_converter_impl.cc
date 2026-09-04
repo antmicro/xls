@@ -319,12 +319,12 @@ class InferenceTableConverterImpl : public InferenceTableConverter,
   // Make sure binding and parametric match - both values or both types
   absl::Status ValidateParametricsAgainstBindings(
       const std::vector<ParametricBinding*>& formal_bindings,
-      const std::vector<ExprOrType>& explicit_parametrics) {
-    int i = 0;
-    for (ExprOrType parametric : explicit_parametrics) {
-      if (i >= formal_bindings.size()) {
-        break;
+      const std::vector<std::optional<ExprOrType>>& aligned_parametrics) {
+    for (int i = 0; i < aligned_parametrics.size(); i++) {
+      if (!aligned_parametrics[i].has_value()) {
+        continue;
       }
+      ExprOrType parametric = *aligned_parametrics[i];
       const ParametricBinding* binding = formal_bindings.at(i);
       bool formal_is_type_parametric =
           binding->type_annotation()->IsAnnotation<GenericTypeAnnotation>();
@@ -348,7 +348,6 @@ class InferenceTableConverterImpl : public InferenceTableConverter,
                              type->ToString()),
             file_table_);
       }
-      i++;
     }
     return absl::OkStatus();
   }
@@ -651,22 +650,21 @@ class InferenceTableConverterImpl : public InferenceTableConverter,
       std::optional<const Function*> caller,
       std::vector<const Expr*> actual_args, bool convert_callee) {
     const Function* function = function_and_target_object.function;
+    const std::vector<const ParametricBinding*> const_bindings(
+        function->parametric_bindings().begin(),
+        function->parametric_bindings().end());
+    // Aligns the (possibly named, possibly gappy) explicit parametrics with
+    // the callee's formal parametric bindings; also validates the supplied
+    // count and any named arguments (unknown name, duplicate, etc.).
+    XLS_ASSIGN_OR_RETURN(
+        std::vector<std::optional<ExprOrType>> aligned_parametrics,
+        AlignExplicitParametricsToBindings(
+            const_bindings, invocation->explicit_parametrics(),
+            invocation->explicit_parametric_names(), invocation->span(),
+            file_table_));
     XLS_RETURN_IF_ERROR(ValidateParametricsAgainstBindings(
-        function->parametric_bindings(), invocation->explicit_parametrics()));
+        function->parametric_bindings(), aligned_parametrics));
 
-    // If we get here, we are dealing with a parametric function. First let's
-    // make sure a valid number of parametrics and regular arguments are being
-    // passed in.
-    if (invocation->explicit_parametrics().size() >
-        function->parametric_bindings().size()) {
-      return ArgCountMismatchErrorStatus(
-          invocation->span(),
-          absl::Substitute(
-              "Too many parametric values supplied; limit: $0 given: $1",
-              function->parametric_bindings().size(),
-              invocation->explicit_parametrics().size()),
-          file_table_);
-    }
     const int formal_param_count_without_self =
         (function->params().size() - (function->IsMethod() ? 1 : 0));
     if (invocation->args().size() != formal_param_count_without_self) {
@@ -718,10 +716,11 @@ class InferenceTableConverterImpl : public InferenceTableConverter,
     // arguments, now that we know the formal types.
     const std::vector<ParametricBinding*>& bindings =
         function->parametric_bindings();
-    const std::vector<ExprOrType>& explicit_parametrics =
-        invocation->explicit_parametrics();
-    for (int i = 0; i < explicit_parametrics.size(); i++) {
-      ExprOrType explicit_parametric = explicit_parametrics[i];
+    for (int i = 0; i < aligned_parametrics.size(); i++) {
+      if (!aligned_parametrics[i].has_value()) {
+        continue;
+      }
+      ExprOrType explicit_parametric = *aligned_parametrics[i];
       const ParametricBinding* formal_parametric = bindings[i];
       if (std::holds_alternative<Expr*>(explicit_parametric) &&
           !IsColonRefWithTypeTarget(table_,
@@ -2077,6 +2076,8 @@ class InferenceTableConverterImpl : public InferenceTableConverter,
 
     std::vector<ExprOrType> explicit_parametrics =
         invocation->explicit_parametrics();
+    std::vector<std::string> explicit_parametric_names =
+        invocation->explicit_parametric_names();
     if (IsMapInvocation(invocation)) {
       XLS_ASSIGN_OR_RETURN(
           const FunctionTypeAnnotation* mapper_fn_type,
@@ -2092,16 +2093,26 @@ class InferenceTableConverterImpl : public InferenceTableConverter,
           const_cast<FunctionTypeAnnotation*>(mapper_fn_type));
       explicit_parametrics.push_back(
           const_cast<TypeAnnotation*>(mapper_fn_type->return_type()));
+      if (!explicit_parametric_names.empty()) {
+        explicit_parametric_names.push_back("");
+        explicit_parametric_names.push_back("");
+      }
     }
+
+    XLS_ASSIGN_OR_RETURN(
+        std::vector<std::optional<ExprOrType>> aligned_parametrics,
+        AlignExplicitParametricsToBindings(
+            invocation_context->parametric_bindings(), explicit_parametrics,
+            explicit_parametric_names, invocation->span(), file_table_));
 
     for (int i = 0; i < invocation_context->parametric_bindings().size(); i++) {
       const ParametricBinding* binding =
           invocation_context->parametric_bindings()[i];
 
-      if (i < explicit_parametrics.size() &&
+      if (aligned_parametrics[i].has_value() &&
           binding->type_annotation()->IsAnnotation<GenericTypeAnnotation>()) {
         // This is a <T: type> reference
-        ExprOrType actual_parametric_type = explicit_parametrics[i];
+        ExprOrType actual_parametric_type = *aligned_parametrics[i];
         const TypeAnnotation* type;
         if (std::holds_alternative<TypeAnnotation*>(actual_parametric_type)) {
           type = std::get<TypeAnnotation*>(actual_parametric_type);
@@ -2129,7 +2140,7 @@ class InferenceTableConverterImpl : public InferenceTableConverter,
       }
 
       if (binding->type_annotation()->IsAnnotation<GenericTypeAnnotation>() &&
-          i >= explicit_parametrics.size() &&
+          !aligned_parametrics[i].has_value() &&
           binding->default_expr_or_type().has_value()) {
         XLS_RET_CHECK(std::holds_alternative<TypeAnnotation*>(
             *binding->default_expr_or_type()));

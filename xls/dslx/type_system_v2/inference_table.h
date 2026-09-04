@@ -39,6 +39,7 @@
 #include "xls/dslx/frontend/ast.h"
 #include "xls/dslx/frontend/ast_cloner.h"
 #include "xls/dslx/frontend/ast_node.h"
+#include "xls/dslx/frontend/pos.h"
 #include "xls/dslx/interp_value.h"
 #include "xls/dslx/type_system/parametric_env.h"
 #include "xls/dslx/type_system/type_info.h"
@@ -654,6 +655,31 @@ class InferenceTable {
   // Converts the table to string for debugging purposes.
   virtual std::string ToString() const = 0;
 };
+
+// Aligns the explicit parametrics given at an invocation/spawn site (which may
+// use named-argument syntax, e.g. `f<N = 5>()`) with the callee's formal
+// `parametric_bindings`, in formal-binding order. The result has exactly
+// `parametric_bindings.size()` entries; an entry is `nullopt` if that binding
+// was not given an explicit value (so the caller should fall back to the
+// binding's default or infer it implicitly).
+//
+// Positional arguments (those with no name, i.e. an empty string in
+// `explicit_parametric_names`, or an altogether-empty
+// `explicit_parametric_names`) must precede named ones -- this is enforced at
+// parse time -- and fill formal positions left to right. Named arguments are
+// matched to the formal binding of the same name, and may refer to any formal
+// position, including ones interspersed with or preceding the positional
+// arguments' positions.
+//
+// Returns an error if: an explicit parametric's name does not match any
+// formal binding; two explicit parametrics resolve to the same formal
+// position; or there are more positional arguments than formal bindings.
+absl::StatusOr<std::vector<std::optional<ExprOrType>>>
+AlignExplicitParametricsToBindings(
+    const std::vector<const ParametricBinding*>& parametric_bindings,
+    const std::vector<ExprOrType>& explicit_parametrics,
+    const std::vector<std::string>& explicit_parametric_names,
+    const Span& span, const FileTable& file_table);
 
 }  // namespace xls::dslx
 

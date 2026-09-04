@@ -162,7 +162,7 @@ pub fn num_partitions(word_partition_size: u32, data_width: u32) -> u32 {
 //  ASSERT_VALID_READ: if true, add assertion that read operations are only
 //   performed on values that a previous write has set. This is meant to model
 //   asserting that a user doesn't read X from an unitialized SRAM.
-pub proc RamModel<DATA_WIDTH: u32, SIZE: u32, WORD_PARTITION_SIZE: u32 = {u32:0}, SIMULTANEOUS_READ_WRITE_BEHAVIOR:
+pub proc RamModel<DATA_WIDTH: u32, SIZE: u32, WORD_PARTITION_SIZE: u32 = {u32:1}, SIMULTANEOUS_READ_WRITE_BEHAVIOR:
 SimultaneousReadWriteBehavior = {
     SimultaneousReadWriteBehavior::READ_BEFORE_WRITE}, INITIALIZED: bool = {false}, ASSERT_VALID_READ:
 bool = {

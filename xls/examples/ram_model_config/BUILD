@@ -19,6 +19,18 @@ xls_dslx_test(
 )
 
 xls_dslx_library(
+    name = "named_style_dslx",
+    srcs = ["named_style.x"],
+    deps = ["//xls/examples:ram_dslx"],
+)
+
+xls_dslx_test(
+    name = "named_style_test",
+    dslx_test_args = {"compare": "jit"},
+    library = ":named_style_dslx",
+)
+
+xls_dslx_library(
     name = "impl_style_dslx",
     srcs = ["impl_style.x"],
     deps = ["//xls/examples:ram_dslx"],

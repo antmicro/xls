@@ -1,0 +1,125 @@
+diff --git a/verilator/BUILD.bazel b/verilator/BUILD.bazel
+index 4208528..11fbf53 100644
+--- a/verilator/BUILD.bazel
++++ b/verilator/BUILD.bazel
+@@ -13,6 +13,7 @@
+ # limitations under the License.
+ 
+ load(":defs.bzl", "verilator_toolchain")
++load(":runtime.bzl", "verilator_runtime")
+ 
+ package(
+     default_applicable_licenses = ["//:package_license"],
+@@ -40,3 +41,8 @@ toolchain(
+     toolchain_type = ":toolchain_type",
+     visibility = ["//visibility:public"],
+ )
++
++verilator_runtime(
++    name = "standalone_verilator",
++    visibility = ["//visibility:public"],
++)
+diff --git a/verilator/runtime.bzl b/verilator/runtime.bzl
+new file mode 100644
+index 0000000..8cf2801
+--- /dev/null
++++ b/verilator/runtime.bzl
+@@ -0,0 +1,98 @@
++"""Rules for making the registered Verilator toolchain available at runtime."""
++
++def _verilator_runtime_impl(ctx):
++    toolchain = ctx.toolchains["//verilator:toolchain_type"]
++
++    verilated_makefile = ctx.actions.declare_file(
++        "{}_files/verilated.mk".format(ctx.label.name),
++    )
++    verilator_includer = ctx.actions.declare_file(
++        "{}_files/verilator_includer".format(ctx.label.name),
++    )
++    verilated_config = ctx.actions.declare_file(
++        "{}_files/verilated_config.h".format(ctx.label.name),
++    )
++    ctx.actions.write(
++        output = verilated_config,
++        content = """\
++#ifndef VERILATED_CONFIG_H_
++#define VERILATED_CONFIG_H_
++#define VERILATOR_PRODUCT \"Verilator\"
++#define VERILATOR_VERSION \"toolchain\"
++#define VERILATOR_VERSION_INTEGER 0
++#endif
++""",
++    )
++    ctx.actions.write(
++        output = verilator_includer,
++        content = """\
++#!/usr/bin/env python3
++import sys
++
++for argument in sys.argv[1:]:
++    if argument.startswith("-D"):
++        print("#define " + argument[2:].replace("=", " ", 1))
++    else:
++        print('#include "{}"'.format(argument))
++""",
++        is_executable = True,
++    )
++
++    symlinks = {
++        "verilator/bin/verilator": toolchain.verilator,
++        "verilator/bin/verilator_includer": verilator_includer,
++        "verilator/include/verilated_config.h": verilated_config,
++        "verilator/include/verilated.mk": verilated_makefile,
++    }
++    verilated_makefile_template = None
++    for file in toolchain.all_files.to_list():
++        include_marker = "/include/"
++        include_pos = file.short_path.find(include_marker)
++        if include_pos != -1:
++            relative_path = file.short_path[include_pos + 1:]
++            symlinks["verilator/{}".format(relative_path)] = file
++        if file.basename == "verilated.mk.in":
++            verilated_makefile_template = file
++
++    if verilated_makefile_template == None:
++        fail("The Verilator toolchain does not contain verilated.mk.in")
++
++    ctx.actions.expand_template(
++        template = verilated_makefile_template,
++        output = verilated_makefile,
++        substitutions = {
++            "@AR@": "ar",
++            "@CFG_CXXFLAGS_COROUTINES@": "-fcoroutines",
++            "@CFG_CXXFLAGS_NO_UNUSED@": "-Wno-unused-parameter -Wno-unused-variable",
++            "@CFG_CXXFLAGS_PCH_I@": "-include ",
++            "@CFG_CXXFLAGS_PROFILE@": "",
++            "@CFG_CXXFLAGS_STD@": "-std=c++17",
++            "@CFG_CXXFLAGS_STD_NEWEST@": "-std=c++20",
++            "@CFG_CXXFLAGS_WEXTRA@": "-Wextra",
++            "@CFG_CXX_VERSION@": "",
++            "@CFG_GCH_IF_CLANG@": "",
++            "@CFG_LDFLAGS_VERILATED@": "",
++            "@CFG_LDLIBS_THREADS@": "-pthread",
++            "@CFG_WITH_CCWARN@": "no",
++            "@CFG_WITH_LONGTESTS@": "no",
++            "@CXX@": "c++",
++            "@OBJCACHE@": "",
++            "@PERL@": "perl",
++            "@PYTHON3@": "python3",
++        },
++    )
++
++    return [DefaultInfo(
++        files = depset([
++            toolchain.verilator,
++            verilated_config,
++            verilated_makefile,
++            verilator_includer,
++        ]),
++        runfiles = ctx.runfiles(symlinks = symlinks),
++    )]
++
++verilator_runtime = rule(
++    implementation = _verilator_runtime_impl,
++    toolchains = ["//verilator:toolchain_type"],
++)

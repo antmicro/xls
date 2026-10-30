@@ -243,6 +243,7 @@ cc_library(
     deps = [
         ":verilog_simulator",
         "//xls/simulation/simulators:iverilog_simulator",
+        "//xls/simulation/simulators:verilator_simulator",
         "@abseil-cpp//absl/status:statusor",
     ],
     alwayslink = True,

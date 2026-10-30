@@ -20,6 +20,7 @@ inline constexpr SimulationTarget kDefaultSimulationTargets[] = {
     !defined(ABSL_HAVE_MEMORY_SANITIZER)
     // iverilog crashes with ASAN.
     {.simulator = "iverilog", .use_system_verilog = false},
+    {.simulator = "verilator", .use_system_verilog = true},
 #endif
 };
 

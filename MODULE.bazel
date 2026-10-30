@@ -192,6 +192,10 @@ single_version_override(
 git_override(
     module_name = "rules_hdl",
     commit = "bbe26fb7f0fd2149988844770a1da06701e012ec",
+    patch_strip = 1,
+    patches = [
+        "//dependency_support/rules_hdl:add_standalone_verilator.patch",
+    ],
     remote = "https://github.com/hdl/bazel_rules_hdl.git",
 )
 

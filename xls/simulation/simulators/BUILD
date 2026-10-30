@@ -51,3 +51,27 @@ cc_library(
     ],
     alwayslink = 1,
 )
+
+cc_library(
+    name = "verilator_simulator",
+    srcs = ["verilator_simulator.cc"],
+    data = ["@rules_hdl//verilator:standalone_verilator"],
+    deps = [
+        "//xls/codegen/vast",
+        "//xls/common:module_initializer",
+        "//xls/common:subprocess",
+        "//xls/common/file:filesystem",
+        "//xls/common/file:get_runfile_path",
+        "//xls/common/file:temp_directory",
+        "//xls/common/status:status_macros",
+        "//xls/simulation:verilog_include",
+        "//xls/simulation:verilog_simulator",
+        "@abseil-cpp//absl/log:check",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:str_format",
+        "@abseil-cpp//absl/types:span",
+    ],
+    alwayslink = 1,
+)
